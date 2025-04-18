@@ -1,4 +1,4 @@
-  
+#include <Windows.h>
 #include <d3d12.h>  
 #include <dxgi1_6.h>  
 #include <cassert>  
@@ -28,10 +28,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
        DXGI_ADAPTER_DESC3 adapterDesc{};  
        hr = useAdapter->GetDesc3(&adapterDesc);  
        assert(SUCCEEDED(hr));  
-       if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {  
-           Log(std::format(L"Use Adapter: {}", adapterDesc.Description));  
-           break;  
-       }  
+       if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {
+           Log(std::format(L"Use Adapter: {}\n", std::wstring(adapterDesc.Description)));
+           break;
+       }
+
        useAdapter = nullptr;  
    }  
    assert(useAdapter != nullptr);  
