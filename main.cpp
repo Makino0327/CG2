@@ -1,10 +1,16 @@
 #include <Windows.h>  
+#include <string>
 
+void Log(const std::string& message) {
+   OutputDebugStringA(message.c_str());
+}
 
 // Windowsアプリでのエントリーポイント(main関数)  
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {  
-   // 出力ウィンドウへの文字出力  
-   OutputDebugStringA("Hello, DirectX!\n");  
+   
+   std::string str0{ "STRING!!!" };
+
+   std::string str1{ std::to_string(10) };
 
    return 0;  
 }
