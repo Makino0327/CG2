@@ -1,61 +1,62 @@
-  
-#include <d3d12.h>  
-#include <dxgi1_6.h>  
-#include <cassert>  
-#include <iostream> 
-#include <format>   
-#pragma comment(lib,"d3d12.lib")  
-#pragma comment(lib,"dxgi.lib")  
 
-void Log(const std::wstring& message) {
-    OutputDebugStringW(message.c_str());
-    OutputDebugStringW(L"\n");
-}
-
+#include <Windows.h>  
+#include <cstdint>  
 
 // Windowsアプリでのエントリーポイント(main関数)  
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {  
-   // DXGIファクトリーの生成  
-   IDXGIFactory7* dxgiFactory = nullptr;  
-   // HRESULTはWindows系のエラーコードであり、  
-   // 関数が成功したかどうかをSUCCEEDEDマクロで判定できる  
-   HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));  
-   assert(SUCCEEDED(hr));  
 
-   IDXGIAdapter4* useAdapter = nullptr;  
 
-   for (UINT i = 0; dxgiFactory->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) != DXGI_ERROR_NOT_FOUND; ++i) {  
-       DXGI_ADAPTER_DESC3 adapterDesc{};  
-       hr = useAdapter->GetDesc3(&adapterDesc);  
-       assert(SUCCEEDED(hr));  
-       if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {  
-           Log(std::format(L"Use Adapter: {}", adapterDesc.Description));  
-           break;  
+   WNDCLASS wc{};  
+   // ウィンドウプロシージャ  
+   wc.lpfnWndProc = WindowProc;  
+   // ウィンドウクラス名(なんでもいい)  
+   wc.lpszClassName = L"CG2WindowClass";  
+   // インスタンスハンドル  
+   wc.hInstance = GetModuleHandle(nullptr);  
+   // カーソル  
+   wc.hCursor = LoadCursor(nullptr, IDC_ARROW);  
+   // ウィンドウクラスを登録する  
+   RegisterClass(&wc);  
+
+   // クライアント領域のサイズ  
+   const int32_t kClientWidth = 1280;  
+   const int32_t kClientHeight = 720;  
+
+   // ウィンドウサイズを表す構造体にクライアント領域を入れる  
+   RECT wrc = { 0,0, kClientWidth, kClientHeight };  
+
+   // クライアント領域を元に実際のサイズにwrcを変更してもらう  
+   AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);  
+
+   HWND hwnd = CreateWindow(  
+       wc.lpszClassName,  
+       L"CG2",  
+       WS_OVERLAPPEDWINDOW,  
+       CW_USEDEFAULT,  
+       CW_USEDEFAULT,  
+       wrc.right - wrc.left,  
+       wrc.bottom - wrc.top,  
+       nullptr,  
+       nullptr,  
+       wc.hInstance,  
+       nullptr  
+   );  
+
+   // ウィンドウを表示する  
+   ShowWindow(hwnd, SW_SHOW);  
+
+   MSG msg{};  
+   // ウィンドウのxボタンが押されるまでループ  
+   while (msg.message != WM_QUIT) {  
+       // Windowにメッセージが来てたら最優先で処理させる  
+       if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {  
+           TranslateMessage(&msg);  
+           DispatchMessage(&msg);  
+       } else  
+       {  
+           // ゲームの処理  
        }  
-       useAdapter = nullptr;  
    }  
-   assert(useAdapter != nullptr);  
-
-   ID3D12Device* device = nullptr;
-
-   D3D_FEATURE_LEVEL featureLevels[] = {
-       D3D_FEATURE_LEVEL_12_2,
-       D3D_FEATURE_LEVEL_12_1,
-       D3D_FEATURE_LEVEL_12_0,
-   };
-   const wchar_t* featureLevelStrings[] = { L"12.2", L"12.1", L"12.0" };
-
-
-   for (size_t i = 0; i < _countof(featureLevels); ++i) {
-	   hr = D3D12CreateDevice(useAdapter, featureLevels[i], IID_PPV_ARGS(&device));
-	   if (SUCCEEDED(hr)) {
-		   Log(std::format(L"FeatureLevel: {}\n", featureLevelStrings[i]));
-		   break;
-	   }
-   }
-   assert(device != nullptr);
-   Log(std::wstring(L"Complete create D3D12Device!!!\n"));
-
 
    return 0;  
 }
