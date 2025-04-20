@@ -58,6 +58,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     ShowWindow(hwnd, SW_SHOW);
 
+#ifdef _DEBUG
+    ID3D12Debug* debugController = nullptr;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+        debugController->EnableDebugLayer();
+
+        ID3D12Debug1* debugController1 = nullptr;
+        if (SUCCEEDED(debugController->QueryInterface(IID_PPV_ARGS(&debugController1)))) {
+            debugController1->SetEnableGPUBasedValidation(TRUE);
+            debugController1->Release();
+        }
+
+        debugController->Release();
+    }
+#endif
+
+
     // --- DirectX12初期化 ---
     HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
     assert(SUCCEEDED(hr));
@@ -96,6 +112,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     hr = commandList->Close();
     assert(SUCCEEDED(hr));
     swapChain->Present(0, 0);
+
+#ifdef _DEBUG
+	ID3D12InfoQueue* infoQueue = nullptr;
+    if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&infoQueue)))) {
+        infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
+        infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+        infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE);
+
+        D3D12_MESSAGE_ID denyIds[] = {
+            D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE
+        };
+		D3D12_MESSAGE_SEVERITY severities[] = {
+			D3D12_MESSAGE_SEVERITY_INFO
+		};
+		D3D12_INFO_QUEUE_FILTER filter{};
+		filter.DenyList.NumIDs = _countof(denyIds);
+		filter.DenyList.pIDList = denyIds;
+		filter.DenyList.NumSeverities = _countof(severities);
+		filter.DenyList.pSeverityList = severities;
+		infoQueue->PushStorageFilter(&filter);
+
+        infoQueue->Release();
+    }
+#endif
 
     // フェンス作成
     hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
