@@ -6,11 +6,39 @@
 #include <cstdint>
 #include <cassert>
 #include <initguid.h> // GUID用
+#include <dxcapi.h>
+#include <string>
+#include <format>
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib,"dxcompiler.lib")
+
+IDxcBlob* CompileShader(
+    // CompilerするShaderファイルへのパス
+    const std::wstring& filePath,
+    // Compilerに使用するProfile
+    const wchar_t* profile,
+    // 初期化して生成したものを3つ
+    IDxcUtils* dxcUtils,
+    IDxcCompiler3* dxcCompiler,
+    IDxcIncludeHandler* includeHandler);
+
+// 1. ConvertString関数
+std::wstring ConvertString(const std::string& str) {
+    int len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, nullptr, 0);
+    std::wstring wstr(len, 0);
+    MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wstr[0], len);
+    return wstr;
+}
+
+// 2. Log関数
+void Log(const std::wstring& message) {
+    OutputDebugStringW(message.c_str());
+    OutputDebugStringW(L"\n"); // 改行も出す
+}
 
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
@@ -136,6 +164,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     assert(fenceEvent != nullptr);
 
+    // dxcCompilerを初期化
+	IDxcUtils* dxcUtils = nullptr;
+	IDxcCompiler3* dxcCompiler = nullptr;
+	hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
+	assert(SUCCEEDED(hr));
+	hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
+	assert(SUCCEEDED(hr));
+
+	IDxcIncludeHandler* includeHandler = nullptr;
+	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
+	assert(SUCCEEDED(hr));
+
     // RTV用ディスクリプタヒープ作成
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc{};
     rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -236,4 +276,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     }
 
     return 0;
+}
+
+IDxcBlob* CompileShader(
+    // CompilerするShaderファイルへのパス
+    const std::wstring& filePath,
+    // Compilerに使用するProfile
+    const wchar_t* profile,
+    // 初期化して生成したものを3つ
+    IDxcUtils* dxcUtils,
+    IDxcCompiler3* dxcCompiler,
+    IDxcIncludeHandler* includeHandler )
+{
+	Log(ConvertString(std::format(L"Begin CompileShader,path:{},profile:{}\n", filePath, profile)));
 }
