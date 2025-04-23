@@ -1,11 +1,11 @@
 struct PixelShaderOutput
 {
-    float4 color : SV_TARGET;
+    float4 color : SV_TARGET0;
 };
 
 PixelShaderOutput main()
 {
     PixelShaderOutput output;
-    output.color = float4(1.0, 1.0, 1.0, 1.0); // 白
+    output.color = float4(1.0f, 1.0f, 1.0f, 1.0f); // 白
     return output;
 }
