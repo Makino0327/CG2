@@ -5,7 +5,7 @@
 #include <dxgidebug.h>
 #include <cstdint>
 #include <cassert>
-#include <initguid.h> // GUID用
+#include <initguid.h>
 #include <dxcapi.h>
 #include <string>
 #include <format>
@@ -194,11 +194,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // インプットレイアウト
     D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
-	inputElementDescs[0].SemanticName = "POSITION";
-	inputElementDescs[0].SemanticIndex = 0;
-    inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
+    inputElementDescs[0].SemanticName = "POSITION";
+    inputElementDescs[0].SemanticIndex = 0;
+    inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT; 
+    inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
     inputElementDescs[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+
     inputElementDescs[0].InputSlot = 0; 
     inputElementDescs[0].InstanceDataStepRate = 0; 
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
@@ -219,7 +221,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
 
-
     // Shaderをコンパイルする
 	IDxcBlob* vertexShaderBlob = CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
 	assert(vertexShaderBlob != nullptr);
@@ -236,6 +237,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;
     // 書き込むRTVの情報
 	graphicsPipelineStateDesc.NumRenderTargets = 1;
+    graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 
