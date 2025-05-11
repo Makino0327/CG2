@@ -10,9 +10,11 @@
 #include <string>
 #include <format>
 #include <cmath>
+#include <DirectXMath.h>
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
+#include "externals/DirectXTex/DirectXTex.h" // DirectXTexヘッダーをインクルード
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -31,6 +33,10 @@ struct Vector3 {
 	float x, y, z;
 };
 
+struct Vector2 {
+	float x, y;
+};
+
 struct Matrix4x4 {
 	float m[4][4];
 };
@@ -41,220 +47,58 @@ struct Transform {
 	Vector3 translate;
 };
 
-ID3D12DescriptorHeap* CreateDeescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
-{
-	ID3D12DescriptorHeap* descriptorHeap = nullptr;
-	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
-	descriptorHeapDesc.Type = heapType;
-	descriptorHeapDesc.NumDescriptors = numDescriptors;
-	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
-	assert(SUCCEEDED(hr));
-	return descriptorHeap;
-}
+struct VertexData {
+	Vector4 position;
+	Vector2 texcoord;
+};
 
-Matrix4x4 MakeIdentity4x4() {
-	Matrix4x4 result = {};
-
-	result.m[0][0] = 1.0f;
-	result.m[1][1] = 1.0f;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-
-	return result;
-}
-
-
-Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate)
-{
-	Matrix4x4 matrix = {};
-	float cosX = cosf(rotate.x);
-	float sinX = sinf(rotate.x);
-	float cosY = cosf(rotate.y);
-	float sinY = sinf(rotate.y);
-	float cosZ = cosf(rotate.z);
-	float sinZ = sinf(rotate.z);
-	matrix.m[0][0] = scale.x * (cosY * cosZ);
-	matrix.m[0][1] = scale.x * (cosY * sinZ);
-	matrix.m[0][2] = scale.x * (-sinY);
-	matrix.m[0][3] = 0.0f;
-	matrix.m[1][0] = scale.y * (sinX * sinY * cosZ - cosX * sinZ);
-	matrix.m[1][1] = scale.y * (sinX * sinY * sinZ + cosX * cosZ);
-	matrix.m[1][2] = scale.y * (sinX * cosY);
-	matrix.m[1][3] = 0.0f;
-	matrix.m[2][0] = scale.z * (cosX * sinY * cosZ + sinX * sinZ);
-	matrix.m[2][1] = scale.z * (cosX * sinY * sinZ - sinX * cosZ);
-	matrix.m[2][2] = scale.z * (cosX * cosY);
-	matrix.m[2][3] = 0.0f;
-	matrix.m[3][0] = translate.x;
-	matrix.m[3][1] = translate.y;
-	matrix.m[3][2] = translate.z;
-	matrix.m[3][3] = 1.0f;
-	return matrix;
-}
-
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
-	Matrix4x4 m{};
-	float yScale = 1.0f / tanf(fovY / 2.0f);
-	float xScale = yScale / aspect;
-	float range = farZ - nearZ;
-
-	m.m[0][0] = xScale;
-	m.m[1][1] = yScale;
-	m.m[2][2] = farZ / range;
-	m.m[2][3] = 1.0f;
-	m.m[3][2] = -nearZ * farZ / range;
-
-	return m;
-}
-
-Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b) {
-	Matrix4x4 r{};
-	for (int row = 0; row < 4; ++row) {
-		for (int col = 0; col < 4; ++col) {
-			for (int k = 0; k < 4; ++k) {
-				r.m[row][col] += a.m[row][k] * b.m[k][col];
-			}
-		}
-	}
-	return r;
-}
-
-Matrix4x4 Inverse(const Matrix4x4& m)
-{
-	Matrix4x4 result;
-	float* inv = &result.m[0][0];
-	const float* mat = &m.m[0][0];
-
-	float invOut[16];
-
-	invOut[0] = mat[5] * mat[10] * mat[15] -
-		mat[5] * mat[11] * mat[14] -
-		mat[9] * mat[6] * mat[15] +
-		mat[9] * mat[7] * mat[14] +
-		mat[13] * mat[6] * mat[11] -
-		mat[13] * mat[7] * mat[10];
-
-	invOut[1] = -mat[1] * mat[10] * mat[15] +
-		mat[1] * mat[11] * mat[14] +
-		mat[9] * mat[2] * mat[15] -
-		mat[9] * mat[3] * mat[14] -
-		mat[13] * mat[2] * mat[11] +
-		mat[13] * mat[3] * mat[10];
-
-	invOut[2] = mat[1] * mat[6] * mat[15] -
-		mat[1] * mat[7] * mat[14] -
-		mat[5] * mat[2] * mat[15] +
-		mat[5] * mat[3] * mat[14] +
-		mat[13] * mat[2] * mat[7] -
-		mat[13] * mat[3] * mat[6];
-
-	invOut[3] = -mat[1] * mat[6] * mat[11] +
-		mat[1] * mat[7] * mat[10] +
-		mat[5] * mat[2] * mat[11] -
-		mat[5] * mat[3] * mat[10] -
-		mat[9] * mat[2] * mat[7] +
-		mat[9] * mat[3] * mat[6];
-
-	invOut[4] = -mat[4] * mat[10] * mat[15] +
-		mat[4] * mat[11] * mat[14] +
-		mat[8] * mat[6] * mat[15] -
-		mat[8] * mat[7] * mat[14] -
-		mat[12] * mat[6] * mat[11] +
-		mat[12] * mat[7] * mat[10];
-
-	invOut[5] = mat[0] * mat[10] * mat[15] -
-		mat[0] * mat[11] * mat[14] -
-		mat[8] * mat[2] * mat[15] +
-		mat[8] * mat[3] * mat[14] +
-		mat[12] * mat[2] * mat[11] -
-		mat[12] * mat[3] * mat[10];
-
-	invOut[6] = -mat[0] * mat[6] * mat[15] +
-		mat[0] * mat[7] * mat[14] +
-		mat[4] * mat[2] * mat[15] -
-		mat[4] * mat[3] * mat[14] -
-		mat[12] * mat[2] * mat[7] +
-		mat[12] * mat[3] * mat[6];
-
-	invOut[7] = mat[0] * mat[6] * mat[11] -
-		mat[0] * mat[7] * mat[10] -
-		mat[4] * mat[2] * mat[11] +
-		mat[4] * mat[3] * mat[10] +
-		mat[8] * mat[2] * mat[7] -
-		mat[8] * mat[3] * mat[6];
-
-	invOut[8] = mat[4] * mat[9] * mat[15] -
-		mat[4] * mat[11] * mat[13] -
-		mat[8] * mat[5] * mat[15] +
-		mat[8] * mat[7] * mat[13] +
-		mat[12] * mat[5] * mat[11] -
-		mat[12] * mat[7] * mat[9];
-
-	invOut[9] = -mat[0] * mat[9] * mat[15] +
-		mat[0] * mat[11] * mat[13] +
-		mat[8] * mat[1] * mat[15] -
-		mat[8] * mat[3] * mat[13] -
-		mat[12] * mat[1] * mat[11] +
-		mat[12] * mat[3] * mat[9];
-
-	invOut[10] = mat[0] * mat[5] * mat[15] -
-		mat[0] * mat[7] * mat[13] -
-		mat[4] * mat[1] * mat[15] +
-		mat[4] * mat[3] * mat[13] +
-		mat[12] * mat[1] * mat[7] -
-		mat[12] * mat[3] * mat[5];
-
-	invOut[11] = -mat[0] * mat[5] * mat[11] +
-		mat[0] * mat[7] * mat[9] +
-		mat[4] * mat[1] * mat[11] -
-		mat[4] * mat[3] * mat[9] -
-		mat[8] * mat[1] * mat[7] +
-		mat[8] * mat[3] * mat[5];
-
-	invOut[12] = -mat[4] * mat[9] * mat[14] +
-		mat[4] * mat[10] * mat[13] +
-		mat[8] * mat[5] * mat[14] -
-		mat[8] * mat[6] * mat[13] -
-		mat[12] * mat[5] * mat[10] +
-		mat[12] * mat[6] * mat[9];
-
-	invOut[13] = mat[0] * mat[9] * mat[14] -
-		mat[0] * mat[10] * mat[13] -
-		mat[8] * mat[1] * mat[14] +
-		mat[8] * mat[2] * mat[13] +
-		mat[12] * mat[1] * mat[10] -
-		mat[12] * mat[2] * mat[9];
-
-	invOut[14] = -mat[0] * mat[5] * mat[14] +
-		mat[0] * mat[6] * mat[13] +
-		mat[4] * mat[1] * mat[14] -
-		mat[4] * mat[2] * mat[13] -
-		mat[12] * mat[1] * mat[6] +
-		mat[12] * mat[2] * mat[5];
-
-	invOut[15] = mat[0] * mat[5] * mat[10] -
-		mat[0] * mat[6] * mat[9] -
-		mat[4] * mat[1] * mat[10] +
-		mat[4] * mat[2] * mat[9] +
-		mat[8] * mat[1] * mat[6] -
-		mat[8] * mat[2] * mat[5];
-
-	float det = mat[0] * invOut[0] + mat[1] * invOut[4] + mat[2] * invOut[8] + mat[3] * invOut[12];
-	if (det == 0.0f)
-	{
-		// 逆行列なし（特異行列）
-		return MakeIdentity4x4(); // または assert, エラーログ等
-	}
-
-	float invDet = 1.0f / det;
-	for (int i = 0; i < 16; ++i)
-	{
-		inv[i] = invOut[i] * invDet;
-	}
-
-	return result;
-}
+/// <summary>
+///ディスクリプタヒープを作成
+/// </summary>
+/// <param name="device">ディスクリプタヒープを作成する対象の ID3D12Device</param>
+/// <param name="heapType">作成するディスクリプタヒープの種類（CBV/SRV/UAV など）</param>
+/// <param name="numDescriptors">ディスクリプタの数</param>
+/// <param name="shaderVisible">シェーダーから参照可能にするかどうか</param>
+/// <returns>作成された ID3D12DescriptorHeap のポインタ。失敗した場合は nullptr。</returns>
+ID3D12DescriptorHeap* CreateDeescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible);
+/// <summary>
+/// 単位行列
+/// </summary>
+/// <returns>単位行列</returns>
+Matrix4x4 MakeIdentity4x4();
+/// <summary>
+/// スケール、回転、平行移動の各要素からアフィン変換行列（4x4）を生成。
+/// </summary>
+/// <param name="scale">拡大縮小を表すスケールベクトル。</param>
+/// <param name="rotate">回転を表すオイラー角（ラジアン）ベクトル。</param>
+/// <param name="translate">位置を表す平行移動ベクトル。</param>
+/// <returns>アフィン変換を表す 4x4 行列。</returns>
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate);
+/// <summary>
+/// 垂直方向の視野角、アスペクト比、近距離および遠距離クリップ面を元に透視投影行列（4x4）を生成。
+/// </summary>
+/// <param name="fovY">垂直方向の視野角（ラジアン単位）。</param>
+/// <param name="aspect">アスペクト比（横幅 ÷ 高さ）。</param>
+/// <param name="nearZ">近距離クリップ面の距離。</param>
+/// <param name="farZ">遠距離クリップ面の距離。</param>
+/// <returns>透視投影を表す 4x4 行列。</returns>
+Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ);
+/// <summary>
+/// 2つの 4x4 行列の積を計算し、合成された変換行列を返します。
+/// </summary>
+/// <param name="a">左側の行列（先に適用される変換）。</param>
+/// <param name="b">右側の行列（後に適用される変換）。</param>
+/// <returns>掛け算の結果となる 4x4 行列。</returns>
+Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
+/// <summary>
+/// 指定された 4x4 行列の逆行列を計算して返します。
+/// </summary>
+/// <param name="m">逆行列を求める対象の 4x4 行列。</param>
+/// <returns>指定された行列の逆行列（Matrix4x4 型）。</returns>
+Matrix4x4 Inverse(const Matrix4x4& m);
+DirectX::ScratchImage LoadTexture(const std::string& filePath);
+ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
+void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
 
 IDxcBlob* CompileShader(
 	// CompilerするShaderファイルへのパス
@@ -322,6 +166,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
+	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
+
 	// --- ウィンドウ作成 ---
 	WNDCLASS wc{};
 	wc.lpfnWndProc = WindowProc;
@@ -361,7 +207,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 #endif
 
 	// --- DirectX12初期化 ---
-	HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
+	hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
 	assert(SUCCEEDED(hr));
 	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 	assert(SUCCEEDED(hr));
@@ -431,15 +277,63 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 	assert(SUCCEEDED(hr));
 
+	// Textureを読んで転送する
+	DirectX::ScratchImage mipImages = LoadTexture("Resources/uvChecker.png");
+	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
+	UploadTextureData(textureResource, mipImages);
+
+	//metaDataを基にSRVの設定
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+	srvDesc.Format = metadata.format;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;// 2Dテクスチャ
+	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+	// SRVを作成するDescriptorHeapの場所を決める
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	// 先頭はImGuiが使っているのでその次を使う
+	textureSrvHandleCPU.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	textureSrvHandleGPU.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	// SRVを作成
+	device->CreateShaderResourceView(
+		textureResource,
+		&srvDesc,
+		textureSrvHandleCPU);
+
+	// ディスクリプタヒープの設定
+	D3D12_DESCRIPTOR_RANGE descriptorRange{};
+	descriptorRange.BaseShaderRegister = 0; // t0 から
+	descriptorRange.NumDescriptors = 1;
+	descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+
 // 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[2] = {};
+	D3D12_ROOT_PARAMETER rootParameters[3] = {};
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
+	rootParameters[0].Descriptor.RegisterSpace = 0;
 	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 	rootParameters[1].Descriptor.ShaderRegister = 0;
-	rootParameters[0].Descriptor.RegisterSpace = 0;
+	rootParameters[1].Descriptor.RegisterSpace = 0;
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; // DescriptorTableを使う
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
+	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;// 範囲の設定
+	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1; // 範囲の数
+
+	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
+	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // バイリニアフィルタ
+	staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP; // 0~1の範囲外をリピート
+	staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	staticSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER; // 比較しない
+	staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX; // ありったけのMipmapを使う
+	staticSamplers[0].ShaderRegister = 0; // レジスタ番号を使う
+	staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
 
 	// 2. RootSignatureの記述を構成
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
@@ -448,6 +342,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptionRootSignature.NumParameters = _countof(rootParameters);
 	descriptionRootSignature.NumStaticSamplers = 0;
 	descriptionRootSignature.pStaticSamplers = nullptr;
+
+	descriptionRootSignature.pStaticSamplers = staticSamplers;
+	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
 	// 3. シリアライズ
 	ID3DBlob* signatureBlob = nullptr;
@@ -469,12 +366,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		signatureBlob->GetBufferPointer(),
 		signatureBlob->GetBufferSize(),
 		IID_PPV_ARGS(&rootSignature));
-	assert(SUCCEEDED(hr));
-
-
+	if (FAILED(hr)) {
+		if (errorBlob) {
+			Log(ConvertString(reinterpret_cast<char*>(errorBlob->GetBufferPointer())));
+		} else {
+			Log(L"Unknown error in D3D12SerializeRootSignature");
+		}
+		assert(false);
+	}
 
 	// リソース作成
-	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(Vector4) * 3);
+	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 3);
 
 	// マテリアル用のリソースを作る
 	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Vector4));
@@ -483,7 +385,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 書き込むためのアドレスを取得
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	// 今回は赤を書き込む
-	*materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+	*materialData = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
 	// WVP用のリソースを作る。Matrix4x4一つ分のサイズを用意する
 	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
@@ -495,7 +397,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	*wvpData = MakeIdentity4x4();
 
 	// インプットレイアウト
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
 
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
@@ -503,8 +405,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 	inputElementDescs[0].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
 
+	inputElementDescs[1].SemanticName = "TEXCOORD";
+	inputElementDescs[1].SemanticIndex = 0;
+	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[1].InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+
 	inputElementDescs[0].InputSlot = 0;
 	inputElementDescs[0].InstanceDataStepRate = 0;
+	inputElementDescs[1].InputSlot = 0;
+	inputElementDescs[1].InstanceDataStepRate = 0;
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -559,7 +469,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_RESOURCE_DESC vertexResourceDesc{};
 	// バッファリソース。テクスチャの場合はまた違う設定をする
 	vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	vertexResourceDesc.Width = sizeof(Vector4) * 3;
+	vertexResourceDesc.Width = sizeof(VertexData) * 3;
 	// バッファの場合はこれらは1にする決まり
 	vertexResourceDesc.Height = 1;
 	vertexResourceDesc.DepthOrArraySize = 1;
@@ -581,20 +491,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// リソースの先頭のアドレスから使う
 	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 	// 使用するリソースサイズは頂点3つ分のサイズ
-	vertexBufferView.SizeInBytes = sizeof(Vector4) * 3;
+	vertexBufferView.SizeInBytes = sizeof(VertexData) * 3;
 	// 1つの頂点のサイズ
-	vertexBufferView.StrideInBytes = sizeof(Vector4);
+	vertexBufferView.StrideInBytes = sizeof(VertexData);
 
 	// 頂点リソースにデータを書き込む
-	Vector4* vertexData = nullptr;
+	VertexData* vertexData = nullptr;
 	// 書き込むためのアドレスを取得
 	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	// 右下
 	vertexData[0] = { -0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[0].texcoord = { 0.0f, 1.0f };
 	//上
 	vertexData[1] = { 0.0f, 0.5f, 0.0f, 1.0f };
+	vertexData[1].texcoord = { 0.5f, 0.0f };
 	// 左下
 	vertexData[2] = { 0.5f, -0.5f, 0.0f, 1.0f };
+	vertexData[2].texcoord = { 1.0f, 1.0f };
 
 	// ビューポート
 	D3D12_VIEWPORT viewport{};
@@ -701,11 +614,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 
 			// RootSignatureを設定。PSOに設定してるけど別途設定が必要
-			
 			commandList->SetPipelineState(graphicsPipelineState);   //PSOを設定
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);   // VBVを設定
 			// 形状を設定
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+			// 描画用のDescriptorHeapの設定
+			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
+			commandList->SetDescriptorHeaps(1, descriptorHeaps);
+			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
 			//描画
 			commandList->DrawInstanced(3, 1, 0, 0);
@@ -719,9 +637,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// ImGuiの内部コマンドを生成する
 			ImGui::Render();
 
-			// 描画用のDescriptorHeapの設定
-			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
-			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// 実際のcommandListのImGuiの描画コマンドを積む
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
@@ -786,6 +701,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
 		debug->Release();
 	}
+
+	CoUninitialize();
 
 	return 0;
 }
@@ -863,6 +780,10 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
 	ID3D12Resource* resource = nullptr;
+
+	// リソース作成の前にログを出力
+	Log(L"Creating material resource...");
+
 	HRESULT hr = device->CreateCommittedResource(
 		&heapProperties,
 		D3D12_HEAP_FLAG_NONE,
@@ -871,7 +792,307 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 		nullptr,
 		IID_PPV_ARGS(&resource)
 	);
+
+	// 作成に失敗した場合はエラーログを出力
+	if (FAILED(hr)) {
+		Log(L"Failed to create material resource");
+	} else {
+		Log(L"Material resource created successfully");
+	}
+
 	assert(SUCCEEDED(hr));
 	return resource;
 }
+ID3D12DescriptorHeap* CreateDeescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
+{
+	ID3D12DescriptorHeap* descriptorHeap = nullptr;
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Type = heapType;
+	descriptorHeapDesc.NumDescriptors = numDescriptors;
+	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
+	assert(SUCCEEDED(hr));
+	return descriptorHeap;
+}
+Matrix4x4 MakeIdentity4x4() {
+	Matrix4x4 result = {};
 
+	result.m[0][0] = 1.0f;
+	result.m[1][1] = 1.0f;
+	result.m[2][2] = 1.0f;
+	result.m[3][3] = 1.0f;
+
+	return result;
+}
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate)
+{
+	Matrix4x4 matrix = {};
+	float cosX = cosf(rotate.x);
+	float sinX = sinf(rotate.x);
+	float cosY = cosf(rotate.y);
+	float sinY = sinf(rotate.y);
+	float cosZ = cosf(rotate.z);
+	float sinZ = sinf(rotate.z);
+	matrix.m[0][0] = scale.x * (cosY * cosZ);
+	matrix.m[0][1] = scale.x * (cosY * sinZ);
+	matrix.m[0][2] = scale.x * (-sinY);
+	matrix.m[0][3] = 0.0f;
+	matrix.m[1][0] = scale.y * (sinX * sinY * cosZ - cosX * sinZ);
+	matrix.m[1][1] = scale.y * (sinX * sinY * sinZ + cosX * cosZ);
+	matrix.m[1][2] = scale.y * (sinX * cosY);
+	matrix.m[1][3] = 0.0f;
+	matrix.m[2][0] = scale.z * (cosX * sinY * cosZ + sinX * sinZ);
+	matrix.m[2][1] = scale.z * (cosX * sinY * sinZ - sinX * cosZ);
+	matrix.m[2][2] = scale.z * (cosX * cosY);
+	matrix.m[2][3] = 0.0f;
+	matrix.m[3][0] = translate.x;
+	matrix.m[3][1] = translate.y;
+	matrix.m[3][2] = translate.z;
+	matrix.m[3][3] = 1.0f;
+	return matrix;
+}
+Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
+	Matrix4x4 m{};
+	float yScale = 1.0f / tanf(fovY / 2.0f);
+	float xScale = yScale / aspect;
+	float range = farZ - nearZ;
+
+	m.m[0][0] = xScale;
+	m.m[1][1] = yScale;
+	m.m[2][2] = farZ / range;
+	m.m[2][3] = 1.0f;
+	m.m[3][2] = -nearZ * farZ / range;
+
+	return m;
+}
+Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b) {
+	Matrix4x4 r{};
+	for (int row = 0; row < 4; ++row) {
+		for (int col = 0; col < 4; ++col) {
+			for (int k = 0; k < 4; ++k) {
+				r.m[row][col] += a.m[row][k] * b.m[k][col];
+			}
+		}
+	}
+	return r;
+}
+Matrix4x4 Inverse(const Matrix4x4& m)
+{
+	Matrix4x4 result;
+	float* inv = &result.m[0][0];
+	const float* mat = &m.m[0][0];
+
+	float invOut[16];
+
+	invOut[0] = mat[5] * mat[10] * mat[15] -
+		mat[5] * mat[11] * mat[14] -
+		mat[9] * mat[6] * mat[15] +
+		mat[9] * mat[7] * mat[14] +
+		mat[13] * mat[6] * mat[11] -
+		mat[13] * mat[7] * mat[10];
+
+	invOut[1] = -mat[1] * mat[10] * mat[15] +
+		mat[1] * mat[11] * mat[14] +
+		mat[9] * mat[2] * mat[15] -
+		mat[9] * mat[3] * mat[14] -
+		mat[13] * mat[2] * mat[11] +
+		mat[13] * mat[3] * mat[10];
+
+	invOut[2] = mat[1] * mat[6] * mat[15] -
+		mat[1] * mat[7] * mat[14] -
+		mat[5] * mat[2] * mat[15] +
+		mat[5] * mat[3] * mat[14] +
+		mat[13] * mat[2] * mat[7] -
+		mat[13] * mat[3] * mat[6];
+
+	invOut[3] = -mat[1] * mat[6] * mat[11] +
+		mat[1] * mat[7] * mat[10] +
+		mat[5] * mat[2] * mat[11] -
+		mat[5] * mat[3] * mat[10] -
+		mat[9] * mat[2] * mat[7] +
+		mat[9] * mat[3] * mat[6];
+
+	invOut[4] = -mat[4] * mat[10] * mat[15] +
+		mat[4] * mat[11] * mat[14] +
+		mat[8] * mat[6] * mat[15] -
+		mat[8] * mat[7] * mat[14] -
+		mat[12] * mat[6] * mat[11] +
+		mat[12] * mat[7] * mat[10];
+
+	invOut[5] = mat[0] * mat[10] * mat[15] -
+		mat[0] * mat[11] * mat[14] -
+		mat[8] * mat[2] * mat[15] +
+		mat[8] * mat[3] * mat[14] +
+		mat[12] * mat[2] * mat[11] -
+		mat[12] * mat[3] * mat[10];
+
+	invOut[6] = -mat[0] * mat[6] * mat[15] +
+		mat[0] * mat[7] * mat[14] +
+		mat[4] * mat[2] * mat[15] -
+		mat[4] * mat[3] * mat[14] -
+		mat[12] * mat[2] * mat[7] +
+		mat[12] * mat[3] * mat[6];
+
+	invOut[7] = mat[0] * mat[6] * mat[11] -
+		mat[0] * mat[7] * mat[10] -
+		mat[4] * mat[2] * mat[11] +
+		mat[4] * mat[3] * mat[10] +
+		mat[8] * mat[2] * mat[7] -
+		mat[8] * mat[3] * mat[6];
+
+	invOut[8] = mat[4] * mat[9] * mat[15] -
+		mat[4] * mat[11] * mat[13] -
+		mat[8] * mat[5] * mat[15] +
+		mat[8] * mat[7] * mat[13] +
+		mat[12] * mat[5] * mat[11] -
+		mat[12] * mat[7] * mat[9];
+
+	invOut[9] = -mat[0] * mat[9] * mat[15] +
+		mat[0] * mat[11] * mat[13] +
+		mat[8] * mat[1] * mat[15] -
+		mat[8] * mat[3] * mat[13] -
+		mat[12] * mat[1] * mat[11] +
+		mat[12] * mat[3] * mat[9];
+
+	invOut[10] = mat[0] * mat[5] * mat[15] -
+		mat[0] * mat[7] * mat[13] -
+		mat[4] * mat[1] * mat[15] +
+		mat[4] * mat[3] * mat[13] +
+		mat[12] * mat[1] * mat[7] -
+		mat[12] * mat[3] * mat[5];
+
+	invOut[11] = -mat[0] * mat[5] * mat[11] +
+		mat[0] * mat[7] * mat[9] +
+		mat[4] * mat[1] * mat[11] -
+		mat[4] * mat[3] * mat[9] -
+		mat[8] * mat[1] * mat[7] +
+		mat[8] * mat[3] * mat[5];
+
+	invOut[12] = -mat[4] * mat[9] * mat[14] +
+		mat[4] * mat[10] * mat[13] +
+		mat[8] * mat[5] * mat[14] -
+		mat[8] * mat[6] * mat[13] -
+		mat[12] * mat[5] * mat[10] +
+		mat[12] * mat[6] * mat[9];
+	
+	invOut[13] = mat[0] * mat[9] * mat[14] -
+		mat[0] * mat[10] * mat[13] -
+		mat[8] * mat[1] * mat[14] +
+		mat[8] * mat[2] * mat[13] +
+		mat[12] * mat[1] * mat[10] -
+		mat[12] * mat[2] * mat[9];
+
+	invOut[14] = -mat[0] * mat[5] * mat[14] +
+		mat[0] * mat[6] * mat[13] +
+		mat[4] * mat[1] * mat[14] -
+		mat[4] * mat[2] * mat[13] -
+		mat[12] * mat[1] * mat[6] +
+		mat[12] * mat[2] * mat[5];
+
+	invOut[15] = mat[0] * mat[5] * mat[10] -
+		mat[0] * mat[6] * mat[9] -
+		mat[4] * mat[1] * mat[10] +
+		mat[4] * mat[2] * mat[9] +
+		mat[8] * mat[1] * mat[6] -
+		mat[8] * mat[2] * mat[5];
+
+	float det = mat[0] * invOut[0] + mat[1] * invOut[4] + mat[2] * invOut[8] + mat[3] * invOut[12];
+	if (det == 0.0f)
+	{
+		// 逆行列なし（特異行列）
+		return MakeIdentity4x4(); // または assert, エラーログ等
+	}
+
+	float invDet = 1.0f / det;
+	for (int i = 0; i < 16; ++i)
+	{
+		inv[i] = invOut[i] * invDet;
+	}
+
+	return result;
+}
+DirectX::ScratchImage LoadTexture(const std::string& filePath)
+{
+	DirectX::ScratchImage image{};
+	std::wstring filePathW = ConvertString(filePath);
+
+	// ファイルパスの確認ログ
+	Log(std::format(L"Attempting to load texture from: {}", filePathW));
+
+	HRESULT hr = DirectX::LoadFromWICFile(filePathW.c_str(), DirectX::WIC_FLAGS_FORCE_SRGB, nullptr, image);
+
+	if (FAILED(hr)) {
+		Log(std::format(L"Failed to load texture. HRESULT: {}", hr));
+		// 詳細なエラーメッセージを追加
+		return image;  // エラー処理。適切な返り値を返す
+	}
+
+	// 成功時の処理
+	assert(SUCCEEDED(hr));
+
+
+	// ミップマップの作成
+	DirectX::ScratchImage mipImage{};
+	hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 0, mipImage);
+	assert(SUCCEEDED(hr));
+	return mipImage;
+}
+ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
+{
+	// metadaraをもとにResourceの設定
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = UINT(metadata.width); // Textureの幅
+	resourceDesc.Height = UINT(metadata.height);// Textureの高さ
+	resourceDesc.MipLevels = UINT16(metadata.mipLevels); // mipmapの数
+	resourceDesc.DepthOrArraySize = UINT16(metadata.arraySize);// 奥行きor配列Textureの配列数
+	resourceDesc.Format = metadata.format;// TextureのFormat
+	resourceDesc.SampleDesc.Count = 1;// サンプリングカウント。1固定
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);// Textureの次元数。普段使っているのは２次元
+
+	// 利用するHeapの設定。非常に特殊な運用。02_04exで一般的なケース版がある
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM; // 細かい設定を行う
+	heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK; // WriteBackポリシーでCPUアクセス可能
+	heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0; // プロセッサの近くに配置
+
+	// リソース作成
+	ID3D12Resource* resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties,
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&resource)
+	);
+
+	// エラー処理
+	if (FAILED(hr)) {
+		Log(std::format(L"Failed to create committed resource. HRESULT: {}", hr));
+		return nullptr;  // エラーの場合、nullptrを返す
+	}
+
+	// リソースが正常に作成されたか確認
+	assert(resource != nullptr);
+	return resource;
+}
+void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages)
+{
+	// Meta情報を取得
+	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	// 全MipMapについて
+	for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel)
+	{
+		// MipMapLevelを指定して各Imageを取得
+		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
+		// Textureに転送
+		HRESULT hr = texture->WriteToSubresource(
+			UINT(mipLevel),
+			nullptr,
+			img->pixels,
+			UINT(img->rowPitch),
+			UINT(img->slicePitch)
+			);
+		assert(SUCCEEDED(hr));
+	}
+}
