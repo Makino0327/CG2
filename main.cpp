@@ -185,6 +185,11 @@ const int32_t kClientHeight = 720;
 // グローバル変数（各種DirectXオブジェクト）
 ID3D12Device* device = nullptr;
 IDXGIFactory7* dxgiFactory = nullptr;
+// 複数のテクスチャリソースとSRVハンドル
+ID3D12Resource* textureResources[3]; // たとえば2個
+D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandles[3];
+// 今選ばれているインデックス
+int selectedTextureIndex = 0;
 ID3D12CommandQueue* commandQueue = nullptr;
 ID3D12CommandAllocator* commandAllocator = nullptr;
 ID3D12GraphicsCommandList* commandList = nullptr;
@@ -295,6 +300,49 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 	tempSwapChain->Release();
 
+	// テクスチャファイル名配列
+	const char* textureFilePaths[] = {
+		"Resources/uvChecker.png",
+		"Resources/monsterBall.png",
+		"Resources/checkerBoard.png"
+	};
+
+	const int textureCount = _countof(textureFilePaths);
+	ID3D12Resource* textureResources[textureCount];
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandles[textureCount];
+
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	// ImGuiで使っているSRVを避けるために1つスキップ
+	textureSrvHandleCPU.ptr += descriptorSize;
+	textureSrvHandleGPU.ptr += descriptorSize;
+
+	for (int i = 0; i < textureCount; ++i) {
+		DirectX::ScratchImage mipImages = LoadTexture(textureFilePaths[i]);
+		const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+
+		if (metadata.width == 0 || metadata.height == 0) {
+			Log(L"テクスチャ読み込みに失敗しました。スキップします。");
+			continue; // 無効なテクスチャなので飛ばす
+		}
+
+		textureResources[i] = CreateTextureResource(device, metadata);
+		UploadTextureData(textureResources[i], mipImages);
+
+		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+		srvDesc.Format = metadata.format;
+		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+		srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+		device->CreateShaderResourceView(textureResources[i], &srvDesc, textureSrvHandleCPU);
+		textureSrvHandles[i] = textureSrvHandleGPU;
+
+		textureSrvHandleCPU.ptr += descriptorSize;
+		textureSrvHandleGPU.ptr += descriptorSize;
+	}
 	// ImGui初期化
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -337,9 +385,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;// 2Dテクスチャ
 	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-	// SRVを作成するDescriptorHeapの場所を決める
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 	// 先頭はImGuiが使っているのでその次を使う
 	textureSrvHandleCPU.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	textureSrvHandleGPU.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -443,6 +488,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 単位行列を書き込んでおく
 	*wvpData = MakeIdentity4x4();
 
+	// ===== 2個目の三角形用 =====
+	ID3D12Resource* wvpResource2 = CreateBufferResource(device, sizeof(Matrix4x4));
+	Matrix4x4* wvpData2 = nullptr;
+	wvpResource2->Map(0, nullptr, reinterpret_cast<void**>(&wvpData2));
+	*wvpData2 = MakeIdentity4x4();  // 最初は単位行列でもOK（後で更新されるので）
+
+
 	// インプットレイアウト
 	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
 
@@ -527,7 +579,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_RESOURCE_DESC vertexResourceDesc{};
 	// バッファリソース。テクスチャの場合はまた違う設定をする
 	vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	vertexResourceDesc.Width = sizeof(VertexData) * 3;
+	vertexResourceDesc.Width = sizeof(VertexData) * 6;
 	// バッファの場合はこれらは1にする決まり
 	vertexResourceDesc.Height = 1;
 	vertexResourceDesc.DepthOrArraySize = 1;
@@ -568,13 +620,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	vertexData[2].texcoord = { 1.0f, 1.0f };
 
 	// 左下2
-	vertexData[3] = { -0.5f, -0.5f, 0.5f, 1.0f };
+	vertexData[3] = { -0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[3].texcoord = { 0.0f, 1.0f };
-	//上2
-	vertexData[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+	vertexData[4] = { 0.0f, 0.5f, 0.0f, 1.0f };
 	vertexData[4].texcoord = { 0.5f, 0.0f };
-	// 右下2
-	vertexData[5] = { 0.5f, -0.5f, -0.5f, 1.0f };
+
+	vertexData[5] = { 0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[5].texcoord = { 1.0f, 1.0f };
 
 	// ビューポート
@@ -609,7 +661,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// バックバッファ取得＆RTV作成
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvStartHandle = rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	for (UINT i = 0; i < 2; ++i) {
 		hr = swapChain->GetBuffer(i, IID_PPV_ARGS(&swapChainResources[i]));
 		assert(SUCCEEDED(hr));
@@ -644,18 +695,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// Transform変数を作る
 			static Transform transform = {
-	              {1.0f, 1.0f, 1.0f},  // scale
-	              {0.0f, 0.0f, 0.0f},  // rotate
+	              {1.5f, 1.5f, 1.5f},  // scale
+	              {0.0f, 0.7f, 0.0f},  // rotate
 	              {0.0f, 0.0f, 0.0f}   // translate
+			};
+
+			static Transform transform2 = {
+				  {1.5f, 1.5f, 1.5f},  // scale
+				  {0.0f, -0.7f, 0.0f},  // rotate
+				  {0.0f, 0.0f, 0.0f}   // translate
 			};
 
 			static Transform cameraTransform = {
 				  {1.0f, 1.0f, 1.0f},  // scale
-				  {0.0f, 0.0f, 0.0f},  // rotate
-				  {0.0f, 0.0f, -5.0f}   // translate
+				  {DirectX::XM_PIDIV4, 0.0f, 0.0f},  // rotate
+				  {0.0f, 5.0f, -5.0f}   // translate
 			};
-			transform.rotate.y += 0.03f;
+
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+			Matrix4x4 worldMatrix2 = MakeAffineMatrix(transform2.scale, transform2.rotate, transform2.translate);
 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
 			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
@@ -664,10 +722,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				float(kClientWidth) / float(kClientHeight),  
 				0.1f, 100.0f);      
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			*wvpData = worldMatrix;
-
+			
+			// 共通：RootSignatureは最初に1回だけ設定すればよい
 			commandList->SetGraphicsRootSignature(rootSignature);
-			// マテリアルCBufferの場所を設定
+
+			// 共通：マテリアルCBV（b0）を設定
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -697,9 +756,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);   // Viewportを設定
 			commandList->RSSetScissorRects(1, &scissorRect);   // Scissorを設定
 
-			// wvp用のCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-
 			// RootSignatureを設定。PSOに設定してるけど別途設定が必要
 			commandList->SetPipelineState(graphicsPipelineState);   //PSOを設定
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);   // VBVを設定
@@ -712,13 +768,45 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-			//描画
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandles[selectedTextureIndex]);
+
+			// 1個目のWVP（b1）を設定して描画
+			*wvpData = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 0, 0);
+
+			// 2個目のWVP（b1）を設定して描画
+			*wvpData2 = Multiply(worldMatrix2, Multiply(viewMatrix, projectionMatrix));
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 3, 0);
+
 
 			// ImGuiを使用する
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
+
+			// --- ImGuiでTransformの操作 ---
+			ImGui::Begin("Transform Controller");
+
+			ImGui::ColorEdit3("Material Color", &materialData->x);
+			const char* items[] = { "uvChecker", "monsterBall","checkerBoard"};
+			ImGui::Combo("Texture", &selectedTextureIndex, items, IM_ARRAYSIZE(items));
+
+			// transform1 の操作
+			ImGui::Text("Transform 1");
+			ImGui::SliderFloat3("Scale##1", &transform.scale.x, 0.1f, 3.0f);
+			ImGui::SliderFloat3("Rotate##1", &transform.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
+			ImGui::SliderFloat3("Translate##1", &transform.translate.x, -10.0f, 10.0f);
+
+			// transform2 の操作
+			ImGui::Text("Transform 2");
+			ImGui::SliderFloat3("Scale##2", &transform2.scale.x, 0.1f, 3.0f);
+			ImGui::SliderFloat3("Rotate##2", &transform2.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
+			ImGui::SliderFloat3("Translate##2", &transform2.translate.x, -10.0f, 10.0f);
+
+			ImGui::End();
+
 			// 開発UIの処理
 			ImGui::ShowDemoWindow();
 			// ImGuiの内部コマンドを生成する
