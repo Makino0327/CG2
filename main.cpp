@@ -24,6 +24,8 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+const int instanceCount = 100; // 吸い込まれる三角形の数
+
  // Vector4型を定義する
 struct Vector4 {
 	float x, y, z, w;
@@ -146,7 +148,6 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 
 	return resource;
 }
-
 IDxcBlob* CompileShader(
 	// CompilerするShaderファイルへのパス
 	const std::wstring& filePath,
@@ -315,6 +316,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+	// 定数バッファ構造体
+	struct TimeBuffer { float time; float padding[3]; };
+
+
 	// ImGuiで使っているSRVを避けるために1つスキップ
 	textureSrvHandleCPU.ptr += descriptorSize;
 	textureSrvHandleGPU.ptr += descriptorSize;
@@ -343,6 +348,70 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		textureSrvHandleCPU.ptr += descriptorSize;
 		textureSrvHandleGPU.ptr += descriptorSize;
 	}
+
+	// === 出現タイミングのリストを生成 ===
+	std::vector<float> instanceStartTimes(instanceCount);
+	for (int i = 0; i < instanceCount; ++i) {
+		instanceStartTimes[i] = i * 0.5f; // 0.0, 0.5, 1.0, ...
+	}
+
+	// === ランダム位置のリストを生成 ===
+	std::vector<Vector2> instanceOffsets(instanceCount);
+	for (int i = 0; i < instanceCount; ++i) {
+		float x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f; // -10.0 ~ +10.0
+		float z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+		instanceOffsets[i] = { x, z };
+	}
+
+
+	// === GPUバッファ作成と転送 ===
+	ID3D12Resource* startTimeBuffer = CreateBufferResource(device, sizeof(float) * instanceCount);
+	float* startTimeData = nullptr;
+	startTimeBuffer->Map(0, nullptr, reinterpret_cast<void**>(&startTimeData));
+	std::memcpy(startTimeData, instanceStartTimes.data(), sizeof(float)* instanceCount);
+
+	ID3D12Resource* offsetBuffer = CreateBufferResource(device, sizeof(Vector2) * instanceCount);
+	Vector2* offsetData = nullptr;
+	offsetBuffer->Map(0, nullptr, reinterpret_cast<void**>(&offsetData));
+	std::memcpy(offsetData, instanceOffsets.data(), sizeof(Vector2)* instanceCount);
+
+
+	// === 出現時間SRV（t1）を作成 ===
+	D3D12_SHADER_RESOURCE_VIEW_DESC timeSrvDesc{};
+	timeSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	timeSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	timeSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	timeSrvDesc.Buffer.FirstElement = 0;
+	timeSrvDesc.Buffer.NumElements = instanceCount;
+	timeSrvDesc.Buffer.StructureByteStride = 0;
+	timeSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	device->CreateShaderResourceView(startTimeBuffer, &timeSrvDesc, textureSrvHandleCPU);
+
+	// 必要ならGPUハンドルも記録
+	D3D12_GPU_DESCRIPTOR_HANDLE startTimeHandleGPU = textureSrvHandleGPU;
+
+	// 次のディスクリプタへ
+	textureSrvHandleCPU.ptr += descriptorSize;
+	textureSrvHandleGPU.ptr += descriptorSize;
+
+	// === ランダム位置SRV（t2）を作成 ===
+	D3D12_SHADER_RESOURCE_VIEW_DESC offsetSrvDesc{};
+	offsetSrvDesc.Format = DXGI_FORMAT_R32G32_FLOAT;
+	offsetSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	offsetSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	offsetSrvDesc.Buffer.FirstElement = 0;
+	offsetSrvDesc.Buffer.NumElements = instanceCount;
+	offsetSrvDesc.Buffer.StructureByteStride = 0;
+	offsetSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	device->CreateShaderResourceView(offsetBuffer, &offsetSrvDesc, textureSrvHandleCPU);
+
+	// 必要ならGPUハンドルも記録
+	D3D12_GPU_DESCRIPTOR_HANDLE offsetHandleGPU = textureSrvHandleGPU;
+
+	// 次のディスクリプタへ
+	textureSrvHandleCPU.ptr += descriptorSize;
+	textureSrvHandleGPU.ptr += descriptorSize;
+
 	// ImGui初期化
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -403,19 +472,56 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 // 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[3] = {};
+	D3D12_ROOT_PARAMETER rootParameters[6] = {};
+
+	// b0: マテリアル（PixelShader用）
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
 	rootParameters[0].Descriptor.RegisterSpace = 0;
+
+	// b1: 時間（VertexShader用）
 	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 0;
+	rootParameters[1].Descriptor.ShaderRegister = 1;
 	rootParameters[1].Descriptor.RegisterSpace = 0;
-	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; // DescriptorTableを使う
-	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
-	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;// 範囲の設定
-	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1; // 範囲の数
+
+	// SRV: テクスチャ
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;
+	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+
+	// b2: ViewProjection（VertexShader用）
+	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[3].Descriptor.ShaderRegister = 2;
+	rootParameters[3].Descriptor.RegisterSpace = 0;
+
+	// t1: 出現時間 (SRV, VertexShader)
+	D3D12_DESCRIPTOR_RANGE rangeT1{};
+	rangeT1.BaseShaderRegister = 1; // t1
+	rangeT1.NumDescriptors = 1;
+	rangeT1.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	rangeT1.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[4].DescriptorTable.pDescriptorRanges = &rangeT1;
+	rootParameters[4].DescriptorTable.NumDescriptorRanges = 1;
+
+	// t2: ランダム位置 (SRV, VertexShader)
+	D3D12_DESCRIPTOR_RANGE rangeT2{};
+	rangeT2.BaseShaderRegister = 2; // t2
+	rangeT2.NumDescriptors = 1;
+	rangeT2.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	rangeT2.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[5].DescriptorTable.pDescriptorRanges = &rangeT2;
+	rootParameters[5].DescriptorTable.NumDescriptorRanges = 1;
+
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
 	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // バイリニアフィルタ
@@ -478,6 +584,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	// 今回は赤を書き込む
 	*materialData = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+
+
+	// 時間用のリソースを作る
+	ID3D12Resource* timeResource = CreateBufferResource(device, sizeof(TimeBuffer));
+	TimeBuffer* timeData = nullptr;
+	timeResource->Map(0, nullptr, reinterpret_cast<void**>(&timeData));
+
+	// === ★ viewProjection用の定数バッファを追加 ===
+	ID3D12Resource* viewProjResource = CreateBufferResource(device, sizeof(Matrix4x4));
+	Matrix4x4* viewProjData = nullptr;
+	viewProjResource->Map(0, nullptr, reinterpret_cast<void**>(&viewProjData));
+	*viewProjData = MakeIdentity4x4();  // 最初は単位行列でもOK（あとで毎フレーム更新）
 
 	// WVP用のリソースを作る。Matrix4x4一つ分のサイズを用意する
 	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
@@ -693,6 +811,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			hr = commandList->Reset(commandAllocator, graphicsPipelineState);
 			assert(SUCCEEDED(hr));
 
+			// 毎フレーム
+			static float currentTime = 0.0f;
+			currentTime += 1.0f / 60.0f; // 1フレーム分進める
+
+			timeData->time = currentTime;
+
+
 			// Transform変数を作る
 			static Transform transform = {
 	              {1.5f, 1.5f, 1.5f},  // scale
@@ -723,6 +848,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				0.1f, 100.0f);      
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 			
+			// 定数バッファに転送
+			*viewProjData = Multiply(viewMatrix, projectionMatrix);
+
 			// 共通：RootSignatureは最初に1回だけ設定すればよい
 			commandList->SetGraphicsRootSignature(rootSignature);
 
@@ -772,13 +900,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// 1個目のWVP（b1）を設定して描画
 			*wvpData = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->DrawInstanced(3, 1, 0, 0);
+			// time を渡す（b1）
+			commandList->SetGraphicsRootConstantBufferView(1, timeResource->GetGPUVirtualAddress());
+			// ViewProjection を b2 にセット
+			commandList->SetGraphicsRootConstantBufferView(3, viewProjResource->GetGPUVirtualAddress());
 
-			// 2個目のWVP（b1）を設定して描画
-			*wvpData2 = Multiply(worldMatrix2, Multiply(viewMatrix, projectionMatrix));
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
-			commandList->DrawInstanced(3, 1, 3, 0);
+			// gStartTimes (t1) を SetGraphicsRootDescriptorTable でバインド
+			commandList->SetGraphicsRootDescriptorTable(4, startTimeHandleGPU);
+
+			// gOffsets (t2) をバインド
+			commandList->SetGraphicsRootDescriptorTable(5, offsetHandleGPU);  
+
+			// 100個の三角形をインスタンス描画（全部まとめて！）
+			commandList->DrawInstanced(3, 100, 0, 0);
 
 
 			// ImGuiを使用する
