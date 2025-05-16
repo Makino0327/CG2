@@ -15,6 +15,9 @@
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
 #include "externals/DirectXTex/DirectXTex.h" // DirectXTexヘッダーをインクルード
+#include <wrl/client.h>          // ★ ComPtr に必要
+
+using Microsoft::WRL::ComPtr;
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -296,8 +299,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// --- DirectX12初期化 ---
 	hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
 	assert(SUCCEEDED(hr));
-	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+	ComPtr<IDXGIFactory6> dxgiFactory6;
+	hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory6));
 	assert(SUCCEEDED(hr));
+
+	// アダプター選択（NVIDIAを優先）
+	ComPtr<IDXGIAdapter1> selectedAdapter;
+	for (UINT i = 0; ; ++i) {
+		ComPtr<IDXGIAdapter1> adapter;
+		if (dxgiFactory6->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND) {
+			break;
+		}
+
+		DXGI_ADAPTER_DESC1 desc;
+		adapter->GetDesc1(&desc);
+
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
+
+		std::wstring name(desc.Description);
+		if (name.find(L"NVIDIA") != std::wstring::npos) {
+			selectedAdapter = adapter;
+			OutputDebugStringW((L"[INFO] Selected GPU: " + name + L"\n").c_str());
+			break;
+		}
+	}
+
+	// fallback（見つからなければ最初のアダプター）
+	if (!selectedAdapter) {
+		dxgiFactory6->EnumAdapters1(0, &selectedAdapter);
+		OutputDebugStringW(L"[WARNING] NVIDIA GPU not found. Using first available GPU.\n");
+	}
+
+	// デバイス作成に使うアダプターを明示
+	// 明示的に選択されたアダプターでデバイスを作成
+	hr = D3D12CreateDevice(selectedAdapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
+	assert(SUCCEEDED(hr));
+	Log(std::format(L"[LOG] device created: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+
+
 	Log(std::format(L"[LOG] device created: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
 
 	// RTV用のヒープでディスクリプタの数は２。
