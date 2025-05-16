@@ -52,6 +52,7 @@ struct VertexData {
 	Vector2 texcoord;
 };
 
+
 /// <summary>
 ///ディスクリプタヒープを作成
 /// </summary>
@@ -99,17 +100,41 @@ Matrix4x4 Inverse(const Matrix4x4& m);
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
 ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
 void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
-ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
-{
+void Log(const std::wstring& message);
+#include <sstream> // 追加が必要
+
+ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible) {
+	assert(device); // NULL チェック
+	Log(std::format(L"[CreateDescriptorHeap] device: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+
+
 	ID3D12DescriptorHeap* descriptorHeap = nullptr;
 	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
 	descriptorHeapDesc.Type = heapType;
 	descriptorHeapDesc.NumDescriptors = numDescriptors;
 	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+	// format の代わりに wstringstream を使う
+	std::wstringstream ss;
+	ss << L"[INFO] Creating DescriptorHeap: Type=" << static_cast<int>(heapType)
+		<< L", Num=" << numDescriptors
+		<< L", ShaderVisible=" << (shaderVisible ? L"true" : L"false");
+	Log(ss.str());
+
 	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
-	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		std::wstringstream err;
+		Log(std::format(L"[ERROR] CreateDescriptorHeap failed. HRESULT=0x{:X}", hr));
+		err << L"[ERROR] Failed to create descriptor heap. HRESULT: 0x" << std::hex << hr;
+		OutputDebugStringW(err.str().c_str());
+		Log(err.str());
+		assert(false);
+	}
+
 	return descriptorHeap;
 }
+
+
 
 ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
@@ -135,14 +160,23 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 
 	// Resourceの生成
 	ID3D12Resource* resource = nullptr;
-	HRESULT hr = device->CreateCommittedResource(
-		&heapProperties, // Heapの設定
-		D3D12_HEAP_FLAG_NONE, // Heapの特殊な設定。特になし。
-		&resourceDesc, // Resourceの設定
-		D3D12_RESOURCE_STATE_DEPTH_WRITE, // 深度値を書き込む状態にしておく
-		&depthClearValue, // Clear最適値
-		IID_PPV_ARGS(&resource)); // 作成するResourceポインタへのポインタ
-	assert(SUCCEEDED(hr));
+HRESULT hr = device->CreateCommittedResource(
+	&heapProperties,
+	D3D12_HEAP_FLAG_NONE,
+	&resourceDesc,
+	D3D12_RESOURCE_STATE_DEPTH_WRITE,
+	&depthClearValue,
+	IID_PPV_ARGS(&resource)
+);
+
+if (FAILED(hr) || resource == nullptr) {
+	Log(L"[ERROR] Failed to create DepthStencilResource");
+	return nullptr;
+}
+
+Log(std::format(L"[LOG] DepthStencilResource created: 0x{:X}", reinterpret_cast<uintptr_t>(resource)));
+return resource;
+
 
 	return resource;
 }
@@ -184,6 +218,7 @@ const int32_t kClientHeight = 720;
 
 // グローバル変数（各種DirectXオブジェクト）
 ID3D12Device* device = nullptr;
+
 IDXGIFactory7* dxgiFactory = nullptr;
 // 複数のテクスチャリソースとSRVハンドル
 ID3D12Resource* textureResources[3]; // たとえば2個
@@ -263,9 +298,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 	assert(SUCCEEDED(hr));
+	Log(std::format(L"[LOG] device created: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
 
 	// RTV用のヒープでディスクリプタの数は２。
-	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	if (!rtvDescriptorHeap) {
+		Log(L"[エラー] DSV Descriptor Heap の作成に失敗しました");
+		assert(false);
+		return -1;
+	}
+
 
 	// SRV用のヒープでディスクリプタの数は128.
 	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
@@ -668,18 +710,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		device->CreateRenderTargetView(swapChainResources[i], &rtvDesc, rtvHandles[i]);
 	}
 
+	// グローバルに正しく宣言しておくno
+	ID3D12DescriptorHeap* dsvDescriptorHeap = nullptr;
+	Log(std::format(L"[CHECK] device pointer before CreateDescriptorHeap: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+	// デバイスが nullptr でないことを確認（これ重要）
+	assert(device != nullptr);
+	
 	// DSV用のヒープでディスクリプタの数は1。DSVはShader内で触るものではないので、ShaderVisibleはfalse
-	ID3D12DescriptorHeap* dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
+	dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
+	assert(dsvDescriptorHeap != nullptr);  // ← 追加してみて
+	Log(std::format(L"[LOG] before CreateDescriptorHeap for DSV. device: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+
+	// DSV用リソース（深度バッファ）
+	ID3D12Resource* depthStencilResource = nullptr;
 
 	// DepthStencil Textureをウィンドウのサイズで作成
-	ID3D12Resource* depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
+	depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
+	assert(depthStencilResource != nullptr);
 
 	// DSVの設定
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
 	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // Format。基本的にはResourceに合わせる
 	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D; // 2dTexture
 	// DSVHeapの先頭にDSVをつくる
+	assert(depthStencilResource != nullptr); // これを追加して直前で確認
+	Log(L"Before OMSetRenderTargets");
+	Log(L"Creating DSV...");
+	auto dsvHandle = dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	assert(dsvDescriptorHeap != nullptr);
+	Log(std::format(L"DSV handle ptr: 0x{:X}", dsvHandle.ptr));
 	device->CreateDepthStencilView(depthStencilResource, &dsvDesc, dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	
 
 	// --- メインループ ---
 	MSG msg{};
@@ -765,9 +826,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// 描画用のDescriptorHeapの設定
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-
+			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]であ
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandles[selectedTextureIndex]);
 
 			// 1個目のWVP（b1）を設定して描画
@@ -775,10 +834,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->DrawInstanced(3, 1, 0, 0);
 
+			assert(wvpData2 != nullptr);
 			// 2個目のWVP（b1）を設定して描画
 			*wvpData2 = Multiply(worldMatrix2, Multiply(viewMatrix, projectionMatrix));
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
-			commandList->DrawInstanced(3, 1, 3, 0);
+			commandList->DrawInstanced(3, 1, 3, 0); 
+
 
 
 			// ImGuiを使用する
