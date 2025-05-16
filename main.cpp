@@ -24,8 +24,6 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-const int instanceCount = 100; // 吸い込まれる三角形の数
-
  // Vector4型を定義する
 struct Vector4 {
 	float x, y, z, w;
@@ -53,37 +51,6 @@ struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
 };
-
-// Transform変数を作る
-static Transform transform = {
-	  {1.5f, 1.5f, 1.5f},  // scale
-	  {0.0f, 0.7f, 0.0f},  // rotate
-	  {0.0f, 0.0f, 0.0f}   // translate
-};
-
-static Transform transform2 = {
-	  {1.5f, 1.5f, 1.5f},  // scale
-	  {0.0f, -0.7f, 0.0f},  // rotate
-	  {0.0f, 0.0f, 0.0f}   // translate
-};
-
-static Transform cameraTransform = {
-	  {1.0f, 1.0f, 1.0f},  // scale
-	  {DirectX::XM_PIDIV4, 0.0f, 0.0f},  // rotate
-	  {0.0f, 5.0f, -5.0f}   // translate
-};
-
-Vector3 TransformWithW(const Vector3& v, const Matrix4x4& m) {
-	float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
-	float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
-	float z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + m.m[3][2];
-	float w = v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + m.m[3][3];
-
-	if (w != 0.0f) {
-		x /= w; y /= w; z /= w;
-	}
-	return { x, y, z };
-}
 
 
 /// <summary>
@@ -133,17 +100,41 @@ Matrix4x4 Inverse(const Matrix4x4& m);
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
 ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
 void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
-ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
-{
+void Log(const std::wstring& message);
+#include <sstream> // 追加が必要
+
+ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible) {
+	assert(device); // NULL チェック
+	Log(std::format(L"[CreateDescriptorHeap] device: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+
+
 	ID3D12DescriptorHeap* descriptorHeap = nullptr;
 	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
 	descriptorHeapDesc.Type = heapType;
 	descriptorHeapDesc.NumDescriptors = numDescriptors;
 	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+	// format の代わりに wstringstream を使う
+	std::wstringstream ss;
+	ss << L"[INFO] Creating DescriptorHeap: Type=" << static_cast<int>(heapType)
+		<< L", Num=" << numDescriptors
+		<< L", ShaderVisible=" << (shaderVisible ? L"true" : L"false");
+	Log(ss.str());
+
 	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
-	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) {
+		std::wstringstream err;
+		Log(std::format(L"[ERROR] CreateDescriptorHeap failed. HRESULT=0x{:X}", hr));
+		err << L"[ERROR] Failed to create descriptor heap. HRESULT: 0x" << std::hex << hr;
+		OutputDebugStringW(err.str().c_str());
+		Log(err.str());
+		assert(false);
+	}
+
 	return descriptorHeap;
 }
+
+
 
 ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
@@ -169,17 +160,27 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 
 	// Resourceの生成
 	ID3D12Resource* resource = nullptr;
-	HRESULT hr = device->CreateCommittedResource(
-		&heapProperties, // Heapの設定
-		D3D12_HEAP_FLAG_NONE, // Heapの特殊な設定。特になし。
-		&resourceDesc, // Resourceの設定
-		D3D12_RESOURCE_STATE_DEPTH_WRITE, // 深度値を書き込む状態にしておく
-		&depthClearValue, // Clear最適値
-		IID_PPV_ARGS(&resource)); // 作成するResourceポインタへのポインタ
-	assert(SUCCEEDED(hr));
+HRESULT hr = device->CreateCommittedResource(
+	&heapProperties,
+	D3D12_HEAP_FLAG_NONE,
+	&resourceDesc,
+	D3D12_RESOURCE_STATE_DEPTH_WRITE,
+	&depthClearValue,
+	IID_PPV_ARGS(&resource)
+);
+
+if (FAILED(hr) || resource == nullptr) {
+	Log(L"[ERROR] Failed to create DepthStencilResource");
+	return nullptr;
+}
+
+Log(std::format(L"[LOG] DepthStencilResource created: 0x{:X}", reinterpret_cast<uintptr_t>(resource)));
+return resource;
+
 
 	return resource;
 }
+
 IDxcBlob* CompileShader(
 	// CompilerするShaderファイルへのパス
 	const std::wstring& filePath,
@@ -217,6 +218,7 @@ const int32_t kClientHeight = 720;
 
 // グローバル変数（各種DirectXオブジェクト）
 ID3D12Device* device = nullptr;
+
 IDXGIFactory7* dxgiFactory = nullptr;
 // 複数のテクスチャリソースとSRVハンドル
 ID3D12Resource* textureResources[3]; // たとえば2個
@@ -296,9 +298,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 	assert(SUCCEEDED(hr));
+	Log(std::format(L"[LOG] device created: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
 
 	// RTV用のヒープでディスクリプタの数は２。
-	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	if (!rtvDescriptorHeap) {
+		Log(L"[エラー] DSV Descriptor Heap の作成に失敗しました");
+		assert(false);
+		return -1;
+	}
+
 
 	// SRV用のヒープでディスクリプタの数は128.
 	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
@@ -348,10 +357,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	// 定数バッファ構造体
-	struct TimeBuffer { float time; float padding[3]; };
-
-
 	// ImGuiで使っているSRVを避けるために1つスキップ
 	textureSrvHandleCPU.ptr += descriptorSize;
 	textureSrvHandleGPU.ptr += descriptorSize;
@@ -380,76 +385,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		textureSrvHandleCPU.ptr += descriptorSize;
 		textureSrvHandleGPU.ptr += descriptorSize;
 	}
-
-	// === 出現タイミングのリストを生成 ===
-	std::vector<float> instanceStartTimes(instanceCount);
-	for (int i = 0; i < instanceCount; ++i) {
-		instanceStartTimes[i] =   i * 0.5f; // 5.0, 5.5, 6.0, ...
-	}
-
-
-	// === ランダム位置のリストを生成 ===
-	std::vector<Vector2> instanceOffsets(instanceCount);
-	float minDistance = 3.0f;
-	for (int i = 0; i < instanceCount; ++i) {
-		float x, z;
-		do {
-			x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
-			z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
-		} while (x * x + z * z < minDistance * minDistance);
-		instanceOffsets[i] = { x, z };
-	}
-
-
-
-	// === GPUバッファ作成と転送 ===
-	ID3D12Resource* startTimeBuffer = CreateBufferResource(device, sizeof(float) * instanceCount);
-	float* startTimeData = nullptr;
-	startTimeBuffer->Map(0, nullptr, reinterpret_cast<void**>(&startTimeData));
-	std::memcpy(startTimeData, instanceStartTimes.data(), sizeof(float)* instanceCount);
-
-	ID3D12Resource* offsetBuffer = CreateBufferResource(device, sizeof(Vector2) * instanceCount);
-	Vector2* offsetData = nullptr;
-	offsetBuffer->Map(0, nullptr, reinterpret_cast<void**>(&offsetData));
-	std::memcpy(offsetData, instanceOffsets.data(), sizeof(Vector2)* instanceCount);
-
-
-	// === 出現時間SRV（t1）を作成 ===
-	D3D12_SHADER_RESOURCE_VIEW_DESC timeSrvDesc{};
-	timeSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-	timeSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	timeSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	timeSrvDesc.Buffer.FirstElement = 0;
-	timeSrvDesc.Buffer.NumElements = instanceCount;
-	timeSrvDesc.Buffer.StructureByteStride = 0;
-	timeSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	device->CreateShaderResourceView(startTimeBuffer, &timeSrvDesc, textureSrvHandleCPU);
-
-	// 必要ならGPUハンドルも記録
-	D3D12_GPU_DESCRIPTOR_HANDLE startTimeHandleGPU = textureSrvHandleGPU;
-
-	// 次のディスクリプタへ
-	textureSrvHandleCPU.ptr += descriptorSize;
-	textureSrvHandleGPU.ptr += descriptorSize;
-
-	// === ランダム位置SRV（t2）を作成 ===
-	D3D12_SHADER_RESOURCE_VIEW_DESC offsetSrvDesc{};
-	offsetSrvDesc.Format = DXGI_FORMAT_R32G32_FLOAT;
-	offsetSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	offsetSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	offsetSrvDesc.Buffer.FirstElement = 0;
-	offsetSrvDesc.Buffer.NumElements = instanceCount;
-	offsetSrvDesc.Buffer.StructureByteStride = 0;
-	offsetSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	device->CreateShaderResourceView(offsetBuffer, &offsetSrvDesc, textureSrvHandleCPU);
-
-	// 必要ならGPUハンドルも記録
-	D3D12_GPU_DESCRIPTOR_HANDLE offsetHandleGPU = textureSrvHandleGPU;
-
-	// 次のディスクリプタへ
-	textureSrvHandleCPU.ptr += descriptorSize;
-	textureSrvHandleGPU.ptr += descriptorSize;
-
 	// ImGui初期化
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -510,56 +445,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 // 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[6] = {};
-
-	// b0: マテリアル（PixelShader用）
+	D3D12_ROOT_PARAMETER rootParameters[3] = {};
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
 	rootParameters[0].Descriptor.RegisterSpace = 0;
-
-	// b1: 時間（VertexShader用）
 	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 1;
+	rootParameters[1].Descriptor.ShaderRegister = 0;
 	rootParameters[1].Descriptor.RegisterSpace = 0;
-
-	// SRV: テクスチャ
-	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;
-	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
-
-	// b2: ViewProjection（VertexShader用）
-	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[3].Descriptor.ShaderRegister = 2;
-	rootParameters[3].Descriptor.RegisterSpace = 0;
-
-	// t1: 出現時間 (SRV, VertexShader)
-	D3D12_DESCRIPTOR_RANGE rangeT1{};
-	rangeT1.BaseShaderRegister = 1; // t1
-	rangeT1.NumDescriptors = 1;
-	rangeT1.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-	rangeT1.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[4].DescriptorTable.pDescriptorRanges = &rangeT1;
-	rootParameters[4].DescriptorTable.NumDescriptorRanges = 1;
-
-	// t2: ランダム位置 (SRV, VertexShader)
-	D3D12_DESCRIPTOR_RANGE rangeT2{};
-	rangeT2.BaseShaderRegister = 2; // t2
-	rangeT2.NumDescriptors = 1;
-	rangeT2.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-	rangeT2.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[5].DescriptorTable.pDescriptorRanges = &rangeT2;
-	rootParameters[5].DescriptorTable.NumDescriptorRanges = 1;
-
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; // DescriptorTableを使う
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
+	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;// 範囲の設定
+	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1; // 範囲の数
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
 	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // バイリニアフィルタ
@@ -622,18 +520,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	// 今回は赤を書き込む
 	*materialData = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-
-
-	// 時間用のリソースを作る
-	ID3D12Resource* timeResource = CreateBufferResource(device, sizeof(TimeBuffer));
-	TimeBuffer* timeData = nullptr;
-	timeResource->Map(0, nullptr, reinterpret_cast<void**>(&timeData));
-
-	// === ★ viewProjection用の定数バッファを追加 ===
-	ID3D12Resource* viewProjResource = CreateBufferResource(device, sizeof(Matrix4x4));
-	Matrix4x4* viewProjData = nullptr;
-	viewProjResource->Map(0, nullptr, reinterpret_cast<void**>(&viewProjData));
-	*viewProjData = MakeIdentity4x4();  // 最初は単位行列でもOK（あとで毎フレーム更新）
 
 	// WVP用のリソースを作る。Matrix4x4一つ分のサイズを用意する
 	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
@@ -824,18 +710,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		device->CreateRenderTargetView(swapChainResources[i], &rtvDesc, rtvHandles[i]);
 	}
 
+	// グローバルに正しく宣言しておくno
+	ID3D12DescriptorHeap* dsvDescriptorHeap = nullptr;
+	Log(std::format(L"[CHECK] device pointer before CreateDescriptorHeap: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+	// デバイスが nullptr でないことを確認（これ重要）
+	assert(device != nullptr);
+	
 	// DSV用のヒープでディスクリプタの数は1。DSVはShader内で触るものではないので、ShaderVisibleはfalse
-	ID3D12DescriptorHeap* dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
+	dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
+	assert(dsvDescriptorHeap != nullptr);  // ← 追加してみて
+	Log(std::format(L"[LOG] before CreateDescriptorHeap for DSV. device: 0x{:X}", reinterpret_cast<uintptr_t>(device)));
+
+	// DSV用リソース（深度バッファ）
+	ID3D12Resource* depthStencilResource = nullptr;
 
 	// DepthStencil Textureをウィンドウのサイズで作成
-	ID3D12Resource* depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
+	depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
+	assert(depthStencilResource != nullptr);
 
 	// DSVの設定
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
 	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // Format。基本的にはResourceに合わせる
 	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D; // 2dTexture
 	// DSVHeapの先頭にDSVをつくる
+	assert(depthStencilResource != nullptr); // これを追加して直前で確認
+	Log(L"Before OMSetRenderTargets");
+	Log(L"Creating DSV...");
+	auto dsvHandle = dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	assert(dsvDescriptorHeap != nullptr);
+	Log(std::format(L"DSV handle ptr: 0x{:X}", dsvHandle.ptr));
 	device->CreateDepthStencilView(depthStencilResource, &dsvDesc, dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	
 
 	// --- メインループ ---
 	MSG msg{};
@@ -849,36 +754,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			hr = commandList->Reset(commandAllocator, graphicsPipelineState);
 			assert(SUCCEEDED(hr));
 
-			// 毎フレーム
-			static float currentTime = 0.0f;
-			currentTime += 1.0f / 60.0f; // 1フレーム分進める
+			// Transform変数を作る
+			static Transform transform = {
+	              {1.5f, 1.5f, 1.5f},  // scale
+	              {0.0f, 0.7f, 0.0f},  // rotate
+	              {0.0f, 0.0f, 0.0f}   // translate
+			};
 
-			timeData->time = currentTime;
+			static Transform transform2 = {
+				  {1.5f, 1.5f, 1.5f},  // scale
+				  {0.0f, -0.7f, 0.0f},  // rotate
+				  {0.0f, 0.0f, 0.0f}   // translate
+			};
 
-			float lifeSpan = 5.0f;
-			for (int i = 0; i < instanceCount; ++i) {
-				float timeSinceStart = currentTime - instanceStartTimes[i];
-				if (timeSinceStart > lifeSpan) {
-					// 新しい出現タイミング（2秒以内の遅延）
-					instanceStartTimes[i] = currentTime + static_cast<float>(rand()) / RAND_MAX * 2.0f;
-
-					// 新しいランダムオフセット（中心から2.0以上離れていることを保証）
-					Vector2 offset;
-					do {
-						float x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
-						float z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
-						offset = { x, z };
-					} while (offset.x * offset.x + offset.y * offset.y < 4.0f); // √(x² + z²) < 2.0 →やり直し
-
-					instanceOffsets[i] = offset;
-				}
-			}
-
-
-			// GPUにデータを転送（バッファは初期化時にMap済み）
-			std::memcpy(startTimeData, instanceStartTimes.data(), sizeof(float) * instanceCount);
-			std::memcpy(offsetData, instanceOffsets.data(), sizeof(Vector2) * instanceCount);
-
+			static Transform cameraTransform = {
+				  {1.0f, 1.0f, 1.0f},  // scale
+				  {DirectX::XM_PIDIV4, 0.0f, 0.0f},  // rotate
+				  {0.0f, 5.0f, -5.0f}   // translate
+			};
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 worldMatrix2 = MakeAffineMatrix(transform2.scale, transform2.rotate, transform2.translate);
@@ -891,9 +784,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				0.1f, 100.0f);      
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 			
-			// 定数バッファに転送
-			*viewProjData = Multiply(viewMatrix, projectionMatrix);
-
 			// 共通：RootSignatureは最初に1回だけ設定すればよい
 			commandList->SetGraphicsRootSignature(rootSignature);
 
@@ -936,26 +826,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// 描画用のDescriptorHeapの設定
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-
+			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]であ
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandles[selectedTextureIndex]);
 
 			// 1個目のWVP（b1）を設定して描画
 			*wvpData = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			// time を渡す（b1）
-			commandList->SetGraphicsRootConstantBufferView(1, timeResource->GetGPUVirtualAddress());
-			// ViewProjection を b2 にセット
-			commandList->SetGraphicsRootConstantBufferView(3, viewProjResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 0, 0);
 
-			// gStartTimes (t1) を SetGraphicsRootDescriptorTable でバインド
-			commandList->SetGraphicsRootDescriptorTable(4, startTimeHandleGPU);
+			assert(wvpData2 != nullptr);
+			// 2個目のWVP（b1）を設定して描画
+			*wvpData2 = Multiply(worldMatrix2, Multiply(viewMatrix, projectionMatrix));
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 3, 0); 
 
-			// gOffsets (t2) をバインド
-			commandList->SetGraphicsRootDescriptorTable(5, offsetHandleGPU);  
-
-			// 100個の三角形をインスタンス描画（全部まとめて！）
-			commandList->DrawInstanced(3, 100, 0, 0);
 
 
 			// ImGuiを使用する
@@ -963,89 +847,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			// --- ImGuiでデバッグ可視化 ---
-// 出現中のインスタンスだけ表示、XY=offset
-			ImGui::Begin("Instance Debug View");
-
-			ImDrawList* draw_list = ImGui::GetWindowDrawList();
-			ImVec2 origin = ImGui::GetCursorScreenPos(); // 描画開始位置
-			float scale = 10.0f;  // 描画スケール（世界座標→ImGui上）
-
-			// 画面の範囲（例：Z=-0.1〜-100 の中で X,Z の 16:9 視野角から求めた近似範囲）
-			float screenHalfWidth = 7.5f;
-			float screenHalfHeight = 4.5f;
-
-			// 画面範囲の枠を描画
-			ImVec2 topLeft = { origin.x - screenHalfWidth * scale + 150, origin.y - screenHalfHeight * scale + 150 };
-			ImVec2 bottomRight = { origin.x + screenHalfWidth * scale + 150, origin.y + screenHalfHeight * scale + 150 };
-			draw_list->AddRect(topLeft, bottomRight, IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
-
-			int activeCount = 0;
-			int onScreenCount = 0; // 画面内にいる数をカウント
-
-			for (int i = 0; i < instanceCount; ++i) {
-				float timeSinceStart = currentTime - instanceStartTimes[i];
-				if (timeSinceStart < 0.0f || timeSinceStart > 5.0f) continue;
-
-				activeCount++;
-
-				Vector2 pos = instanceOffsets[i];
-				ImVec2 screenPos = { origin.x + pos.x * scale + 150, origin.y - pos.y * scale + 150 };
-
-				// --- 画面内かどうかの判定（NDCで確認） ---
-				Vector3 worldPos = { pos.x, 0.0f, pos.y };
-				Vector3 ndc = TransformWithW(worldPos, *viewProjData);
-				bool isOnScreen =
-					ndc.x >= -1.0f && ndc.x <= 1.0f &&
-					ndc.y >= -1.0f && ndc.y <= 1.0f &&
-					ndc.z >= 0.0f && ndc.z <= 1.0f;
-
-				if (isOnScreen) {
-					onScreenCount++;
-				}
-
-				// --- 重なりチェック ---
-				bool isOverlapping = false;
-				for (int j = 0; j < instanceCount; ++j) {
-					if (i == j) continue;
-					Vector2 other = instanceOffsets[j];
-					float dx = pos.x - other.x;
-					float dy = pos.y - other.y;
-					float distSq = dx * dx + dy * dy;
-					if (distSq < 0.2f * 0.2f) {
-						isOverlapping = true;
-						break;
-					}
-				}
-
-				// --- 色分け（優先順位：画面内 > 重なり > 通常） ---
-				ImU32 color = IM_COL32(50, 255, 50, 255); // 通常：緑
-				if (isOverlapping) {
-					color = IM_COL32(255, 50, 50, 255);   // 重なり：赤
-				}
-				if (isOnScreen) {
-					color = IM_COL32(50, 100, 255, 255);  // 画面内：青（優先）
-				}
-
-				draw_list->AddCircleFilled(screenPos, 4.0f, color);
-			}
-
-			ImGui::Text("Active instances: %d", activeCount);
-			ImGui::Text("Visible on screen: %d", onScreenCount); // 画面内数を表示
-			ImGui::Text("Yellow box = approximate screen area");
-			ImGui::Text("Red = Overlapping, Blue = OnScreen");
-
-			ImGui::End();
-
-
-
-
 			// --- ImGuiでTransformの操作 ---
 			ImGui::Begin("Transform Controller");
-
-			ImGui::Text("offset[0] = (%.2f, %.2f)", instanceOffsets[0].x, instanceOffsets[0].y);
-			ImGui::Text("startTime[0] = %.2f", instanceStartTimes[0]);
-			ImGui::Text("currentTime = %.2f", currentTime);
 
 			ImGui::ColorEdit3("Material Color", &materialData->x);
 			const char* items[] = { "uvChecker", "monsterBall","checkerBoard"};
@@ -1063,16 +866,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Rotate##2", &transform2.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
 			ImGui::SliderFloat3("Translate##2", &transform2.translate.x, -10.0f, 10.0f);
 
-			// --- Camera Transform の操作 ---
-			ImGui::Text("Camera Transform");
-			ImGui::SliderFloat3("Camera Translate", &cameraTransform.translate.x, -20.0f, 20.0f);
-			ImGui::SliderFloat3("Camera Rotate (rad)", &cameraTransform.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
-			ImGui::SliderFloat3("Camera Scale", &cameraTransform.scale.x, 0.1f, 5.0f);
-
-
 			ImGui::End();
-
-
 
 			// 開発UIの処理
 			ImGui::ShowDemoWindow();
