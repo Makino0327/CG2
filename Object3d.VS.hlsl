@@ -29,6 +29,7 @@ VertexShaderOutput main(VertexShaderInput input)
 {
     VertexShaderOutput output;
 
+    
     float startTime = gStartTimes[input.instanceID];
     float timeSinceStart = gTime - startTime;
 
@@ -73,3 +74,4 @@ VertexShaderOutput main(VertexShaderInput input)
     output.texcoord = input.texcoord;
     return output;
 }
+

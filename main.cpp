@@ -54,6 +54,38 @@ struct VertexData {
 	Vector2 texcoord;
 };
 
+// Transform変数を作る
+static Transform transform = {
+	  {1.5f, 1.5f, 1.5f},  // scale
+	  {0.0f, 0.7f, 0.0f},  // rotate
+	  {0.0f, 0.0f, 0.0f}   // translate
+};
+
+static Transform transform2 = {
+	  {1.5f, 1.5f, 1.5f},  // scale
+	  {0.0f, -0.7f, 0.0f},  // rotate
+	  {0.0f, 0.0f, 0.0f}   // translate
+};
+
+static Transform cameraTransform = {
+	  {1.0f, 1.0f, 1.0f},  // scale
+	  {DirectX::XM_PIDIV4, 0.0f, 0.0f},  // rotate
+	  {0.0f, 5.0f, -5.0f}   // translate
+};
+
+Vector3 TransformWithW(const Vector3& v, const Matrix4x4& m) {
+	float x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0];
+	float y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1];
+	float z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + m.m[3][2];
+	float w = v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + m.m[3][3];
+
+	if (w != 0.0f) {
+		x /= w; y /= w; z /= w;
+	}
+	return { x, y, z };
+}
+
+
 /// <summary>
 ///ディスクリプタヒープを作成
 /// </summary>
@@ -352,16 +384,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// === 出現タイミングのリストを生成 ===
 	std::vector<float> instanceStartTimes(instanceCount);
 	for (int i = 0; i < instanceCount; ++i) {
-		instanceStartTimes[i] = i * 0.5f; // 0.0, 0.5, 1.0, ...
+		instanceStartTimes[i] =   i * 0.5f; // 5.0, 5.5, 6.0, ...
 	}
+
 
 	// === ランダム位置のリストを生成 ===
 	std::vector<Vector2> instanceOffsets(instanceCount);
+	float minDistance = 3.0f;
 	for (int i = 0; i < instanceCount; ++i) {
-		float x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f; // -10.0 ~ +10.0
-		float z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+		float x, z;
+		do {
+			x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+			z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+		} while (x * x + z * z < minDistance * minDistance);
 		instanceOffsets[i] = { x, z };
 	}
+
 
 
 	// === GPUバッファ作成と転送 ===
@@ -817,25 +855,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			timeData->time = currentTime;
 
+			float lifeSpan = 5.0f;
+			for (int i = 0; i < instanceCount; ++i) {
+				float timeSinceStart = currentTime - instanceStartTimes[i];
+				if (timeSinceStart > lifeSpan) {
+					// 新しい出現タイミング（2秒以内の遅延）
+					instanceStartTimes[i] = currentTime + static_cast<float>(rand()) / RAND_MAX * 2.0f;
 
-			// Transform変数を作る
-			static Transform transform = {
-	              {1.5f, 1.5f, 1.5f},  // scale
-	              {0.0f, 0.7f, 0.0f},  // rotate
-	              {0.0f, 0.0f, 0.0f}   // translate
-			};
+					// 新しいランダムオフセット（中心から2.0以上離れていることを保証）
+					Vector2 offset;
+					do {
+						float x = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+						float z = ((rand() % 2000) / 1000.0f - 1.0f) * 10.0f;
+						offset = { x, z };
+					} while (offset.x * offset.x + offset.y * offset.y < 4.0f); // √(x² + z²) < 2.0 →やり直し
 
-			static Transform transform2 = {
-				  {1.5f, 1.5f, 1.5f},  // scale
-				  {0.0f, -0.7f, 0.0f},  // rotate
-				  {0.0f, 0.0f, 0.0f}   // translate
-			};
+					instanceOffsets[i] = offset;
+				}
+			}
 
-			static Transform cameraTransform = {
-				  {1.0f, 1.0f, 1.0f},  // scale
-				  {DirectX::XM_PIDIV4, 0.0f, 0.0f},  // rotate
-				  {0.0f, 5.0f, -5.0f}   // translate
-			};
+
+			// GPUにデータを転送（バッファは初期化時にMap済み）
+			std::memcpy(startTimeData, instanceStartTimes.data(), sizeof(float) * instanceCount);
+			std::memcpy(offsetData, instanceOffsets.data(), sizeof(Vector2) * instanceCount);
+
 
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 worldMatrix2 = MakeAffineMatrix(transform2.scale, transform2.rotate, transform2.translate);
@@ -920,8 +963,89 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
+			// --- ImGuiでデバッグ可視化 ---
+// 出現中のインスタンスだけ表示、XY=offset
+			ImGui::Begin("Instance Debug View");
+
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+			ImVec2 origin = ImGui::GetCursorScreenPos(); // 描画開始位置
+			float scale = 10.0f;  // 描画スケール（世界座標→ImGui上）
+
+			// 画面の範囲（例：Z=-0.1〜-100 の中で X,Z の 16:9 視野角から求めた近似範囲）
+			float screenHalfWidth = 7.5f;
+			float screenHalfHeight = 4.5f;
+
+			// 画面範囲の枠を描画
+			ImVec2 topLeft = { origin.x - screenHalfWidth * scale + 150, origin.y - screenHalfHeight * scale + 150 };
+			ImVec2 bottomRight = { origin.x + screenHalfWidth * scale + 150, origin.y + screenHalfHeight * scale + 150 };
+			draw_list->AddRect(topLeft, bottomRight, IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
+
+			int activeCount = 0;
+			int onScreenCount = 0; // 画面内にいる数をカウント
+
+			for (int i = 0; i < instanceCount; ++i) {
+				float timeSinceStart = currentTime - instanceStartTimes[i];
+				if (timeSinceStart < 0.0f || timeSinceStart > 5.0f) continue;
+
+				activeCount++;
+
+				Vector2 pos = instanceOffsets[i];
+				ImVec2 screenPos = { origin.x + pos.x * scale + 150, origin.y - pos.y * scale + 150 };
+
+				// --- 画面内かどうかの判定（NDCで確認） ---
+				Vector3 worldPos = { pos.x, 0.0f, pos.y };
+				Vector3 ndc = TransformWithW(worldPos, *viewProjData);
+				bool isOnScreen =
+					ndc.x >= -1.0f && ndc.x <= 1.0f &&
+					ndc.y >= -1.0f && ndc.y <= 1.0f &&
+					ndc.z >= 0.0f && ndc.z <= 1.0f;
+
+				if (isOnScreen) {
+					onScreenCount++;
+				}
+
+				// --- 重なりチェック ---
+				bool isOverlapping = false;
+				for (int j = 0; j < instanceCount; ++j) {
+					if (i == j) continue;
+					Vector2 other = instanceOffsets[j];
+					float dx = pos.x - other.x;
+					float dy = pos.y - other.y;
+					float distSq = dx * dx + dy * dy;
+					if (distSq < 0.2f * 0.2f) {
+						isOverlapping = true;
+						break;
+					}
+				}
+
+				// --- 色分け（優先順位：画面内 > 重なり > 通常） ---
+				ImU32 color = IM_COL32(50, 255, 50, 255); // 通常：緑
+				if (isOverlapping) {
+					color = IM_COL32(255, 50, 50, 255);   // 重なり：赤
+				}
+				if (isOnScreen) {
+					color = IM_COL32(50, 100, 255, 255);  // 画面内：青（優先）
+				}
+
+				draw_list->AddCircleFilled(screenPos, 4.0f, color);
+			}
+
+			ImGui::Text("Active instances: %d", activeCount);
+			ImGui::Text("Visible on screen: %d", onScreenCount); // 画面内数を表示
+			ImGui::Text("Yellow box = approximate screen area");
+			ImGui::Text("Red = Overlapping, Blue = OnScreen");
+
+			ImGui::End();
+
+
+
+
 			// --- ImGuiでTransformの操作 ---
 			ImGui::Begin("Transform Controller");
+
+			ImGui::Text("offset[0] = (%.2f, %.2f)", instanceOffsets[0].x, instanceOffsets[0].y);
+			ImGui::Text("startTime[0] = %.2f", instanceStartTimes[0]);
+			ImGui::Text("currentTime = %.2f", currentTime);
 
 			ImGui::ColorEdit3("Material Color", &materialData->x);
 			const char* items[] = { "uvChecker", "monsterBall","checkerBoard"};
@@ -939,7 +1063,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Rotate##2", &transform2.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
 			ImGui::SliderFloat3("Translate##2", &transform2.translate.x, -10.0f, 10.0f);
 
+			// --- Camera Transform の操作 ---
+			ImGui::Text("Camera Transform");
+			ImGui::SliderFloat3("Camera Translate", &cameraTransform.translate.x, -20.0f, 20.0f);
+			ImGui::SliderFloat3("Camera Rotate (rad)", &cameraTransform.rotate.x, -DirectX::XM_PI, DirectX::XM_PI);
+			ImGui::SliderFloat3("Camera Scale", &cameraTransform.scale.x, 0.1f, 5.0f);
+
+
 			ImGui::End();
+
+
 
 			// 開発UIの処理
 			ImGui::ShowDemoWindow();
