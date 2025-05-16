@@ -670,7 +670,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				float(kClientWidth) / float(kClientHeight),  
 				0.1f, 100.0f);      
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			*wvpData = worldMatrix;
+			*wvpData = worldViewProjectionMatrix;
 
 			commandList->SetGraphicsRootSignature(rootSignature);
 			// マテリアルCBufferの場所を設定
