@@ -24,7 +24,7 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
- // Vector4型を定義する
+// Vector4型を定義する
 struct Vector4 {
 	float x, y, z, w;
 };
@@ -96,6 +96,7 @@ Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
 /// <param name="m">逆行列を求める対象の 4x4 行列。</param>
 /// <returns>指定された行列の逆行列（Matrix4x4 型）。</returns>
 Matrix4x4 Inverse(const Matrix4x4& m);
+Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ);
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
 ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
 void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
@@ -357,7 +358,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 
-// 1. RootParameter作成（CBV b0）
+	// 1. RootParameter作成（CBV b0）
 	D3D12_ROOT_PARAMETER rootParameters[3] = {};
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -424,6 +425,40 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// リソース作成
 	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);
+
+	// --- Sprite用のリソースとビューを作成 ---
+	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
+
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
+	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
+	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
+
+	VertexData* vertexDataSprite = nullptr;
+	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
+	// 一枚目の三角形
+	vertexDataSprite[0].position = { 0.0f,360.0f,0.0f,1.0f };
+	vertexDataSprite[0].texcoord = { 0.0f,1.0f };
+	vertexDataSprite[1].position = { 0.0f,0.0f,0.0f,1.0f };
+	vertexDataSprite[1].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[2].position = { 640.0f,360.0f,0.0f,1.0f };
+	vertexDataSprite[2].texcoord = { 1.0f,1.0f };
+	// 二枚目の三角形
+	vertexDataSprite[3].position = { 0.0f,0.0f,0.0f,1.0f };
+	vertexDataSprite[3].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[4].position = { 640.0f,0.0f,0.0f,1.0f };
+	vertexDataSprite[4].texcoord = { 1.0f,0.0f };
+	vertexDataSprite[5].position = { 640.0f,360.0f,0.0f,1.0f };
+	vertexDataSprite[5].texcoord = { 1.0f,1.0f };
+
+	// Sprite用のTransformationMatrix用のリソースを作る
+	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	// データを書き込む
+	Matrix4x4* transformationMatrixDataSprite = nullptr;
+	// 書き込むためのアドレスを取得
+	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
+	// 単位行列を書き込んでおく
+	*transformationMatrixDataSprite = MakeIdentity4x4();
 
 	// マテリアル用のリソースを作る
 	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Vector4));
@@ -507,7 +542,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 比較関数はLess Equal。つまり、近ければ描画される
 	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 	// DepthStencilの設定
-	graphicsPipelineStateDesc.DepthStencilState= depthStencilDesc;
+	graphicsPipelineStateDesc.DepthStencilState = depthStencilDesc;
 	graphicsPipelineStateDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 	// 利用するトロポジ（形状）のタイプ。三角形
@@ -644,9 +679,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// Transform変数を作る
 			static Transform transform = {
-	              {1.0f, 1.0f, 1.0f},  // scale
-	              {0.0f, 0.0f, 0.0f},  // rotate
-	              {0.0f, 0.0f, 0.0f}   // translate
+				  {1.0f, 1.0f, 1.0f},  // scale
+				  {0.0f, 0.0f, 0.0f},  // rotate
+				  {0.0f, 0.0f, 0.0f}   // translate
 			};
 
 			static Transform cameraTransform = {
@@ -660,11 +695,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
 			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
-				0.45f,               
-				float(kClientWidth) / float(kClientHeight),  
-				0.1f, 100.0f);      
+				0.45f,
+				float(kClientWidth) / float(kClientHeight),
+				0.1f, 100.0f);
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 			*wvpData = worldMatrix;
+
+			// Sprite用のTransform
+			static Transform transformSprite = {
+				{1.0f, 1.0f, 1.0f},  // scale
+				{0.0f, 0.0f, 0.0f},  // rotate
+				{0.0f, 0.0f, 0.0f}   // translate
+			};
+
+			// Sprite用のWVP行列を作成（正射影）
+			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // スプライトはビュー不要
+			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
+			Matrix4x4 worldViewProjectionMatrixSprite = Multiply(worldMatrixSprite, Multiply(viewMatrixSprite, projectionMatrixSprite));
+
+			// 定数バッファへ転送（Sprite用WVP）
+			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+
 
 			commandList->SetGraphicsRootSignature(rootSignature);
 			// マテリアルCBufferの場所を設定
@@ -688,7 +740,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->ClearRenderTargetView(rtvHandles[backBufferIndex], clearColor, 0, nullptr);
 
 			// 描画先のRTVとDSVを設定する
-			D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle=dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+			D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 			commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], false, &dsvHandle);
 			// 指定した深度で画面全体をクリアする	
 			commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
@@ -715,13 +767,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			//描画
 			commandList->DrawInstanced(6, 1, 0, 0);
 
-			// ImGuiを使用する
+			// Spriteの描画
+			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+			// TransformationMatrixCBufferの場所を設定
+			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+
+			//描画
+			commandList->DrawInstanced(6, 1, 0, 0);
+
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
-			// 開発UIの処理
-			ImGui::ShowDemoWindow();
-			// ImGuiの内部コマンドを生成する
+
+			// 自作ウィンドウだけ表示する
+			ImGui::Begin("Sprite Transform");
+			ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
+			ImGui::SliderFloat3("Scale", &transformSprite.scale.x, 0.0f, 5.0f);
+			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);
+			ImGui::End();
+
+			ImGui::Render();
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+
 			ImGui::Render();
 
 			// 実際のcommandListのImGuiの描画コマンドを積む
@@ -1050,7 +1117,7 @@ Matrix4x4 Inverse(const Matrix4x4& m)
 		mat[8] * mat[6] * mat[13] -
 		mat[12] * mat[5] * mat[10] +
 		mat[12] * mat[6] * mat[9];
-	
+
 	invOut[13] = mat[0] * mat[9] * mat[14] -
 		mat[0] * mat[10] * mat[13] -
 		mat[8] * mat[1] * mat[14] +
@@ -1168,7 +1235,21 @@ void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mip
 			img->pixels,
 			UINT(img->rowPitch),
 			UINT(img->slicePitch)
-			);
+		);
 		assert(SUCCEEDED(hr));
 	}
+}
+
+Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ) {
+	Matrix4x4 result{};
+
+	result.m[0][0] = 2.0f / (right - left);
+	result.m[1][1] = 2.0f / (top - bottom);
+	result.m[2][2] = 1.0f / (farZ - nearZ);
+	result.m[3][0] = (left + right) / (left - right);
+	result.m[3][1] = (top + bottom) / (bottom - top);
+	result.m[3][2] = nearZ / (nearZ - farZ);
+	result.m[3][3] = 1.0f;
+
+	return result;
 }
