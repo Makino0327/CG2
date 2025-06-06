@@ -15,6 +15,8 @@
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
 #include "externals/DirectXTex/DirectXTex.h" // DirectXTexヘッダーをインクルード
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -423,8 +425,77 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		assert(false);
 	}
 
+	// 球の頂点データを生成
+	std::vector<VertexData> vertexDataSphere;
+	const int kSubdivision = 32;
+
+	for (int latitude = 0; latitude <= kSubdivision; ++latitude) {
+		float theta = static_cast<float>(latitude) / kSubdivision * float(M_PI);
+		for (int longitude = 0; longitude <= kSubdivision; ++longitude) {
+			float phi = static_cast<float>(longitude) / kSubdivision * float(2.0 * M_PI);
+
+			VertexData v{};
+			v.position.x = sinf(theta) * cosf(phi);
+			v.position.y = cosf(theta);
+			v.position.z = sinf(theta) * sinf(phi);
+			v.position.w = 1.0f;
+			v.texcoord.x = static_cast<float>(longitude) / kSubdivision;
+			v.texcoord.y = static_cast<float>(latitude) / kSubdivision;
+			vertexDataSphere.push_back(v);
+		}
+	}
+
+	const float lonEvery = float(M_PI) * 2.0f / float(kSubdivision);
+	const float latEvery = float(M_PI) / float(kSubdivision);
+
+	auto calcPos = [](float theta, float phi) -> Vector4 {
+		return {
+			sinf(theta) * cosf(phi), // X
+			cosf(theta),             // Y
+			sinf(theta) * sinf(phi), // Z
+			1.0f
+		};
+		};
+
+	auto calcUV = [](float theta, float phi) -> Vector2 {
+		return {
+			phi / (2.0f * float(M_PI)),   // U
+			theta / float(M_PI)          // V（北極=0.0, 南極=1.0）
+		};
+		};
+
+	for (int lat = 0; lat < kSubdivision; ++lat) {
+		float theta1 = lat * latEvery;
+		float theta2 = (lat + 1) * latEvery;
+
+		for (int lon = 0; lon < kSubdivision; ++lon) {
+			float phi1 = lon * lonEvery;
+			float phi2 = (lon + 1) * lonEvery;
+
+			// 4頂点作成
+			Vector4 pA = calcPos(theta1, phi1); Vector2 uvA = calcUV(theta1, phi1);
+			Vector4 pB = calcPos(theta2, phi1); Vector2 uvB = calcUV(theta2, phi1);
+			Vector4 pC = calcPos(theta1, phi2); Vector2 uvC = calcUV(theta1, phi2);
+			Vector4 pD = calcPos(theta2, phi2); Vector2 uvD = calcUV(theta2, phi2);
+
+			// 三角形1（A→C→B）
+			vertexDataSphere.push_back({ pA, uvA });
+			vertexDataSphere.push_back({ pC, uvC });
+			vertexDataSphere.push_back({ pB, uvB });
+
+			// 三角形2（C→D→B）
+			vertexDataSphere.push_back({ pC, uvC });
+			vertexDataSphere.push_back({ pD, uvD });
+			vertexDataSphere.push_back({ pB, uvB });
+
+		}
+	}
+
 	// リソース作成
-	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);
+	// vertexDataSphere.size() に合わせて確保！
+	size_t vertexBufferSize = sizeof(VertexData) * vertexDataSphere.size();
+	ID3D12Resource* vertexResource = CreateBufferResource(device, vertexBufferSize);
+
 
 	// --- Sprite用のリソースとビューを作成 ---
 	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
@@ -514,7 +585,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 三角形の中を塗りつぶす
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
-
 	// Shaderをコンパイルする
 	IDxcBlob* vertexShaderBlob = CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
 	assert(vertexShaderBlob != nullptr);
@@ -555,62 +625,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
 
-	// 頂点リソース用のヒープの設定
-	D3D12_HEAP_PROPERTIES uploadHeapProperties{};
-	uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;// Uploadヒープ
-	// 頂点リソースの設定
-	D3D12_RESOURCE_DESC vertexResourceDesc{};
-	// バッファリソース。テクスチャの場合はまた違う設定をする
-	vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	vertexResourceDesc.Width = sizeof(VertexData) * 3;
-	// バッファの場合はこれらは1にする決まり
-	vertexResourceDesc.Height = 1;
-	vertexResourceDesc.DepthOrArraySize = 1;
-	vertexResourceDesc.MipLevels = 1;
-	vertexResourceDesc.SampleDesc.Count = 1;
-	// バッファの場合はこれにする決まり
-	vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-	// 実際に頂点リソースを作る
-	hr = device->CreateCommittedResource(&uploadHeapProperties,
-		D3D12_HEAP_FLAG_NONE,
-		&vertexResourceDesc,
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&vertexResource));
-	assert(SUCCEEDED(hr));
-
+	
 	// 頂点バッファビューを作成
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
 	// リソースの先頭のアドレスから使う
 	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 	// 使用するリソースサイズは頂点3つ分のサイズ
-	vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
+	// 球のデータサイズに合わせる
+	vertexBufferView.SizeInBytes = sizeof(VertexData) * static_cast<UINT>(vertexDataSphere.size());
+
 	// 1つの頂点のサイズ
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
 
-	// 頂点リソースにデータを書き込む
-	VertexData* vertexData = nullptr;
-	// 書き込むためのアドレスを取得
-	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-	// 右下
-	vertexData[0] = { -0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[0].texcoord = { 0.0f, 1.0f };
-	//上
-	vertexData[1] = { 0.0f, 0.5f, 0.0f, 1.0f };
-	vertexData[1].texcoord = { 0.5f, 0.0f };
-	// 左下
-	vertexData[2] = { 0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[2].texcoord = { 1.0f, 1.0f };
+	
 
-	// 左下2
-	vertexData[3] = { -0.5f, -0.5f, 0.5f, 1.0f };
-	vertexData[3].texcoord = { 0.0f, 1.0f };
-	//上2
-	vertexData[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-	vertexData[4].texcoord = { 0.5f, 0.0f };
-	// 右下2
-	vertexData[5] = { 0.5f, -0.5f, -0.5f, 1.0f };
-	vertexData[5].texcoord = { 1.0f, 1.0f };
+	VertexData* vertexData = nullptr;
+
+	// Map の結果チェック
+	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+	assert(SUCCEEDED(hr));
+	assert(vertexData != nullptr);
+
+	// サイズの整合性確認
+	size_t dataSize = sizeof(VertexData) * vertexDataSphere.size();
+	assert(dataSize > 0); // 0バイトだとそもそもダメ
+	assert(vertexResource != nullptr);
+
+	// memcpy の前に resource サイズが十分か確認
+	D3D12_RESOURCE_DESC desc = vertexResource->GetDesc();
+	assert(desc.Width >= dataSize);
+
+	// コピー処理
+	memcpy(vertexData, vertexDataSphere.data(), dataSize);
+
+	// Unmap は Uploadヒープでは通常不要だが、デバッグ用に
+	vertexResource->Unmap(0, nullptr);
+
 
 	// ビューポート
 	D3D12_VIEWPORT viewport{};
@@ -687,9 +737,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			static Transform cameraTransform = {
 				  {1.0f, 1.0f, 1.0f},  // scale
 				  {0.0f, 0.0f, 0.0f},  // rotate
-				  {0.0f, 0.0f, -5.0f}   // translate
+				  {0.0f, 0.0f, -10.0f}   // translate
 			};
-			transform.rotate.y += 0.03f;
+			transform.rotate.y += 0.01f;
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
@@ -699,13 +749,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				float(kClientWidth) / float(kClientHeight),
 				0.1f, 100.0f);
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			*wvpData = worldMatrix;
+			*wvpData = worldViewProjectionMatrix;
+
 
 			// Sprite用のTransform
 			static Transform transformSprite = {
 				{1.0f, 1.0f, 1.0f},  // scale
 				{0.0f, 0.0f, 0.0f},  // rotate
-				{0.0f, 0.0f, 0.0f}   // translate
+				{0.0f, 1280.0f, 0.0f}   // translate
 			};
 
 			// Sprite用のWVP行列を作成（正射影）
@@ -765,7 +816,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
 			//描画
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
 
 			// Spriteの描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
@@ -784,7 +835,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
 			ImGui::SliderFloat3("Scale", &transformSprite.scale.x, 0.0f, 5.0f);
 			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);
+
+			ImGui::SliderFloat3("Camera Position", &cameraTransform.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("Camera Rotation", &cameraTransform.rotate.x, -3.14f, 3.14f);
+
+			// ↓ 以下を追加
+			ImGui::Separator();
+			ImGui::Text("Sphere Controls");
+			ImGui::SliderFloat3("Sphere Translate", &transform.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("Sphere Rotate", &transform.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Sphere Scale", &transform.scale.x, 0.0f, 5.0f);
+
+			ImGui::ColorEdit4("Material Color", &materialData->x);
 			ImGui::End();
+
 
 			ImGui::Render();
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
