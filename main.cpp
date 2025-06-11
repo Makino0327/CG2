@@ -721,11 +721,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// バックバッファ取得＆RTV作成
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvStartHandle = rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	const uint32_t descriptorSizeRTV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	for (UINT i = 0; i < 2; ++i) {
 		hr = swapChain->GetBuffer(i, IID_PPV_ARGS(&swapChainResources[i]));
 		assert(SUCCEEDED(hr));
-		rtvHandles[i] = GetCPUDescriptorHandle(rtvDescriptorHeap, descriptorSizeRTV, 0);
+		rtvHandles[i] = GetCPUDescriptorHandle(rtvDescriptorHeap, descriptorSizeRTV, i);
 		device->CreateRenderTargetView(swapChainResources[i], &rtvDesc, rtvHandles[i]);
 	}
 
@@ -750,6 +749,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		} else {
+
+
 			hr = commandAllocator->Reset();
 			assert(SUCCEEDED(hr));
 			hr = commandList->Reset(commandAllocator, graphicsPipelineState);
@@ -813,8 +814,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			barrierBegin.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 			commandList->ResourceBarrier(1, &barrierBegin);
 
-			// 描画ターゲットセット＆クリア
-			commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], false, nullptr);
 			float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
 			commandList->ClearRenderTargetView(rtvHandles[backBufferIndex], clearColor, 0, nullptr);
 
@@ -841,7 +840,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU2);
 
 			//描画
 			commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
@@ -850,6 +849,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 			// TransformationMatrixCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
 			//描画
 			commandList->DrawInstanced(6, 1, 0, 0);
@@ -879,11 +880,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 			ImGui::Render();
-			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
-
-			ImGui::Render();
-
-			// 実際のcommandListのImGuiの描画コマンドを積む
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 			// RenderTarget -> Presentに遷移
