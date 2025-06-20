@@ -1,4 +1,17 @@
-#include "Object3d.hlsli"
+
+struct VertexShaderOutput
+{
+    float4 position : SV_POSITION;
+    float2 texcoord : TEXCOORD0;
+    float3 normal : NORMAL0;
+};
+
+struct DirectionalLight
+{
+    float4 color;
+    float3 direction;
+    float intensity;
+};
 
 struct Material
 {
@@ -21,14 +34,20 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
     float4 textureColor = gTexture.Sample(gSampler, input.texcoord);
+
     if (gMaterial.enableLighting != 0)
     {
-        float cos = saturate(dot(normalize(input.normal), -gDirectionalLight.direction));
+        float3 lightDir = normalize(-gDirectionalLight.direction);
+        float3 normal = normalize(input.normal);
+        float cos = saturate(dot(normal, lightDir));
+
         output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
     }
     else
     {
         output.color = gMaterial.color * textureColor;
     }
+
     return output;
 }
+

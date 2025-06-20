@@ -117,6 +117,13 @@ Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
 /// <param name="m">逆行列を求める対象の 4x4 行列。</param>
 /// <returns>指定された行列の逆行列（Matrix4x4 型）。</returns>
 Matrix4x4 Inverse(const Matrix4x4& m);
+
+Vector3 Normalize(const Vector3& v) {
+	float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+	if (length == 0.0f) return { 0.0f, 0.0f, 0.0f };
+	return { v.x / length, v.y / length, v.z / length };
+}
+
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ);
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
 ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
@@ -408,24 +415,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// 1. RootParameter作成（CBV b0）
 	D3D12_ROOT_PARAMETER rootParameters[4] = {};
+
+	// [0] Material（b0）→ PixelShader用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[0].Descriptor.ShaderRegister = 0;
-	rootParameters[0].Descriptor.RegisterSpace = 0;
-	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 0;
-	rootParameters[1].Descriptor.RegisterSpace = 0;
-	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; // DescriptorTableを使う
-	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
-	rootParameters[2].DescriptorTable.pDescriptorRanges = &descriptorRange;// 範囲の設定
-	rootParameters[2].DescriptorTable.NumDescriptorRanges = 1; // 範囲の数
-	// ライト用（b1）を追加
-	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[3].Descriptor.ShaderRegister = 1;
-	rootParameters[3].Descriptor.RegisterSpace = 0;
 
+	// [1] Light（b1）→ PixelShader用
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[1].Descriptor.ShaderRegister = 1;
+
+	// [2] TransformationMatrix（b2）→ **VertexShader用**
+	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX; // ✅ ←重要
+	rootParameters[2].Descriptor.ShaderRegister = 2; // ✅ b2 を使う想定なら b2に
+
+	// [3] テクスチャ（t0）→ PixelShader用
+	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+	rootParameters[3].DescriptorTable.pDescriptorRanges = &descriptorRange;
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
 	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // バイリニアフィルタ
@@ -534,15 +544,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			Vector4 pC = calcPos(theta1, phi2); Vector2 uvC = calcUV(theta1, phi2);
 			Vector4 pD = calcPos(theta2, phi2); Vector2 uvD = calcUV(theta2, phi2);
 
+			auto calcNormal = [](const Vector4& p) -> Vector3 {
+				return Normalize(Vector3{ p.x, p.y, p.z });
+				};
+
 			// 三角形1（A→C→B）
-			vertexDataSphere.push_back({ pA, uvA });
-			vertexDataSphere.push_back({ pC, uvC });
-			vertexDataSphere.push_back({ pB, uvB });
+			vertexDataSphere.push_back({ pA, uvA, calcNormal(pA), 0.0f });
+			vertexDataSphere.push_back({ pC, uvC, calcNormal(pC), 0.0f });
+			vertexDataSphere.push_back({ pB, uvB, calcNormal(pB), 0.0f });
 
 			// 三角形2（C→D→B）
-			vertexDataSphere.push_back({ pC, uvC });
-			vertexDataSphere.push_back({ pD, uvD });
-			vertexDataSphere.push_back({ pB, uvB });
+			vertexDataSphere.push_back({ pC, uvC, calcNormal(pC), 0.0f });
+			vertexDataSphere.push_back({ pD, uvD, calcNormal(pD), 0.0f });
+			vertexDataSphere.push_back({ pB, uvB, calcNormal(pB), 0.0f });
+
 
 		}
 	}
@@ -564,6 +579,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	VertexData* vertexDataSprite = nullptr;
 	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
 	// 一枚目の三角形
+
 	vertexDataSprite[0].position = { 0.0f,360.0f,0.0f,1.0f };
 	vertexDataSprite[0].texcoord = { 0.0f,1.0f };
 	vertexDataSprite[0].normal = { 0.0f, 0.0f, -1.0f };
@@ -893,9 +909,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetScissorRects(1, &scissorRect);   // Scissorを設定
 
 			// wvp用のCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
-
+			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(2, wvpResource->GetGPUVirtualAddress());
 			// RootSignatureを設定。PSOに設定してるけど別途設定が必要
 			commandList->SetPipelineState(graphicsPipelineState);   //PSOを設定
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);   // VBVを設定
@@ -906,7 +921,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
-			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+			commandList->SetGraphicsRootDescriptorTable(3, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
 			//描画
 			commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
@@ -914,13 +929,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// Spriteの描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 
+
 			// マテリアルをSprite用に切り替え
 			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
-
+			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 			// TransformationMatrixCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
 
 			//描画
 			commandList->DrawInstanced(6, 1, 0, 0);
@@ -947,13 +963,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
-			ImGui::ColorEdit4("Material Color", &materialData->color.x);
+			ImGui::ColorEdit3("Material Color", reinterpret_cast<float*>(&materialData->color));
+			ImGui::Checkbox("Enable Lighting", reinterpret_cast<bool*>(&materialData->enableLighting));
+
+			ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
+			ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
+			ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
+
 
 			ImGui::End();
 
 
 			ImGui::Render();
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+
+
 
 			// RenderTarget -> Presentに遷移
 			D3D12_RESOURCE_BARRIER barrierEnd{};
