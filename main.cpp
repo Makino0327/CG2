@@ -22,6 +22,8 @@
 #include <wrl.h>
 #include "ResourceObject.h"
 #include <xaudio2.h>
+#define DIRECTIONPUT_VERSION 0x0800 // DirectInputのバージョンを指定
+#include <dinput.h>
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -29,6 +31,8 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib,"xaudio2.lib")
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib,"dxguid.lib")
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -618,14 +622,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 	assert(SUCCEEDED(hr));
-	// XAudio2の初期化
-	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-	assert(SUCCEEDED(hr));
-	hr = xAudio2->CreateMasteringVoice(&masterVoice);
-	assert(SUCCEEDED(hr));
 
-	// 音声再生
-	SoundPlayWave(xAudio2.Get(), soundData1);
 
 	// DescriptorSizeを保存しておく
 	const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -703,6 +700,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 	assert(SUCCEEDED(hr));
 
+	// DirectInputの初期化
+	IDirectInput8* directInput = nullptr;
+	hr = DirectInput8Create(hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput,nullptr);
+	assert(SUCCEEDED(hr));
+	// キーボードデバイスの作成
+	IDirectInputDevice8* keyboard = nullptr;
+	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, nullptr);
+	assert(SUCCEEDED(hr));
+	// 入力データ形式のセット
+	hr = keyboard->SetDataFormat(&c_dfDIKeyboard); // 標準形式
+	assert(SUCCEEDED(hr));
+	// 排他制御レベルのセット
+	hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	assert(SUCCEEDED(hr));
+
+	// XAudio2の初期化 
+	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+	assert(SUCCEEDED(hr));
+	hr = xAudio2->CreateMasteringVoice(&masterVoice);
+	assert(SUCCEEDED(hr));
+
+	// 音声再生
+	SoundPlayWave(xAudio2.Get(), soundData1);
 
 	// モデル読み込み
 	ModelData modelData = LoadObjFile("resources", "axis.obj");
@@ -1138,12 +1158,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 		} else {
-
-
 			hr = commandAllocator->Reset();
 			assert(SUCCEEDED(hr));
 			hr = commandList->Reset(commandAllocator.Get(), graphicsPipelineState);
 			assert(SUCCEEDED(hr));
+
+			// キーボード情報の取得開始
+			keyboard->Acquire();
+			// 全キーの入力状態を取得する
+			BYTE key[256] = {};
+			keyboard->GetDeviceState(sizeof(key), key);
+
+			if (key[DIK_0])
+			{
+				OutputDebugStringA("Hit 0\n");
+			}
 
 			// Transform変数を作る
 			static Transform transform = {
