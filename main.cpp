@@ -19,12 +19,16 @@
 #include <math.h>
 #include <fstream>
 #include <sstream>
+#include <wrl.h>
+#include "ResourceObject.h"
+#include <xaudio2.h>
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib,"dxcompiler.lib")
+#pragma comment(lib,"xaudio2.lib")
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -92,6 +96,37 @@ struct ModelData
 	MaterialData material; 
 };
 
+// チャンクヘッダ
+struct ChunkHeader
+{
+	char id[4]; // チャンクID
+	int32_t size; // チャンクサイズ
+};
+
+// RIFFヘッダチャンク
+struct RiffHeader
+{
+	ChunkHeader chunk; // "RIFF" 
+	char type[4]; // "WAVE" 
+};
+
+// FMTチャンク
+struct FormatChunk
+{
+	ChunkHeader chunk; // "fmt "
+	WAVEFORMATEX fmt; // フォーマット
+};
+
+// 音声データ
+struct SoundData
+{
+	// 波型フォーマット
+	WAVEFORMATEX wfex;
+	// バッファの先頭アドレス
+	BYTE* pBuffer;
+	// バッファのサイズ
+	unsigned int bufferSize;
+};
 
 /// <summary>
 ///ディスクリプタヒープを作成
@@ -183,8 +218,8 @@ Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
 
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ);
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
-ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
-void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata);
+void UploadTextureData(const Microsoft::WRL::ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages);
 ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
 {
 	ID3D12DescriptorHeap* descriptorHeap = nullptr;
@@ -196,7 +231,7 @@ ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTO
 	assert(SUCCEEDED(hr));
 	return descriptorHeap;
 }
-ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
+ResourceObject* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
 	// 生成するResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
@@ -229,7 +264,7 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 		IID_PPV_ARGS(&resource)); // 作成するResourceポインタへのポインタ
 	assert(SUCCEEDED(hr));
 
-	return resource;
+	return new ResourceObject(resource);
 }
 IDxcBlob* CompileShader(const std::wstring& filePath, const wchar_t* profile, IDxcUtils* dxcUtils, IDxcCompiler3* dxcCompiler, IDxcIncludeHandler* includeHandler);
 
@@ -293,6 +328,17 @@ MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const st
 	// 4.MaterialDataを返す
 	return materialData;
 }
+
+struct D3DResourceLeakChecker {
+	~D3DResourceLeakChecker() {
+		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
+		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
+			debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+			debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+			debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+		}
+	}
+};
 
 
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename)
@@ -370,6 +416,119 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 	return modelData;
 }
 
+SoundData SoundLoadWave(const char* filename)
+{
+	
+
+	/// 1.ファイルオープン
+	// ファイル入力ストリームのインスタンス
+	std::ifstream file;
+	// .wavファイルをバイナリモードで開く
+	file.open(filename, std::ios::binary);
+	// ファイルオープン失敗を検出する
+	assert(file.is_open());
+
+	/// 2.wavデータ読み込み
+	// RIFFヘッダーの読み込み
+	RiffHeader riff;
+	file.read((char*)&riff, sizeof(riff));
+	// ファイルがRIFFかチェック
+	if (strncmp(riff.chunk.id, "RIFF", 4) != 0)
+	{
+		assert(0);
+	}
+	// タイプがWAVEかチェック
+	if (strncmp(riff.type, "WAVE", 4) != 0)
+	{
+		assert(0);
+	}
+	// Formatチャンクの読み込み
+	// Formatチャンクの読み込み（柔軟に探す）
+	FormatChunk format = {};
+	ChunkHeader chunk{};
+	while (true) {
+		file.read((char*)&chunk, sizeof(chunk));
+		if (file.eof()) {
+			assert(0 && "fmtチャンクが見つかりませんでした");
+		}
+
+		if (strncmp(chunk.id, "fmt ", 4) == 0) {
+			format.chunk = chunk;
+			assert(format.chunk.size <= sizeof(format.fmt));
+			file.read((char*)&format.fmt, format.chunk.size);
+			break;
+		}
+
+		// fmtじゃなかったらスキップ
+		file.seekg(chunk.size, std::ios_base::cur);
+	}
+
+	// Dataチャンクの読み込み
+	ChunkHeader data;
+	file.read((char*)&data, sizeof(data));
+	// JUNKチャンクを検出した場合
+	if (strncmp(data.id, "JUNK", 4) == 0)
+	{
+		// 読み取り位置をJUNKチャンクの終わりまで進める
+		file.seekg(data.size, std::ios_base::cur);
+		// 再読み込み
+		file.read((char*)&data, sizeof(data));
+	}
+
+	if (strncmp(data.id, "data", 4) != 0)
+	{
+		assert(0);
+	}
+
+	// Dataチャンクのデータ部（波型データ）の読み込み
+	char* pBuffer = new char[data.size];
+	file.read(pBuffer, data.size);
+	/// 3.ファイルクローズ
+	// Waveファイルを閉じる
+	file.close();
+
+	/// 4.読み込んだ音声データをreturn
+	// returnするための音声データ
+	SoundData soundData = {};
+
+	soundData.wfex = format.fmt;
+	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
+	soundData.bufferSize = data.size;
+
+	return soundData;
+}
+
+// 音声データ解放
+void SoundUnload(SoundData* soundData)
+{
+	// バッファの解放
+	delete[] soundData->pBuffer;
+
+	soundData->pBuffer = 0;
+	soundData->bufferSize = 0;
+	soundData->wfex = {}; 
+}
+
+// 音声再生
+void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
+{
+	HRESULT result;
+
+	// 波形フォーマットをもとにSourceVoiceの生成
+	IXAudio2SourceVoice* pSourceVoice = nullptr;
+	result = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
+	assert(SUCCEEDED(result));
+
+	// 再生する波形データの設定
+	XAUDIO2_BUFFER buf{};
+	buf.pAudioData = soundData.pBuffer; 
+	buf.AudioBytes = soundData.bufferSize;
+	buf.Flags = XAUDIO2_END_OF_STREAM;
+
+	// 波形データの再生
+	result = pSourceVoice->SubmitSourceBuffer(&buf);
+	result = pSourceVoice->Start();
+}
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_APP = { 0x25cddaa4, 0xb1c6, 0x47e1, { 0xac, 0x3e, 0x98, 0xb5, 0x4d, 0x0b, 0x64, 0x2d } };
@@ -381,17 +540,21 @@ const int32_t kClientHeight = 720;
 
 // グローバル変数（各種DirectXオブジェクト）
 ID3D12Device* device = nullptr;
-IDXGIFactory7* dxgiFactory = nullptr;
+Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory = nullptr;
 ID3D12CommandQueue* commandQueue = nullptr;
-ID3D12CommandAllocator* commandAllocator = nullptr;
+Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocator;
 ID3D12GraphicsCommandList* commandList = nullptr;
-IDXGISwapChain4* swapChain = nullptr;
+Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain;
 ID3D12DescriptorHeap* rtvDescriptorHeap = nullptr;
 ID3D12Resource* swapChainResources[2] = { nullptr, nullptr };
 D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2];
 ID3D12Fence* fence = nullptr;
 UINT64 fenceValue = 0;
 HANDLE fenceEvent = nullptr;
+ComPtr<IXAudio2> xAudio2;
+IXAudio2MasteringVoice* masterVoice;
+// 音読み込み
+SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 
 // ウィンドウプロシージャ（標準）
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -409,7 +572,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-
+	D3DResourceLeakChecker leakChecker;
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
 
 	// --- ウィンドウ作成 ---
@@ -455,6 +618,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 	hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));
 	assert(SUCCEEDED(hr));
+	// XAudio2の初期化
+	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+	assert(SUCCEEDED(hr));
+	hr = xAudio2->CreateMasteringVoice(&masterVoice);
+	assert(SUCCEEDED(hr));
+
+	// 音声再生
+	SoundPlayWave(xAudio2.Get(), soundData1);
 
 	// DescriptorSizeを保存しておく
 	const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -477,7 +648,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 
 	// コマンドリスト作成
-	hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator, nullptr, IID_PPV_ARGS(&commandList));
+	hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList));
 	assert(SUCCEEDED(hr));
 
 	// スワップチェイン作成
@@ -490,12 +661,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	swapChainDesc.BufferCount = 2;
 	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-	IDXGISwapChain1* tempSwapChain = nullptr;
-	hr = dxgiFactory->CreateSwapChainForHwnd(commandQueue, hwnd, &swapChainDesc, nullptr, nullptr, &tempSwapChain);
+	Microsoft::WRL::ComPtr<IDXGISwapChain1> tempSwapChain;
+	hr = dxgiFactory->CreateSwapChainForHwnd(
+		commandQueue, hwnd, &swapChainDesc,
+		nullptr, nullptr,
+		tempSwapChain.GetAddressOf()  // ← ここ重要！
+	);
+	if (FAILED(hr)) {
+		OutputDebugStringA("CreateSwapChainForHwnd failed!\n");
+		assert(false);
+	}
+	hr = tempSwapChain->QueryInterface(IID_PPV_ARGS(swapChain.GetAddressOf()));
 	assert(SUCCEEDED(hr));
-	hr = tempSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain));
-	assert(SUCCEEDED(hr));
-	tempSwapChain->Release();
 
 	// ImGui初期化
 	IMGUI_CHECKVERSION();
@@ -533,13 +710,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// Textureを読んで転送する
 	DirectX::ScratchImage mipImages = LoadTexture("Resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
+	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
 	UploadTextureData(textureResource, mipImages);
 
 	// 2枚目のTextureを読んで転送する
 	DirectX::ScratchImage mipImages2 = LoadTexture(modelData.material.textureFilePath);
 	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
-	ID3D12Resource* textureResource2 = CreateTextureResource(device, metadata2);
+	Microsoft::WRL::ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device, metadata2);
 	UploadTextureData(textureResource2, mipImages2);
 
 	//metaDataを基にSRVの設定
@@ -557,7 +734,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	textureSrvHandleGPU.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	// SRVを作成
 	device->CreateShaderResourceView(
-		textureResource,
+		textureResource.Get(),
 		&srvDesc,
 		textureSrvHandleCPU);
 
@@ -572,7 +749,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
 	// SRVを作成
-	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
+	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 
 	// ディスクリプタヒープの設定
 	D3D12_DESCRIPTOR_RANGE descriptorRange{};
@@ -943,14 +1120,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12DescriptorHeap* dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
 	// DepthStencil Textureをウィンドウのサイズで作成
-	ID3D12Resource* depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
+	ResourceObject* depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
 
 	// DSVの設定
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
 	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // Format。基本的にはResourceに合わせる
 	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D; // 2dTexture
 	// DSVHeapの先頭にDSVをつくる
-	device->CreateDepthStencilView(depthStencilResource, &dsvDesc, dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	device->CreateDepthStencilView(depthStencilResource->Get(), &dsvDesc, dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	bool useMonsterBall = true;
 
@@ -965,7 +1142,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			hr = commandAllocator->Reset();
 			assert(SUCCEEDED(hr));
-			hr = commandList->Reset(commandAllocator, graphicsPipelineState);
+			hr = commandList->Reset(commandAllocator.Get(), graphicsPipelineState);
 			assert(SUCCEEDED(hr));
 
 			// Transform変数を作る
@@ -1148,11 +1325,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// --- 後片付け ---
 	CloseHandle(fenceEvent);
 	if (fence) fence->Release();
-	for (int i = 0; i < 2; ++i) {
-		if (swapChainResources[i]) swapChainResources[i]->Release();
-	}
+	
 	if (rtvDescriptorHeap) rtvDescriptorHeap->Release();
-	if (swapChain) swapChain->Release();
 	if (commandList) commandList->Release();
 	if (commandAllocator) commandAllocator->Release();
 	if (commandQueue) commandQueue->Release();
@@ -1167,6 +1341,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	if (signatureBlob) signatureBlob->Release();
 	if (errorBlob) errorBlob->Release();
 	materialResource->Release();
+	xAudio2->Release();
+	SoundUnload(&soundData1);
 
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
@@ -1503,7 +1679,7 @@ DirectX::ScratchImage LoadTexture(const std::string& filePath)
 	assert(SUCCEEDED(hr));
 	return mipImage;
 }
-ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata)
 {
 	// metadaraをもとにResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
@@ -1542,7 +1718,7 @@ ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMe
 	assert(resource != nullptr);
 	return resource;
 }
-void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages)
+void UploadTextureData(const Microsoft::WRL::ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages)
 {
 	// Meta情報を取得
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
