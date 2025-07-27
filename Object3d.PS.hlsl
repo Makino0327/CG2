@@ -16,7 +16,8 @@ struct DirectionalLight
 struct Material
 {
     float4 color;
-    int enableLighting;
+    int lightingType;
+    float3 padding;
     float4x4 uvTransform;
 };
 
@@ -35,23 +36,32 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
     
-    float4 transformedUV = mul(float4(input.texcoord,0.0f, 1.0f), gMaterial.uvTransform);
+    float4 transformedUV = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
 
-    if (gMaterial.enableLighting != 0)
-    {
-        float3 lightDir = normalize(-gDirectionalLight.direction);
-        float3 normal = normalize(input.normal);
-        float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
-        float cos = pow(NdotL * 0.5f + 0.5f, 2.0f);
+    float3 finalColor = gMaterial.color.rgb * textureColor.rgb;
 
-        output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
-    }
-    else
+    float3 normal = normalize(input.normal);
+    float3 lightDir = normalize(-gDirectionalLight.direction);
+
+    if (gMaterial.lightingType == 1)
     {
-        output.color = gMaterial.color * textureColor;
+        // Lambert（やや暗め）
+        float ndotl = saturate(dot(normal, lightDir));
+        float lambert = pow(ndotl, 1.5f); // 少しシャープに
+        finalColor *= gDirectionalLight.color.rgb * gDirectionalLight.intensity * lambert * 0.5f;
+    }
+    else if (gMaterial.lightingType == 2)
+    {
+        // Half Lambert（かなり暗めに調整）
+        float ndotl = dot(normal, lightDir);
+        float halfLambert = pow(ndotl * 0.5f + 0.5f, 2.5f);
+        finalColor *= gDirectionalLight.color.rgb * gDirectionalLight.intensity * halfLambert * 0.4f;
     }
 
+    output.color = float4(finalColor, 1.0f);
     return output;
 }
+
+
 
