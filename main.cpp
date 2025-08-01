@@ -1604,20 +1604,32 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::Separator();
 
 				// Object (Plane)
-				if (ImGui::CollapsingHeader("Object", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::CollapsingHeader("Plane", ImGuiTreeNodeFlags_DefaultOpen)) {
 					ImGui::SliderFloat3("##PlaneTranslate", &modelTransform.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
 					ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-					if (ImGui::Button("Delete")) {/*必要なら処理*/ }
 				}
 
 				// Material
-				if (ImGui::CollapsingHeader("Object", ImGuiTreeNodeFlags_DefaultOpen)) {
+				if (ImGui::CollapsingHeader("Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
 					ImGui::SliderFloat3("##SpriteTranslate", &transformSprite.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
 					ImGui::SliderFloat3("##SpriteRotate", &transformSprite.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##SpriteScale", &transformSprite.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-					if (ImGui::Button("Delete")) {/*必要なら処理*/ }
+					
 				}
+
+				// UVTranslate（2D）
+				ImGui::DragFloat2("##UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
+				ImGui::SameLine(); ImGui::Text("UVTranslate");
+
+				// UVRotate（Z軸のみ）
+				ImGui::DragFloat("##UVRotate", &uvTransformSprite.rotate.z, 0.01f, -3.14f, 3.14f);
+				ImGui::SameLine(); ImGui::Text("UVRotate");
+
+				// UVScale（2D）
+				ImGui::DragFloat2("##UVScale", &uvTransformSprite.scale.x, 0.01f, 0.0f, 10.0f);
+				ImGui::SameLine(); ImGui::Text("UVScale");
+
 
 			} else if (currentMode == DisplayMode::Sphere) {
 				// Sphere用Object編集
@@ -1690,6 +1702,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				SoundPlayWave(xAudio2.Get(), soundData1);
 				isSoundPlayed = true;
 			}
+
+			// フレームの一番最後で呼ぶ（描画後でも可）
+			ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+			ImGui::SetNextWindowBgAlpha(0.35f); // 半透明にする（好みで調整）
+
+			if (ImGui::Begin("How to operate", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+				ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
+
+				ImGui::Text("How to operate");
+				ImGui::Separator();
+				ImGui::Text("Lstick : cameraTranslate");
+				ImGui::Text("Rstick : cameraRotate");
+				ImGui::Text("A : PlaySound");
+				ImGui::Text("Y : switchOBJ");
+				
+
+				ImGui::End();
+			}
+
 
 
 			ImGui::End();
