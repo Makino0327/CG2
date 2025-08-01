@@ -21,6 +21,7 @@
 #include <sstream>   // istringstream 用（後で使う）
 #include <xaudio2.h>
 #include <wrl.h>
+#include <Xinput.h>
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -28,16 +29,22 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib,"xaudio2.lib")
+#pragma comment(lib, "xinput.lib")
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
 
 enum class DisplayMode {
 	Sprite,
 	Sphere,
 	Teapot,
 	Bunny,
-	MultiMesh
+	MultiMesh,
+	Count
 };
+
+
 
 const char* textureNames[] = {
 	"uvChecker",
@@ -112,9 +119,16 @@ struct VertexData {
 	float pad;
 };
 
-struct ModelData {
+struct MeshData {
+	std::string name;
 	std::vector<VertexData> vertices;
 };
+
+struct ModelData {
+	std::vector<MeshData> meshes;
+};
+
+extern std::vector<ModelData> allModels;
 
 struct Material {
 	Vector4 color;
@@ -266,17 +280,19 @@ Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
 	return result;
 }
 
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename)
-{
-	ModelData modelData;               // 頂点情報の格納先
-	std::vector<Vector4> positions;    // 位置（v）
-	std::vector<Vector3> normals;      // 法線（vn）
-	std::vector<Vector2> texcoords;    // テクスチャ座標（vt）
-	std::string line;                  // 1行読み取り用
+ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
+	ModelData modelData;
+	std::vector<Vector4> positions;
+	std::vector<Vector3> normals;
+	std::vector<Vector2> texcoords;
+	std::string line;
 
 	std::ifstream file(directoryPath + "/" + filename);
 	bool flipY = (filename != "plane.obj");
-	assert(file.is_open()); // ファイルが開けない場合は強制終了
+	assert(file.is_open());
+
+	MeshData currentMesh;
+	currentMesh.name = "Default";
 
 	while (std::getline(file, line)) {
 		std::string identifier;
@@ -286,14 +302,12 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 		if (identifier == "v") {
 			Vector4 position;
 			s >> position.x >> position.y >> position.z;
-			position.w = 1.0f; // 同次座標系でのw成分を追加
+			position.w = 1.0f;
 			positions.push_back(position);
 		} else if (identifier == "vt") {
 			Vector2 texcoord;
 			s >> texcoord.x >> texcoord.y;
-
 			texcoord.y = 1.0f - texcoord.y;
-			
 			texcoords.push_back(texcoord);
 		} else if (identifier == "vn") {
 			Vector3 normal;
@@ -306,8 +320,7 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 				s >> vertexDefinition;
 
 				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3]; // 位置 / UV / 法線
-
+				uint32_t elementIndices[3];
 				for (int32_t element = 0; element < 3; ++element) {
 					std::string index;
 					std::getline(v, index, '/');
@@ -319,7 +332,6 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 				Vector3 normal = normals[elementIndices[2] - 1];
 
 				if (flipY) {
-					// ←←← 左手系への変換
 					position.x *= -1.0f;
 					normal.x *= -1.0f;
 
@@ -329,22 +341,49 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 					position.x = x * cos(rad) - z * sin(rad);
 					position.z = x * sin(rad) + z * cos(rad);
 				}
-				
 
 				triangle[faceVertex] = { position, texcoord, normal };
 			}
 
-			// ←←← 頂点を逆順で追加（三角形の回転方向も反転）
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
+			currentMesh.vertices.push_back(triangle[2]);
+			currentMesh.vertices.push_back(triangle[1]);
+			currentMesh.vertices.push_back(triangle[0]);
+		} else if (identifier == "o" || identifier == "g") {
+			if (!currentMesh.vertices.empty()) {
+				modelData.meshes.push_back(currentMesh);
+				currentMesh = MeshData();
+			}
+
+			std::string meshName;
+			s >> meshName;
+			currentMesh.name = meshName;
 		}
+	}
 
-
+	// 最後のメッシュも忘れずに追加
+	if (!currentMesh.vertices.empty()) {
+		modelData.meshes.push_back(currentMesh);
 	}
 
 	return modelData;
 }
+
+Vector3 Add(const Vector3& a, const Vector3& b) {
+	return {
+		a.x + b.x,
+		a.y + b.y,
+		a.z + b.z
+	};
+}
+
+Vector3 AddVector(const Vector3& v, float scalar) {
+	return {
+		v.x * scalar,
+		v.y * scalar,
+		v.z * scalar
+	};
+}
+
 
 SoundData SoundLoadWave(const char* filename)
 {
@@ -1177,54 +1216,47 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 
-	ID3D12Resource* vertexResourceModel = CreateBufferResource(
-		device, sizeof(VertexData) * modelData.vertices.size());
+	// モデル一覧
+	std::vector<ModelData> allModels = {
+		modelData,         // 旧: modelData
+		teapotModel,       // 旧: teapotModel
+		modelDataBunny,    // 旧: modelDataBunny
+		multiMeshModel     // 旧: multiMeshModel
+	};
 
-	VertexData* vertexDataModelPtr = nullptr;
-	vertexResourceModel->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataModelPtr));
-	memcpy(vertexDataModelPtr, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size());
-	vertexResourceModel->Unmap(0, nullptr);
+	// 結果保存用
+	std::vector<std::vector<ID3D12Resource*>> vertexResourcesPerModel;
+	std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
 
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewModel{};
-	vertexBufferViewModel.BufferLocation = vertexResourceModel->GetGPUVirtualAddress();
-	vertexBufferViewModel.SizeInBytes = sizeof(VertexData) * static_cast<UINT>(modelData.vertices.size());
-	vertexBufferViewModel.StrideInBytes = sizeof(VertexData);
+	for (const auto& model : allModels) {
+		std::vector<ID3D12Resource*> vertexResources;
+		std::vector<D3D12_VERTEX_BUFFER_VIEW> vertexBufferViews;
 
-	// Vertex Resource を作成
-	ID3D12Resource* vertexResourceTeapot = CreateBufferResource(device, sizeof(VertexData) * teapotModel.vertices.size());
+		for (const auto& mesh : model.meshes) {
+			// 頂点バッファリソース作成
+			ID3D12Resource* vertexResource = CreateBufferResource(
+				device, sizeof(VertexData) * mesh.vertices.size());
+			vertexResources.push_back(vertexResource);
 
-	// 頂点データを書き込む
-	VertexData* vertexDataTeapot = nullptr;
-	vertexResourceTeapot->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataTeapot));
-	std::memcpy(vertexDataTeapot, teapotModel.vertices.data(), sizeof(VertexData)* teapotModel.vertices.size());
-	vertexResourceTeapot->Unmap(0, nullptr);
+			// マッピングとコピー
+			VertexData* vertexData = nullptr;
+			vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+			std::memcpy(vertexData, mesh.vertices.data(),
+				sizeof(VertexData) * mesh.vertices.size());
+			vertexResource->Unmap(0, nullptr);
 
-	// Vertex Buffer View を作成
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewTeapot{};
-	vertexBufferViewTeapot.BufferLocation = vertexResourceTeapot->GetGPUVirtualAddress();
-	vertexBufferViewTeapot.SizeInBytes = UINT(sizeof(VertexData) * teapotModel.vertices.size());
-	vertexBufferViewTeapot.StrideInBytes = sizeof(VertexData);
+			// ビュー作成
+			D3D12_VERTEX_BUFFER_VIEW vbv{};
+			vbv.BufferLocation = vertexResource->GetGPUVirtualAddress();
+			vbv.SizeInBytes = UINT(sizeof(VertexData) * mesh.vertices.size());
+			vbv.StrideInBytes = sizeof(VertexData);
+			vertexBufferViews.push_back(vbv);
+		}
 
-	// バッファ作成（すでにある関数を使う想定）
-	ID3D12Resource* vertexResourceBunny = CreateBufferResource(device, sizeof(VertexData) * modelDataBunny.vertices.size());
-	VertexData* vertexDataBunnyPtr = nullptr;
-	vertexResourceBunny->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataBunnyPtr));
-	std::memcpy(vertexDataBunnyPtr, modelDataBunny.vertices.data(), sizeof(VertexData)* modelDataBunny.vertices.size());
+		vertexResourcesPerModel.push_back(vertexResources);
+		vertexBufferViewsPerModel.push_back(vertexBufferViews);
+	}
 
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewBunny{};
-	vertexBufferViewBunny.BufferLocation = vertexResourceBunny->GetGPUVirtualAddress();
-	vertexBufferViewBunny.SizeInBytes = UINT(sizeof(VertexData) * modelDataBunny.vertices.size());
-	vertexBufferViewBunny.StrideInBytes = sizeof(VertexData);
-
-	ID3D12Resource* vertexResourceMultiMesh = CreateBufferResource(device, sizeof(VertexData) * multiMeshModel.vertices.size());
-	VertexData* vertexDataMultiMesh = nullptr;
-	vertexResourceMultiMesh->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataMultiMesh));
-	std::memcpy(vertexDataMultiMesh, multiMeshModel.vertices.data(), sizeof(VertexData)* multiMeshModel.vertices.size());
-
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewMultiMesh{};
-	vertexBufferViewMultiMesh.BufferLocation = vertexResourceMultiMesh->GetGPUVirtualAddress();
-	vertexBufferViewMultiMesh.SizeInBytes = UINT(sizeof(VertexData) * multiMeshModel.vertices.size());
-	vertexBufferViewMultiMesh.StrideInBytes = sizeof(VertexData);
 
 
 	// ビューポート
@@ -1284,6 +1316,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// --- メインループ ---
 	MSG msg{};
+	bool wasYPressed = false;
 	while (msg.message != WM_QUIT) {
 		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
 			TranslateMessage(&msg);
@@ -1293,6 +1326,92 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			assert(SUCCEEDED(hr));
 			hr = commandList->Reset(commandAllocator, graphicsPipelineState);
 			assert(SUCCEEDED(hr));
+
+			// ゲームパッドの状態取得
+			XINPUT_STATE state{};
+			DWORD result = XInputGetState(0, &state); // 0は1Pコントローラー
+
+			if (result == ERROR_SUCCESS) {
+				// ----- Lスティックでカメラ位置を移動 -----
+				constexpr float deadZone = 7849.0f;
+				constexpr float maxStick = 32767.0f;
+
+				float lx = static_cast<float>(state.Gamepad.sThumbLX);
+				float ly = static_cast<float>(state.Gamepad.sThumbLY);
+
+				if (std::abs(lx) < deadZone) lx = 0;
+				if (std::abs(ly) < deadZone) ly = 0;
+
+				float normalizedLX = lx / maxStick;
+				float normalizedLY = ly / maxStick;
+
+				// カメラの移動速度
+				const float moveSpeed = 0.1f;
+
+				// カメラの正面・右方向ベクトルを計算
+				Vector3 forward = {
+					std::sin(cameraTransform.rotate.y),
+					0.0f,
+					std::cos(cameraTransform.rotate.y)
+				};
+				Vector3 right = {
+					std::cos(cameraTransform.rotate.y),
+					0.0f,
+					-std::sin(cameraTransform.rotate.y)
+				};
+
+				// 左スティックで前後左右移動
+				cameraTransform.translate = Add(
+					cameraTransform.translate,
+					AddVector(forward, normalizedLY * moveSpeed)
+				);
+				cameraTransform.translate = Add(
+					cameraTransform.translate,
+					AddVector(right, normalizedLX * moveSpeed)
+				);
+
+				// ----- Rスティックでカメラ回転 -----
+				float rx = static_cast<float>(state.Gamepad.sThumbRX);
+				float ry = static_cast<float>(state.Gamepad.sThumbRY);
+
+				if (std::abs(rx) < deadZone) rx = 0;
+				if (std::abs(ry) < deadZone) ry = 0;
+
+				float normalizedRX = rx / maxStick;
+				float normalizedRY = ry / maxStick;
+
+				const float rotateSpeed = 0.02f;
+				cameraTransform.rotate.y += normalizedRX * rotateSpeed; // 左右旋回
+				cameraTransform.rotate.x -= normalizedRY * rotateSpeed; // ✅ ここをマイナスに
+				
+
+				bool wasAPressed = false;
+				// Aボタンが押されているか？
+				bool isAPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_A);
+
+				// 押しっぱなし防止：前フレーム押されてなかった → 今押された
+				if (isAPressed && !wasAPressed) {
+					SoundPlayWave(xAudio2.Get(), soundData1); // サウンド再生関数
+				}
+
+				// 状態を記録
+				wasAPressed = isAPressed;
+
+				
+				// Yボタンの状態
+				bool isYPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
+
+				if (isYPressed && !wasYPressed) {
+					// モード切り替え（enumを循環）
+					int mode = static_cast<int>(currentMode);
+					mode = (mode + 1) % static_cast<int>(DisplayMode::Count); // ← Count を追加しておくと安全
+					currentMode = static_cast<DisplayMode>(mode);
+				}
+
+				wasYPressed = isYPressed;
+
+
+			}
 
 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
@@ -1371,19 +1490,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
+	
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
 				// --- モデル（Plane.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->DrawInstanced(static_cast<UINT>(modelData.vertices.size()), 1, 0, 0);
+				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
 
 				// --- スプライト描画 ---
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 				commandList->IASetIndexBuffer(&indexBufferViewSprite);
 
-				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress()); // Sprite用マテリアル
+				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
 				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
@@ -1392,19 +1512,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				// --- 球（Sphere.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceSphere->GetGPUVirtualAddress());
+
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSphere);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
 
-				// --- モデル（Plane.obj）描画 ---
+				// --- モデル（Plane.obj）描画（影などのため）---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->DrawInstanced(static_cast<UINT>(modelData.vertices.size()), 1, 0, 0);
-			}else if (currentMode == DisplayMode::Teapot) {
-				// WVP行列計算
+				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
+
+			} else if (currentMode == DisplayMode::Teapot) {
+				// --- ティーポット描画 ---
 				Matrix4x4 worldMatrixTeapot = MakeAffineMatrix(teapotTransform.scale, teapotTransform.rotate, teapotTransform.translate);
 				wvpDataTeapot->WVP = Multiply(worldMatrixTeapot, Multiply(viewMatrix, projectionMatrix));
 				wvpDataTeapot->World = worldMatrixTeapot;
@@ -1413,11 +1534,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceTeapot->GetGPUVirtualAddress());
 
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewTeapot);
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->DrawInstanced(static_cast<UINT>(teapotModel.vertices.size()), 1, 0, 0);
+				int modelIndex = 1; // teapotModel
+				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
+				}
+
 			} else if (currentMode == DisplayMode::Bunny) {
-				// WVP行列計算
+				// --- バニー描画 ---
 				Matrix4x4 worldMatrixBunny = MakeAffineMatrix(bunnyTransform.scale, bunnyTransform.rotate, bunnyTransform.translate);
 				wvpDataBunny->WVP = Multiply(worldMatrixBunny, Multiply(viewMatrix, projectionMatrix));
 				wvpDataBunny->World = worldMatrixBunny;
@@ -1426,10 +1551,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceBunny->GetGPUVirtualAddress());
 
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewBunny);
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->DrawInstanced(static_cast<UINT>(modelDataBunny.vertices.size()), 1, 0, 0);
+				int modelIndex = 2; // modelDataBunny
+				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
+				}
+
 			} else if (currentMode == DisplayMode::MultiMesh) {
+				// --- マルチメッシュ描画 ---
 				Matrix4x4 worldMatrixMultiMesh = MakeAffineMatrix(multiMeshTransform.scale, multiMeshTransform.rotate, multiMeshTransform.translate);
 				wvpDataMultiMesh->WVP = Multiply(worldMatrixMultiMesh, Multiply(viewMatrix, projectionMatrix));
 				wvpDataMultiMesh->World = worldMatrixMultiMesh;
@@ -1438,10 +1568,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceMultiMesh->GetGPUVirtualAddress());
 
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewMultiMesh);
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->DrawInstanced(static_cast<UINT>(multiMeshModel.vertices.size()), 1, 0, 0);
+				int modelIndex = 3; // multiMeshModel
+				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
+				}
 			}
+
 
 
 
@@ -1557,6 +1691,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				isSoundPlayed = true;
 			}
 
+
 			ImGui::End();
 
 
@@ -1611,7 +1746,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	if (dxgiFactory) dxgiFactory->Release();
 
 	if (vertexResourceSphere) vertexResourceSphere->Release();
-	if (vertexResourceModel) vertexResourceModel->Release();
 	if (graphicsPipelineState) graphicsPipelineState->Release();
 	if (rootSignature) rootSignature->Release();
 	if (vertexShaderBlob) vertexShaderBlob->Release();
@@ -1619,6 +1753,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	if (signatureBlob) signatureBlob->Release();
 	if (errorBlob) errorBlob->Release();
 	materialResource->Release();
+
+	for (auto& resourceList : vertexResourcesPerModel) {
+		for (ID3D12Resource* res : resourceList) {
+			if (res) {
+				res->Release();
+				res = nullptr;
+			}
+		}
+	}
+
 
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
