@@ -23,6 +23,9 @@
 #include <xaudio2.h>
 #include <wrl.h>
 #include <Xinput.h>
+#include <d3d12.h>
+#include <d3d12shader.h>
+#include <wrl.h>
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
