@@ -1,5 +1,6 @@
 // 必要なヘッダー
 #include <Windows.h>
+#include <filesystem>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <dxgidebug.h>
@@ -34,6 +35,8 @@ using Microsoft::WRL::ComPtr;
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
+
+
 
 enum class DisplayMode {
 	Sprite,
@@ -632,6 +635,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+
+
+	char exePath[MAX_PATH]{};
+	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+	std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
+	std::filesystem::current_path(exeDir);
+
 
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
 
@@ -1480,6 +1490,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
 			commandList->SetPipelineState(graphicsPipelineState);
+            // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
+           
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// テクスチャ選択に応じて SRV を切り替え
@@ -1900,7 +1912,10 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 		nullptr,
 		IID_PPV_ARGS(&resource)
 	);
-
+	if (FAILED(hr)) {
+		MessageBoxA(nullptr, "CreateCommittedResource failed", "ERROR", MB_OK);
+		return nullptr;
+	}
 	// 作成に失敗した場合はエラーログを出力
 	if (FAILED(hr)) {
 		Log(L"Failed to create material resource");
