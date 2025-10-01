@@ -26,6 +26,14 @@
 #include <d3d12.h>
 #include <d3d12shader.h>
 #include <wrl.h>
+
+#include "Math.h"
+#include "Types.h"
+#include "ModelLoader.h"
+#include "SoundManager.h"
+#include "TextureManager.h"
+#include "Util.h"
+
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -39,119 +47,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
 
-enum class DisplayMode {
-	Sprite,
-	Sphere,
-	Teapot,
-	Bunny,
-	MultiMesh,
-	Count
-};
-
-
-
 const char* textureNames[] = {
 	"uvChecker",
 	"monsterBall",
 	"checkerBoard"
 };
 
-struct ChunkHeader
-{
-	char id[4];
-	int32_t size;
-};
-
-struct RiffHeader
-{
-	ChunkHeader chunk;
-	char type[4];
-};
-
-struct FormatChunk
-{
-	ChunkHeader chunk;
-	WAVEFORMATEX fmt;
-};
-
-struct SoundData
-{
-	WAVEFORMATEX wfex;
-	BYTE* pBuffer;
-	unsigned int bufferSize;
-};
-
-// Lightingの方式を定義する列挙型
-enum class LightingType {
-	None = 0,
-	Lambert,
-	HalfLambert
-};
-
-
-// Vector4型を定義する
-struct Vector4 {
-	float x, y, z, w;
-};
-
-struct Vector3 {
-	float x, y, z;
-};
-
-struct Vector2 {
-	float x, y;
-};
-
-struct Matrix4x4 {
-	float m[4][4];
-};
-
-struct Matrix3x3 {
-	float m[3][3];
-};
-
-struct Transform {
-	Vector3 scale;
-	Vector3 rotate;
-	Vector3 translate;
-};
-
-struct VertexData {
-	Vector4 position;
-	Vector2 texcoord;
-	Vector3 normal;
-	float pad;
-};
-
-struct MeshData {
-	std::string name;
-	std::vector<VertexData> vertices;
-};
-
-struct ModelData {
-	std::vector<MeshData> meshes;
-};
-
 extern std::vector<ModelData> allModels;
-
-struct Material {
-	Vector4 color;
-	int32_t lightingType;     // ← ここをリネーム
-	float padding[3];         // ← 既にパディング済みなのでそのままOK
-	Matrix4x4 uvTransform;
-};
-
-
-struct TransformationMatrix {
-	Matrix4x4 WVP;
-	Matrix4x4 World;
-};
-
-struct DirectionalLight {
-	Vector4 color;        // ライトの色
-	Vector3 direction;    // ライトの向き（単位ベクトル）
-	float intensity;      // 強度
-};
 
 // モデル（Model）のTransform
 static Transform modelTransform{
@@ -197,180 +99,7 @@ static Transform multiMeshTransform = {
 	{0.0f, 0.0f, 0.0f}   // translate
 };
 
-/// <summary>
-///ディスクリプタヒープを作成
-/// </summary>
-/// <param name="device">ディスクリプタヒープを作成する対象の ID3D12Device</param>
-/// <param name="heapType">作成するディスクリプタヒープの種類（CBV/SRV/UAV など）</param>
-/// <param name="numDescriptors">ディスクリプタの数</param>
-/// <param name="shaderVisible">シェーダーから参照可能にするかどうか</param>
-/// <returns>作成された ID3D12DescriptorHeap のポインタ。失敗した場合は nullptr。</returns>
 ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible);
-/// <summary>
-/// 単位行列
-/// </summary>
-/// <returns>単位行列</returns>
-Matrix4x4 MakeIdentity4x4();
-/// <summary>
-/// スケール、回転、平行移動の各要素からアフィン変換行列（4x4）を生成。
-/// </summary>
-/// <param name="scale">拡大縮小を表すスケールベクトル。</param>
-/// <param name="rotate">回転を表すオイラー角（ラジアン）ベクトル。</param>
-/// <param name="translate">位置を表す平行移動ベクトル。</param>
-/// <returns>アフィン変換を表す 4x4 行列。</returns>
-Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate);
-/// <summary>
-/// 垂直方向の視野角、アスペクト比、近距離および遠距離クリップ面を元に透視投影行列（4x4）を生成。
-/// </summary>
-/// <param name="fovY">垂直方向の視野角（ラジアン単位）。</param>
-/// <param name="aspect">アスペクト比（横幅 ÷ 高さ）。</param>
-/// <param name="nearZ">近距離クリップ面の距離。</param>
-/// <param name="farZ">遠距離クリップ面の距離。</param>
-/// <returns>透視投影を表す 4x4 行列。</returns>
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ);
-/// <summary>
-/// 2つの 4x4 行列の積を計算し、合成された変換行列を返します。
-/// </summary>
-/// <param name="a">左側の行列（先に適用される変換）。</param>
-/// <param name="b">右側の行列（後に適用される変換）。</param>
-/// <returns>掛け算の結果となる 4x4 行列。</returns>
-Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
-/// <summary>
-/// 指定された 4x4 行列の逆行列を計算して返します。
-/// </summary>
-/// <param name="m">逆行列を求める対象の 4x4 行列。</param>
-/// <returns>指定された行列の逆行列（Matrix4x4 型）。</returns>
-Matrix4x4 Inverse(const Matrix4x4& m);
-
-Vector3 Normalize(const Vector3& v) {
-	float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-	if (length == 0.0f) return { 0.0f, 0.0f, 0.0f };
-	return { v.x / length, v.y / length, v.z / length };
-}
-
-Matrix4x4 MakeScaleMatrix(const Vector3& scale) {
-	Matrix4x4 result = {};
-	result.m[0][0] = scale.x;
-	result.m[1][1] = scale.y;
-	result.m[2][2] = scale.z;
-	result.m[3][3] = 1.0f;
-	return result;
-}
-
-Matrix4x4 MakeRotateZMatrix(float angle) {
-	Matrix4x4 result = {};
-	float c = cosf(angle);
-	float s = sinf(angle);
-
-	result.m[0][0] = c;
-	result.m[0][1] = -s;
-	result.m[1][0] = s;
-	result.m[1][1] = c;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-	return result;
-}
-
-Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
-	Matrix4x4 result = {};
-	result.m[0][0] = 1.0f;
-	result.m[1][1] = 1.0f;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-
-	result.m[3][0] = translate.x;
-	result.m[3][1] = translate.y;
-	result.m[3][2] = translate.z;
-	return result;
-}
-
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
-	ModelData modelData;
-	std::vector<Vector4> positions;
-	std::vector<Vector3> normals;
-	std::vector<Vector2> texcoords;
-	std::string line;
-
-	std::ifstream file(directoryPath + "/" + filename);
-	bool flipY = (filename != "plane.obj");
-	assert(file.is_open());
-
-	MeshData currentMesh;
-	currentMesh.name = "Default";
-
-	while (std::getline(file, line)) {
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-
-		if (identifier == "v") {
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.w = 1.0f;
-			positions.push_back(position);
-		} else if (identifier == "vt") {
-			Vector2 texcoord;
-			s >> texcoord.x >> texcoord.y;
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		} else if (identifier == "vn") {
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normals.push_back(normal);
-		} else if (identifier == "f") {
-			VertexData triangle[3];
-			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-
-				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3];
-				for (int32_t element = 0; element < 3; ++element) {
-					std::string index;
-					std::getline(v, index, '/');
-					elementIndices[element] = std::stoi(index);
-				}
-
-				Vector4 position = positions[elementIndices[0] - 1];
-				Vector2 texcoord = texcoords[elementIndices[1] - 1];
-				Vector3 normal = normals[elementIndices[2] - 1];
-
-				if (flipY) {
-					position.x *= -1.0f;
-					normal.x *= -1.0f;
-
-					float rad = 3.141592f;
-					float x = position.x;
-					float z = position.z;
-					position.x = x * cos(rad) - z * sin(rad);
-					position.z = x * sin(rad) + z * cos(rad);
-				}
-
-				triangle[faceVertex] = { position, texcoord, normal };
-			}
-
-			currentMesh.vertices.push_back(triangle[2]);
-			currentMesh.vertices.push_back(triangle[1]);
-			currentMesh.vertices.push_back(triangle[0]);
-		} else if (identifier == "o" || identifier == "g") {
-			if (!currentMesh.vertices.empty()) {
-				modelData.meshes.push_back(currentMesh);
-				currentMesh = MeshData();
-			}
-
-			std::string meshName;
-			s >> meshName;
-			currentMesh.name = meshName;
-		}
-	}
-
-	// 最後のメッシュも忘れずに追加
-	if (!currentMesh.vertices.empty()) {
-		modelData.meshes.push_back(currentMesh);
-	}
-
-	return modelData;
-}
 
 Vector3 Add(const Vector3& a, const Vector3& b) {
 	return {
@@ -387,127 +116,6 @@ Vector3 AddVector(const Vector3& v, float scalar) {
 		v.z * scalar
 	};
 }
-
-
-SoundData SoundLoadWave(const char* filename)
-{
-	/// 1.ファイルオープン
-	// ファイル入力ストリームのインスタンス
-	std::ifstream file;
-	// .wavファイルをバイナリモードで開く
-	file.open(filename, std::ios::binary);
-	// ファイルオープン失敗を検出する
-	assert(file.is_open());
-
-	/// 2.wavデータ読み込み
-	// RIFFヘッダーの読み込み
-	RiffHeader riff;
-	file.read((char*)&riff, sizeof(riff));
-	// ファイルがRIFFかチェック
-	if (strncmp(riff.chunk.id, "RIFF", 4) != 0)
-	{
-		assert(0);
-	}
-	// タイプがWAVEかチェック
-	if (strncmp(riff.type, "WAVE", 4) != 0)
-	{
-		assert(0);
-	}
-	// Formatチャンクの読み込み
-	// Formatチャンクの読み込み（柔軟に探す）
-	FormatChunk format = {};
-	ChunkHeader chunk{};
-	while (true) {
-		file.read((char*)&chunk, sizeof(chunk));
-		if (file.eof()) {
-			assert(0 && "fmtチャンクが見つかりませんでした");
-		}
-
-		if (strncmp(chunk.id, "fmt ", 4) == 0) {
-			format.chunk = chunk;
-			assert(format.chunk.size <= sizeof(format.fmt));
-			file.read((char*)&format.fmt, format.chunk.size);
-			break;
-		}
-
-		// fmtじゃなかったらスキップ
-		file.seekg(chunk.size, std::ios_base::cur);
-	}
-
-	// Dataチャンクの読み込み
-	ChunkHeader data;
-	file.read((char*)&data, sizeof(data));
-	// JUNKチャンクを検出した場合
-	if (strncmp(data.id, "JUNK", 4) == 0)
-	{
-		// 読み取り位置をJUNKチャンクの終わりまで進める
-		file.seekg(data.size, std::ios_base::cur);
-		// 再読み込み
-		file.read((char*)&data, sizeof(data));
-	}
-
-	if (strncmp(data.id, "data", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// Dataチャンクのデータ部（波型データ）の読み込み
-	char* pBuffer = new char[data.size];
-	file.read(pBuffer, data.size);
-	/// 3.ファイルクローズ
-	// Waveファイルを閉じる
-	file.close();
-
-	/// 4.読み込んだ音声データをreturn
-	// returnするための音声データ
-	SoundData soundData = {};
-
-	soundData.wfex = format.fmt;
-	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
-	soundData.bufferSize = data.size;
-
-	return soundData;
-}
-
-// 音声データ解放
-void SoundUnload(SoundData* soundData)
-{
-	// バッファの解放
-	delete[] soundData->pBuffer;
-
-	soundData->pBuffer = 0;
-	soundData->bufferSize = 0;
-	soundData->wfex = {};
-}
-
-// 音声再生
-void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
-{
-	HRESULT result;
-
-	// 波形フォーマットをもとにSourceVoiceの生成
-	IXAudio2SourceVoice* pSourceVoice = nullptr;
-	result = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
-	assert(SUCCEEDED(result));
-
-	// 再生する波形データの設定
-	XAUDIO2_BUFFER buf{};
-	buf.pAudioData = soundData.pBuffer;
-	buf.AudioBytes = soundData.bufferSize;
-	buf.Flags = XAUDIO2_END_OF_STREAM;
-
-	// 波形データの再生
-	result = pSourceVoice->SubmitSourceBuffer(&buf);
-	result = pSourceVoice->Start();
-}
-
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ);
-
-DirectX::ScratchImage LoadTexture(const std::string& filePath);
-
-ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata);
-
-void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages);
 
 ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
 {
@@ -573,22 +181,9 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	return handleGPU;
 }
 
-
-// 1. ConvertString関数
-std::wstring ConvertString(const std::string& str) {
-	int len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, nullptr, 0);
-	std::wstring wstr(len, 0);
-	MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wstr[0], len);
-	return wstr;
-}
-
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes);
 
-// 2. Log関数
-void Log(const std::wstring& message) {
-	OutputDebugStringW(message.c_str());
-	OutputDebugStringW(L"\n"); // 改行も出す
-}
+
 
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
@@ -612,13 +207,13 @@ D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2];
 ID3D12Fence* fence = nullptr;
 UINT64 fenceValue = 0;
 HANDLE fenceEvent = nullptr;
-ComPtr<IXAudio2> xAudio2;
-IXAudio2MasteringVoice* masteringVoice;
+SoundManager soundManager;
+SoundData soundData1;
 
 DisplayMode currentMode = DisplayMode::Sprite;
 LightingType currentLighting = LightingType::Lambert;
 
-SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
+
 
 // ウィンドウプロシージャ（標準）
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -738,12 +333,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-	assert(SUCCEEDED(result));
-
-	result = xAudio2->CreateMasteringVoice(&masteringVoice);
-	assert(SUCCEEDED(result));
-
+	
 	// コマンドリストクローズ
 	hr = commandList->Close();
 	assert(SUCCEEDED(hr));
@@ -767,22 +357,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 
 	// Textureを読んで転送する
-	DirectX::ScratchImage mipImages = LoadTexture("Resources/uvChecker.png");
+	DirectX::ScratchImage mipImages = TextureManager::LoadTexture("Resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
-	UploadTextureData(textureResource, mipImages);
+	ID3D12Resource* textureResource = TextureManager::CreateTextureResource(device, metadata);
+	TextureManager::UploadTextureData(textureResource, mipImages);
 
 	// 2枚目のTextureを読んで転送する
-	DirectX::ScratchImage mipImages2 = LoadTexture("Resources/monsterBall.png");
+	DirectX::ScratchImage mipImages2 = TextureManager::LoadTexture("Resources/monsterBall.png");
 	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
-	ID3D12Resource* textureResource2 = CreateTextureResource(device, metadata2);
-	UploadTextureData(textureResource2, mipImages2);
+	ID3D12Resource* textureResource2 = TextureManager::CreateTextureResource(device, metadata2);
+	TextureManager::UploadTextureData(textureResource2, mipImages2);
 
 	// checkerBoard.png を読み込む
-	DirectX::ScratchImage mipImages3 = LoadTexture("Resources/checkerBoard.png");
+	DirectX::ScratchImage mipImages3 = TextureManager::LoadTexture("Resources/checkerBoard.png");
 	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
-	ID3D12Resource* textureResource3 = CreateTextureResource(device, metadata3);
-	UploadTextureData(textureResource3, mipImages3);
+	ID3D12Resource* textureResource3 = TextureManager::CreateTextureResource(device, metadata3);
+	TextureManager::UploadTextureData(textureResource3, mipImages3);
+
+	if (!soundManager.Initialize()) {
+		MessageBoxA(nullptr, "XAudio2 Init Failed", "Error", MB_OK);
+		return -1;
+	}
+
+	soundData1 = soundManager.SoundLoadWave("Resources/fanfare.wav");
 
 	//metaDataを基にSRVの設定
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -1220,10 +817,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	vertexBufferViewSphere.SizeInBytes = sizeof(VertexData) * static_cast<UINT>(vertexDataSphere.size());
 	vertexBufferViewSphere.StrideInBytes = sizeof(VertexData);
 
-	ModelData modelData = LoadObjFile("resources", "plane.obj");
-	ModelData teapotModel = LoadObjFile("resources", "teapot.obj");
-	ModelData modelDataBunny = LoadObjFile("Resources", "bunny.obj");
-	ModelData multiMeshModel = LoadObjFile("Resources", "multiMesh.obj");
+	ModelData modelData = ModelLoader::LoadObjFile("resources", "plane.obj");
+	ModelData teapotModel = ModelLoader::LoadObjFile("resources", "teapot.obj");
+	ModelData modelDataBunny = ModelLoader::LoadObjFile("Resources", "bunny.obj");
+	ModelData multiMeshModel = ModelLoader::LoadObjFile("Resources", "multiMesh.obj");
 
 
 
@@ -1402,7 +999,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 				// 押しっぱなし防止：前フレーム押されてなかった → 今押された
 				if (isAPressed && !wasAPressed) {
-					SoundPlayWave(xAudio2.Get(), soundData1); // サウンド再生関数
+					soundManager.SoundPlayWave(soundData1);
 				}
 
 				// 状態を記録
@@ -1420,10 +1017,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				}
 
 				wasYPressed = isYPressed;
-
-
 			}
-
 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
 			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
@@ -1498,12 +1092,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// テクスチャ選択に応じて SRV を切り替え
 			commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 
-
 			// マテリアル・ライト共通設定（Plane, Sphere, Sprite 全部使う）
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
-	
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
 				// --- モデル（Plane.obj）描画 ---
@@ -1589,14 +1181,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				}
 			}
 
-
-
-
-
-			//描画
-
-
-
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
@@ -1609,7 +1193,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			if (ImGui::Combo("Display Mode", &currentModeIndex, modeItems, IM_ARRAYSIZE(modeItems))) {
 				currentMode = static_cast<DisplayMode>(currentModeIndex);
 			}
-
 
 			// === モード別UI分岐 ===
 			if (currentMode == DisplayMode::Sprite) {
@@ -1628,7 +1211,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					ImGui::SliderFloat3("##SpriteTranslate", &transformSprite.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
 					ImGui::SliderFloat3("##SpriteRotate", &transformSprite.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##SpriteScale", &transformSprite.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-					
 				}
 
 				// UVTranslate（2D）
@@ -1712,7 +1294,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			bool isSoundPlayed = false;
 
 			if (ImGui::Button("Start") && !isSoundPlayed) {
-				SoundPlayWave(xAudio2.Get(), soundData1);
+				soundManager.SoundPlayWave( soundData1);
 				isSoundPlayed = true;
 			}
 
@@ -1735,10 +1317,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::End();
 			}
 
-
-
 			ImGui::End();
-
 
 			ImGui::Render();
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -1809,8 +1388,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 
-	xAudio2.Reset();
-	SoundUnload(&soundData1);
+	soundManager.SoundUnload(&soundData1);
+	soundManager.Finalize();
 
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
@@ -1927,298 +1506,5 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	assert(SUCCEEDED(hr));
 	return resource;
 }
-Matrix4x4 MakeIdentity4x4() {
-	Matrix4x4 result = {};
-
-	result.m[0][0] = 1.0f;
-	result.m[1][1] = 1.0f;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-
-	return result;
-}
-Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate)
-{
-	Matrix4x4 matrix = {};
-	float cosX = cosf(rotate.x);
-	float sinX = sinf(rotate.x);
-	float cosY = cosf(rotate.y);
-	float sinY = sinf(rotate.y);
-	float cosZ = cosf(rotate.z);
-	float sinZ = sinf(rotate.z);
-	matrix.m[0][0] = scale.x * (cosY * cosZ);
-	matrix.m[0][1] = scale.x * (cosY * sinZ);
-	matrix.m[0][2] = scale.x * (-sinY);
-	matrix.m[0][3] = 0.0f;
-	matrix.m[1][0] = scale.y * (sinX * sinY * cosZ - cosX * sinZ);
-	matrix.m[1][1] = scale.y * (sinX * sinY * sinZ + cosX * cosZ);
-	matrix.m[1][2] = scale.y * (sinX * cosY);
-	matrix.m[1][3] = 0.0f;
-	matrix.m[2][0] = scale.z * (cosX * sinY * cosZ + sinX * sinZ);
-	matrix.m[2][1] = scale.z * (cosX * sinY * sinZ - sinX * cosZ);
-	matrix.m[2][2] = scale.z * (cosX * cosY);
-	matrix.m[2][3] = 0.0f;
-	matrix.m[3][0] = translate.x;
-	matrix.m[3][1] = translate.y;
-	matrix.m[3][2] = translate.z;
-	matrix.m[3][3] = 1.0f;
-	return matrix;
-}
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
-	Matrix4x4 m{};
-	float yScale = 1.0f / tanf(fovY / 2.0f);
-	float xScale = yScale / aspect;
-	float range = farZ - nearZ;
-
-	m.m[0][0] = xScale;
-	m.m[1][1] = yScale;
-	m.m[2][2] = farZ / range;
-	m.m[2][3] = 1.0f;
-	m.m[3][2] = -nearZ * farZ / range;
-
-	return m;
-}
-Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b) {
-	Matrix4x4 r{};
-	for (int row = 0; row < 4; ++row) {
-		for (int col = 0; col < 4; ++col) {
-			for (int k = 0; k < 4; ++k) {
-				r.m[row][col] += a.m[row][k] * b.m[k][col];
-			}
-		}
-	}
-	return r;
-}
-Matrix4x4 Inverse(const Matrix4x4& m)
-{
-	Matrix4x4 result;
-	float* inv = &result.m[0][0];
-	const float* mat = &m.m[0][0];
-
-	float invOut[16];
-
-	invOut[0] = mat[5] * mat[10] * mat[15] -
-		mat[5] * mat[11] * mat[14] -
-		mat[9] * mat[6] * mat[15] +
-		mat[9] * mat[7] * mat[14] +
-		mat[13] * mat[6] * mat[11] -
-		mat[13] * mat[7] * mat[10];
-
-	invOut[1] = -mat[1] * mat[10] * mat[15] +
-		mat[1] * mat[11] * mat[14] +
-		mat[9] * mat[2] * mat[15] -
-		mat[9] * mat[3] * mat[14] -
-		mat[13] * mat[2] * mat[11] +
-		mat[13] * mat[3] * mat[10];
-
-	invOut[2] = mat[1] * mat[6] * mat[15] -
-		mat[1] * mat[7] * mat[14] -
-		mat[5] * mat[2] * mat[15] +
-		mat[5] * mat[3] * mat[14] +
-		mat[13] * mat[2] * mat[7] -
-		mat[13] * mat[3] * mat[6];
-
-	invOut[3] = -mat[1] * mat[6] * mat[11] +
-		mat[1] * mat[7] * mat[10] +
-		mat[5] * mat[2] * mat[11] -
-		mat[5] * mat[3] * mat[10] -
-		mat[9] * mat[2] * mat[7] +
-		mat[9] * mat[3] * mat[6];
-
-	invOut[4] = -mat[4] * mat[10] * mat[15] +
-		mat[4] * mat[11] * mat[14] +
-		mat[8] * mat[6] * mat[15] -
-		mat[8] * mat[7] * mat[14] -
-		mat[12] * mat[6] * mat[11] +
-		mat[12] * mat[7] * mat[10];
-
-	invOut[5] = mat[0] * mat[10] * mat[15] -
-		mat[0] * mat[11] * mat[14] -
-		mat[8] * mat[2] * mat[15] +
-		mat[8] * mat[3] * mat[14] +
-		mat[12] * mat[2] * mat[11] -
-		mat[12] * mat[3] * mat[10];
-
-	invOut[6] = -mat[0] * mat[6] * mat[15] +
-		mat[0] * mat[7] * mat[14] +
-		mat[4] * mat[2] * mat[15] -
-		mat[4] * mat[3] * mat[14] -
-		mat[12] * mat[2] * mat[7] +
-		mat[12] * mat[3] * mat[6];
-
-	invOut[7] = mat[0] * mat[6] * mat[11] -
-		mat[0] * mat[7] * mat[10] -
-		mat[4] * mat[2] * mat[11] +
-		mat[4] * mat[3] * mat[10] +
-		mat[8] * mat[2] * mat[7] -
-		mat[8] * mat[3] * mat[6];
-
-	invOut[8] = mat[4] * mat[9] * mat[15] -
-		mat[4] * mat[11] * mat[13] -
-		mat[8] * mat[5] * mat[15] +
-		mat[8] * mat[7] * mat[13] +
-		mat[12] * mat[5] * mat[11] -
-		mat[12] * mat[7] * mat[9];
-
-	invOut[9] = -mat[0] * mat[9] * mat[15] +
-		mat[0] * mat[11] * mat[13] +
-		mat[8] * mat[1] * mat[15] -
-		mat[8] * mat[3] * mat[13] -
-		mat[12] * mat[1] * mat[11] +
-		mat[12] * mat[3] * mat[9];
-
-	invOut[10] = mat[0] * mat[5] * mat[15] -
-		mat[0] * mat[7] * mat[13] -
-		mat[4] * mat[1] * mat[15] +
-		mat[4] * mat[3] * mat[13] +
-		mat[12] * mat[1] * mat[7] -
-		mat[12] * mat[3] * mat[5];
-
-	invOut[11] = -mat[0] * mat[5] * mat[11] +
-		mat[0] * mat[7] * mat[9] +
-		mat[4] * mat[1] * mat[11] -
-		mat[4] * mat[3] * mat[9] -
-		mat[8] * mat[1] * mat[7] +
-		mat[8] * mat[3] * mat[5];
-
-	invOut[12] = -mat[4] * mat[9] * mat[14] +
-		mat[4] * mat[10] * mat[13] +
-		mat[8] * mat[5] * mat[14] -
-		mat[8] * mat[6] * mat[13] -
-		mat[12] * mat[5] * mat[10] +
-		mat[12] * mat[6] * mat[9];
-
-	invOut[13] = mat[0] * mat[9] * mat[14] -
-		mat[0] * mat[10] * mat[13] -
-		mat[8] * mat[1] * mat[14] +
-		mat[8] * mat[2] * mat[13] +
-		mat[12] * mat[1] * mat[10] -
-		mat[12] * mat[2] * mat[9];
-
-	invOut[14] = -mat[0] * mat[5] * mat[14] +
-		mat[0] * mat[6] * mat[13] +
-		mat[4] * mat[1] * mat[14] -
-		mat[4] * mat[2] * mat[13] -
-		mat[12] * mat[1] * mat[6] +
-		mat[12] * mat[2] * mat[5];
-
-	invOut[15] = mat[0] * mat[5] * mat[10] -
-		mat[0] * mat[6] * mat[9] -
-		mat[4] * mat[1] * mat[10] +
-		mat[4] * mat[2] * mat[9] +
-		mat[8] * mat[1] * mat[6] -
-		mat[8] * mat[2] * mat[5];
-
-	float det = mat[0] * invOut[0] + mat[1] * invOut[4] + mat[2] * invOut[8] + mat[3] * invOut[12];
-	if (det == 0.0f)
-	{
-		// 逆行列なし（特異行列）
-		return MakeIdentity4x4(); // または assert, エラーログ等
-	}
-
-	float invDet = 1.0f / det;
-	for (int i = 0; i < 16; ++i)
-	{
-		inv[i] = invOut[i] * invDet;
-	}
-
-	return result;
-}
-DirectX::ScratchImage LoadTexture(const std::string& filePath)
-{
-	DirectX::ScratchImage image{};
-	std::wstring filePathW = ConvertString(filePath);
-
-	// ファイルパスの確認ログ
-	Log(std::format(L"Attempting to load texture from: {}", filePathW));
-
-	HRESULT hr = DirectX::LoadFromWICFile(filePathW.c_str(), DirectX::WIC_FLAGS_FORCE_SRGB, nullptr, image);
-
-	if (FAILED(hr)) {
-		Log(std::format(L"Failed to load texture. HRESULT: {}", hr));
-		// 詳細なエラーメッセージを追加
-		return image;  // エラー処理。適切な返り値を返す
-	}
-
-	// 成功時の処理
-	assert(SUCCEEDED(hr));
 
 
-	// ミップマップの作成
-	DirectX::ScratchImage mipImage{};
-	hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 0, mipImage);
-	assert(SUCCEEDED(hr));
-	return mipImage;
-}
-ID3D12Resource* CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
-{
-	// metadaraをもとにResourceの設定
-	D3D12_RESOURCE_DESC resourceDesc{};
-	resourceDesc.Width = UINT(metadata.width); // Textureの幅
-	resourceDesc.Height = UINT(metadata.height);// Textureの高さ
-	resourceDesc.MipLevels = UINT16(metadata.mipLevels); // mipmapの数
-	resourceDesc.DepthOrArraySize = UINT16(metadata.arraySize);// 奥行きor配列Textureの配列数
-	resourceDesc.Format = metadata.format;// TextureのFormat
-	resourceDesc.SampleDesc.Count = 1;// サンプリングカウント。1固定
-	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);// Textureの次元数。普段使っているのは２次元
-
-	// 利用するHeapの設定。非常に特殊な運用。02_04exで一般的なケース版がある
-	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM; // 細かい設定を行う
-	heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK; // WriteBackポリシーでCPUアクセス可能
-	heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0; // プロセッサの近くに配置
-
-	// リソース作成
-	ID3D12Resource* resource = nullptr;
-	HRESULT hr = device->CreateCommittedResource(
-		&heapProperties,
-		D3D12_HEAP_FLAG_NONE,
-		&resourceDesc,
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&resource)
-	);
-
-	// エラー処理
-	if (FAILED(hr)) {
-		Log(std::format(L"Failed to create committed resource. HRESULT: {}", hr));
-		return nullptr;  // エラーの場合、nullptrを返す
-	}
-
-	// リソースが正常に作成されたか確認
-	assert(resource != nullptr);
-	return resource;
-}
-void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages)
-{
-	// Meta情報を取得
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	// 全MipMapについて
-	for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel)
-	{
-		// MipMapLevelを指定して各Imageを取得
-		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
-		// Textureに転送
-		HRESULT hr = texture->WriteToSubresource(
-			UINT(mipLevel),
-			nullptr,
-			img->pixels,
-			UINT(img->rowPitch),
-			UINT(img->slicePitch)
-		);
-		assert(SUCCEEDED(hr));
-	}
-}
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ) {
-	Matrix4x4 result{};
-
-	result.m[0][0] = 2.0f / (right - left);
-	result.m[1][1] = 2.0f / (top - bottom);
-	result.m[2][2] = 1.0f / (farZ - nearZ);
-	result.m[3][0] = (left + right) / (left - right);
-	result.m[3][1] = (top + bottom) / (bottom - top);
-	result.m[3][2] = nearZ / (nearZ - farZ);
-	result.m[3][3] = 1.0f;
-
-	return result;
-}
