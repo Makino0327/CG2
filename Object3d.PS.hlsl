@@ -14,58 +14,55 @@ struct DirectionalLight
     float intensity;
 };
 
-struct Material
+cbuffer MaterialCB : register(b0)
 {
-    float4 color; // RGBA
-    int lightingType; // 0:None 1:Lambert 2:HalfLambert
-    float3 pad;
+    float4 gMaterialColor;
+    int gEnableLighting;
+    float3 padding;
     float4x4 uvTransform;
 };
 
-ConstantBuffer<Material> gMaterial : register(b0);
-ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
 
-float Lambert(float3 N, float3 L)
+// ★ b1 に合わせる（ルートと一致）
+cbuffer DirectionalLightCB : register(b1)
 {
-    return saturate(dot(N, L));
-}
-float HalfLambert(float3 N, float3 L)
-{
-    // (n·l)*0.5+0.5 の形を係数に、資料のようにガンマ寄りのpowを掛ける
-    float ndotl = dot(N, L);
-    return saturate(ndotl * 0.5 + 0.5);
-}
+    DirectionalLight gDirectionalLight;
+};
 
-float4 main(VSOut i) : SV_TARGET
+struct PixelShaderOutput
 {
-    // UV変換 → サンプル
-    float2 uv = mul(float4(i.texcoord, 0.0f, 1.0f), gMaterial.uvTransform).xy;
+    float4 color : SV_TARGET0;
+};
+
+PixelShaderOutput main()
+{
+    PixelShaderOutput output;
+
+    float2 uv = mul(float4(input.texcoord, 0.0f, 1.0f), uvTransform).xy;
     float4 tex = gTexture.Sample(gSampler, uv);
 
-    // 法線とライト
-    float3 N = normalize(i.normal);
-    float3 L = normalize(-gDirectionalLight.direction);
+    float3 normal = normalize(input.normal);
+    float3 lightDir = normalize(-gDirectionalLight.direction);
 
-    // ディフューズ係数
-    float diff = 1.0f;
-    if (gMaterial.lightingType == 1)
-    {
-        diff = pow(Lambert(N, L), 1.5f);
+    float3 litColor;
+    if (gEnableLighting == 1)
+    { // Lambert
+        float NdotL = saturate(dot(normal, lightDir));
+        litColor = gMaterialColor.rgb * gDirectionalLight.color.rgb * gDirectionalLight.intensity * NdotL;
+        output.color = float4(litColor, gMaterialColor.a) * tex; // ★ Aも掛ける
     }
-    else if (gMaterial.lightingType == 2)
-    {
-        diff = pow(HalfLambert(N, L), 2.5f);
+    else if (gEnableLighting == 2)
+    { // Half-Lambert
+        float NdotL = dot(normal, lightDir);
+        float halfLambert = NdotL * 0.5 + 0.5;
+        litColor = gMaterialColor.rgb * gDirectionalLight.color.rgb * gDirectionalLight.intensity * halfLambert * halfLambert;
+        output.color = float4(litColor, gMaterialColor.a) * tex; // ★
     }
-
-    // ★ 資料通り：RGBにのみライティングを適用、αは別計算
-    float3 rgb = gMaterial.color.rgb * tex.rgb;
-    if (gMaterial.lightingType != 0)
+    else
     {
-        rgb *= gDirectionalLight.color.rgb * diff * gDirectionalLight.intensity;
+        output.color = gMaterialColor * tex; // ここはそのままでOK
     }
-    float a = gMaterial.color.a * tex.a;
-
-    return float4(rgb, a);
+    return output;
 }

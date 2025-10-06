@@ -181,8 +181,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes);
 
-
-
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_APP = { 0x25cddaa4, 0xb1c6, 0x47e1, { 0xac, 0x3e, 0x98, 0xb5, 0x4d, 0x0b, 0x64, 0x2d } };
@@ -668,9 +666,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		{0.0f, 0.0f, 0.0f},
 		{0.0f, 0.0f, 0.0f},
 	};
-
-
-
 	// WVP + World用の定数バッファリソースを作る
 	// 球用（Sphere）
 	ID3D12Resource* wvpResourceSphere = CreateBufferResource(device, sizeof(TransformationMatrix));
@@ -835,48 +830,45 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12PipelineState* psoOpaque = nullptr;
 	hr=(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&psoOpaque)));
 
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = psoDesc; // さっきのをベースに
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = {};
+	psoAlphaDesc.pRootSignature = rootSignature;
+	psoAlphaDesc.InputLayout = inputLayoutDesc;
+	psoAlphaDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoAlphaDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	psoAlphaDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	psoAlphaDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
 
-	// 半透明用ブレンド
+	// ★アルファブレンド
+	psoAlphaDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
-	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;     // プリマルチなら D3D12_BLEND_ONE
 	psoAlphaDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
 	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
 	psoAlphaDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
-	// 半透明は深度には「書かない」
+	// ★深度は読むだけ（書かない）
+	psoAlphaDesc.DepthStencilState.DepthEnable = TRUE;
 	psoAlphaDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	psoAlphaDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	psoAlphaDesc.NumRenderTargets = 1;
+	psoAlphaDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	psoAlphaDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	psoAlphaDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoAlphaDesc.SampleDesc.Count = 1;
+	psoAlphaDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
 	ID3D12PipelineState* psoAlpha = nullptr;
-	hr=(device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha)));
+	device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha));
+
 
 
 	// 実際に生成
 	ID3D12PipelineState* graphicsPipelineState = nullptr;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
-
-	
-	// 透明物用 PSO
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoTrans = graphicsPipelineStateDesc; // 既存をコピー
-	psoTrans.DepthStencilState.DepthEnable = TRUE;
-	psoTrans.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-
-	psoTrans.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoTrans.BlendState.RenderTarget[0].BlendEnable = TRUE;
-	psoTrans.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	psoTrans.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	psoTrans.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	psoTrans.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	psoTrans.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	psoTrans.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-
-	psoAlpha = nullptr;
-	hr = device->CreateGraphicsPipelineState(&psoTrans, IID_PPV_ARGS(&psoAlpha));
-	assert(SUCCEEDED(hr));
-
 
 	ID3D12Resource* vertexResourceSphere = CreateBufferResource(
 		device, sizeof(VertexData) * vertexDataSphere.size());
@@ -1168,18 +1160,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// マテリアル・ライト共通設定（Plane, Sphere, Sprite 全部使う）
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-			
+			commandList->SetPipelineState(psoAlpha);
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
 				// --- モデル（Plane.obj）描画 ---
-				commandList->SetPipelineState(psoOpaque); // ← 不透明用 PSO
+				
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
 
 				// --- スプライト描画 ---
-				commandList->SetPipelineState(psoAlpha);
+				
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 				commandList->IASetIndexBuffer(&indexBufferViewSprite);
 
