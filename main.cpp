@@ -165,7 +165,6 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 
 	return resource;
 }
-
 D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
 {
 	D3D12_CPU_DESCRIPTOR_HANDLE  handleCPU = descriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -330,7 +329,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();
 	ImGui_ImplWin32_Init(hwnd);
-	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	
 	// コマンドリストクローズ
@@ -749,11 +748,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
-	// ブレンドステイト
+	// ブレンドステイト（アルファブレンド有効）
 	D3D12_BLEND_DESC blendDesc{};
-	// すべての色要素を書き込む
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	D3D12_COLOR_WRITE_ENABLE_ALL;
+	blendDesc.RenderTarget[0].BlendEnable = FALSE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+
 
 	// ラスタライザーステイト
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
@@ -797,9 +803,78 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// どのように画面に色を打ち込むかの設定
 	graphicsPipelineStateDesc.SampleDesc.Count = 1;
 	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+
+	// 不透明用ブレンド
+	D3D12_BLEND_DESC blendOpaque{};
+	blendOpaque.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	blendOpaque.RenderTarget[0].BlendEnable = FALSE;  // 不透明はブレンドOFF
+
+	// 深度（不透明は書き込む）
+	D3D12_DEPTH_STENCIL_DESC dsOpaque{};
+	dsOpaque.DepthEnable = TRUE;
+	dsOpaque.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	dsOpaque.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	// PSOベース
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+	psoDesc.pRootSignature = rootSignature;
+	psoDesc.InputLayout = inputLayoutDesc;
+	psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	psoDesc.BlendState = blendOpaque;
+	psoDesc.RasterizerState = rasterizerDesc;
+	psoDesc.DepthStencilState = dsOpaque;
+	psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // あなたの設定に合わせる
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoOpaque = nullptr;
+	hr=(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&psoOpaque)));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = psoDesc; // さっきのをベースに
+
+	// 半透明用ブレンド
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	psoAlphaDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	psoAlphaDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+	// 半透明は深度には「書かない」
+	psoAlphaDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+	ID3D12PipelineState* psoAlpha = nullptr;
+	hr=(device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha)));
+
+
 	// 実際に生成
 	ID3D12PipelineState* graphicsPipelineState = nullptr;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
+	assert(SUCCEEDED(hr));
+
+	
+	// 透明物用 PSO
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoTrans = graphicsPipelineStateDesc; // 既存をコピー
+	psoTrans.DepthStencilState.DepthEnable = TRUE;
+	psoTrans.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+	psoTrans.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	psoTrans.BlendState.RenderTarget[0].BlendEnable = TRUE;
+	psoTrans.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	psoTrans.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	psoTrans.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	psoTrans.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	psoTrans.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	psoTrans.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+	psoAlpha = nullptr;
+	hr = device->CreateGraphicsPipelineState(&psoTrans, IID_PPV_ARGS(&psoAlpha));
 	assert(SUCCEEDED(hr));
 
 
@@ -1083,7 +1158,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// --- 描画設定 ---
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
-			commandList->SetPipelineState(graphicsPipelineState);
             // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
            
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
@@ -1094,16 +1168,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// マテリアル・ライト共通設定（Plane, Sphere, Sprite 全部使う）
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-
+			
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
 				// --- モデル（Plane.obj）描画 ---
+				commandList->SetPipelineState(psoOpaque); // ← 不透明用 PSO
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
 
 				// --- スプライト描画 ---
+				commandList->SetPipelineState(psoAlpha);
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 				commandList->IASetIndexBuffer(&indexBufferViewSprite);
 
@@ -1264,12 +1340,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
 				ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
 				ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
+				
 
 				// ライトの方向を正規化する（ImGuiで編集後に毎回）
 				directionalLightData->direction = Normalize(directionalLightData->direction);
 
 			}
 
+			// 一括で色(A込み)をいじるなら ColorEdit4 が楽
+			ImGui::ColorEdit4("Model Color", &materialData->color.x,
+				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
+			ImGui::ColorEdit4("Sprite Color", &materialDataSprite->color.x,
+				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
+
+		
 			// 現在の選択中Lighting
 			static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
 
