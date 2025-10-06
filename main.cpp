@@ -33,6 +33,7 @@
 #include "SoundManager.h"
 #include "TextureManager.h"
 #include "Util.h"
+#include "ShaderCompiler.h"
 
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
@@ -164,9 +165,6 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
 
 	return resource;
 }
-
-IDxcBlob* CompileShader(const std::wstring& filePath, const wchar_t* profile, IDxcUtils* dxcUtils, IDxcCompiler3* dxcCompiler, IDxcIncludeHandler* includeHandler);
-
 D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
 {
 	D3D12_CPU_DESCRIPTOR_HANDLE  handleCPU = descriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -182,8 +180,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 }
 
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes);
-
-
 
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
@@ -331,7 +327,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();
 	ImGui_ImplWin32_Init(hwnd);
-	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	
 	// コマンドリストクローズ
@@ -670,9 +666,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		{0.0f, 0.0f, 0.0f},
 		{0.0f, 0.0f, 0.0f},
 	};
-
-
-
 	// WVP + World用の定数バッファリソースを作る
 	// 球用（Sphere）
 	ID3D12Resource* wvpResourceSphere = CreateBufferResource(device, sizeof(TransformationMatrix));
@@ -750,11 +743,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
-	// ブレンドステイト
+	// ブレンドステイト（アルファブレンド有効）
 	D3D12_BLEND_DESC blendDesc{};
-	// すべての色要素を書き込む
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	D3D12_COLOR_WRITE_ENABLE_ALL;
+	blendDesc.RenderTarget[0].BlendEnable = FALSE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+
 
 	// ラスタライザーステイト
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
@@ -764,9 +764,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
 	// Shaderをコンパイルする
-	IDxcBlob* vertexShaderBlob = CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+	IDxcBlob* vertexShaderBlob = ShaderCompiler::CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
 	assert(vertexShaderBlob != nullptr);
-	IDxcBlob* pixelShaderBlob = CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+	IDxcBlob* pixelShaderBlob = ShaderCompiler::CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
 	assert(pixelShaderBlob != nullptr);
 
 	// PSOを生成
@@ -798,11 +798,157 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// どのように画面に色を打ち込むかの設定
 	graphicsPipelineStateDesc.SampleDesc.Count = 1;
 	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+
+	// 不透明用ブレンド
+	D3D12_BLEND_DESC blendOpaque{};
+	blendOpaque.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	blendOpaque.RenderTarget[0].BlendEnable = FALSE;  // 不透明はブレンドOFF
+
+	// 深度（不透明は書き込む）
+	D3D12_DEPTH_STENCIL_DESC dsOpaque{};
+	dsOpaque.DepthEnable = TRUE;
+	dsOpaque.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	dsOpaque.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	// ================================
+// 3D 半透明 用 PSO（深度は読むだけ）
+// ================================
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlpha3D = {};
+	psoAlpha3D.pRootSignature = rootSignature;
+	psoAlpha3D.InputLayout = inputLayoutDesc;
+
+	// Shaders
+	psoAlpha3D.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoAlpha3D.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+
+	// Rasterizer
+	psoAlpha3D.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+	psoAlpha3D.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	psoAlpha3D.RasterizerState.FrontCounterClockwise = FALSE;
+	psoAlpha3D.RasterizerState.DepthBias = 0;
+	psoAlpha3D.RasterizerState.DepthBiasClamp = 0.0f;
+	psoAlpha3D.RasterizerState.SlopeScaledDepthBias = 0.0f;
+	psoAlpha3D.RasterizerState.DepthClipEnable = TRUE;
+	psoAlpha3D.RasterizerState.MultisampleEnable = FALSE;
+	psoAlpha3D.RasterizerState.AntialiasedLineEnable = FALSE;
+	psoAlpha3D.RasterizerState.ForcedSampleCount = 0;
+	psoAlpha3D.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+	// Blend（ストレートα）
+	psoAlpha3D.BlendState.AlphaToCoverageEnable = FALSE;
+	psoAlpha3D.BlendState.IndependentBlendEnable = FALSE;
+	auto& rt3D = psoAlpha3D.BlendState.RenderTarget[0];
+	rt3D.BlendEnable = TRUE;
+	rt3D.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	rt3D.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	rt3D.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	rt3D.BlendOp = D3D12_BLEND_OP_ADD;
+	rt3D.SrcBlendAlpha = D3D12_BLEND_ONE;
+	rt3D.DestBlendAlpha = D3D12_BLEND_ZERO;
+	rt3D.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+	// DepthStencil（読むだけ）
+	psoAlpha3D.DepthStencilState.DepthEnable = TRUE;
+	psoAlpha3D.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // 読むだけ
+	psoAlpha3D.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	psoAlpha3D.DepthStencilState.StencilEnable = FALSE;
+	psoAlpha3D.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	psoAlpha3D.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+
+	// RTV/DSV
+	psoAlpha3D.NumRenderTargets = 1;
+	psoAlpha3D.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	psoAlpha3D.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	// Topology / Sample
+	psoAlpha3D.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoAlpha3D.SampleDesc.Count = 1;
+	psoAlpha3D.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoAlpha3DPso = nullptr;
+	hr = device->CreateGraphicsPipelineState(&psoAlpha3D, IID_PPV_ARGS(&psoAlpha3DPso));
+	assert(SUCCEEDED(hr));
+
+
+	// =====================================
+	// HUD / スプライト 用 PSO（深度テストOFF）
+	// =====================================
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaHUD = psoAlpha3D; // ベースコピー
+
+	// そのままだと DSVFormat を参照してしまうので、深度を切る設定に明示的に上書き
+	psoAlphaHUD.DepthStencilState.DepthEnable = FALSE;
+	psoAlphaHUD.DepthStencilState.StencilEnable = FALSE;
+	// HUDは深度使わないので DSVFormat をそのままでも動くが、気持ち悪ければゼロ化でもOK
+	// psoAlphaHUD.DSVFormat = DXGI_FORMAT_UNKNOWN; // ←DSV未使用を明示したい場合
+
+	ID3D12PipelineState* psoAlphaSprite = nullptr;
+	hr = device->CreateGraphicsPipelineState(&psoAlphaHUD, IID_PPV_ARGS(&psoAlphaSprite));
+	assert(SUCCEEDED(hr));
+
+
+	// PSOベース
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+	psoDesc.pRootSignature = rootSignature;
+	psoDesc.InputLayout = inputLayoutDesc;
+	psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	psoDesc.BlendState = blendOpaque;
+	psoDesc.RasterizerState = rasterizerDesc;
+	psoDesc.DepthStencilState = dsOpaque;
+	psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	psoDesc.NumRenderTargets = 1;
+	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // あなたの設定に合わせる
+	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoDesc.SampleDesc.Count = 1;
+	psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoOpaque = nullptr;
+	hr=(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&psoOpaque)));
+
+	// アルファ用 PSO の組み立て
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = {};
+	psoAlphaDesc.pRootSignature = rootSignature;
+	psoAlphaDesc.InputLayout = inputLayoutDesc;
+	psoAlphaDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoAlphaDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	psoAlphaDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	psoAlphaDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+
+	// ★ブレンド（OK）
+	psoAlphaDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	psoAlphaDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	psoAlphaDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	psoAlphaDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+	// ★深度（読むだけ）
+	psoAlphaDesc.DepthStencilState.DepthEnable = TRUE;
+	psoAlphaDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	psoAlphaDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	psoAlphaDesc.NumRenderTargets = 1;
+	psoAlphaDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	psoAlphaDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	psoAlphaDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoAlphaDesc.SampleDesc.Count = 1;
+
+	// ★これが無いと“出ません”
+	psoAlphaDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;  // = 0xFFFFFFFF
+
+
+	ID3D12PipelineState* psoAlpha = nullptr;
+	device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha));
+
+
+
 	// 実際に生成
 	ID3D12PipelineState* graphicsPipelineState = nullptr;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
-
 
 	ID3D12Resource* vertexResourceSphere = CreateBufferResource(
 		device, sizeof(VertexData) * vertexDataSphere.size());
@@ -1079,40 +1225,69 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			const char* textureNames[] = { "uvChecker", "monsterBall", "checkerBoard" };
 			static int selectedTextureIndex = 0;
 
-			// DrawCall
-			// 共通設定
-			// --- 描画設定 ---
+			// --- DrawCall 共通設定 ---
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
-			commandList->SetPipelineState(graphicsPipelineState);
-            // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
-           
+
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			// テクスチャ選択に応じて SRV を切り替え
+
+			// テクスチャ（t0）— モード共通のデフォルト選択（必要に応じて後で描画直前に上書き可）
 			commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 
-			// マテリアル・ライト共通設定（Plane, Sphere, Sprite 全部使う）
+			// マテリアル(b0), ライト(b1) — モード共通
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
-			// ---------- モードごとの描画 ----------
+
+			// =====================
+			// 1) 不透明パス（Z書き込みON）
+			// =====================
+			commandList->SetPipelineState(psoOpaque);
+
 			if (currentMode == DisplayMode::Sprite) {
-				// --- モデル（Plane.obj）描画 ---
+				// --- Plane（不透明）---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				// 必要なら Plane 用のテクスチャを差し替え
+				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
+			}
 
-				// --- スプライト描画 ---
+			// 他モード（Sphere/Teapot/Bunny/MultiMesh）の不透明描画はここで psoOpaque のまま行う
+
+
+			// =====================
+			// 2) 3D半透明パス（必要時 / Z読むだけ、Z書かない）
+			// =====================
+			// 3Dで半透明メッシュを持つなら：
+			// commandList->SetPipelineState(psoAlpha3DPso);
+			// ★奥→手前にソートしてから描画すること
+			// ... Draw transparent 3D meshes ...
+
+
+			// =====================
+			// 3) HUD/スプライトパス（ZテストOFF）
+			// =====================
+			if (currentMode == DisplayMode::Sprite) {
+				commandList->SetPipelineState(psoAlphaSprite); // 深度OFF + ブレンドON
+
+				// スプライトのVB/IB
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 				commandList->IASetIndexBuffer(&indexBufferViewSprite);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+				// マテリアル(b0) → スプライト用
 				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+				// 変換行列(b2) → スプライト用（正射影WVP入り）
 				commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
-				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
+				// テクスチャ（t0）— スプライトで使うもの（ImGuiの選択を反映）
+				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
+
+				// 描画
+				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 			} else if (currentMode == DisplayMode::Sphere) {
 				// --- 球（Sphere.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
@@ -1265,12 +1440,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
 				ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
 				ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
+				
 
 				// ライトの方向を正規化する（ImGuiで編集後に毎回）
 				directionalLightData->direction = Normalize(directionalLightData->direction);
 
 			}
 
+			// 一括で色(A込み)をいじるなら ColorEdit4 が楽
+			ImGui::ColorEdit4("Model Color", &materialData->color.x,
+				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
+			ImGui::ColorEdit4("Sprite Color", &materialDataSprite->color.x,
+				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
+
+		
 			// 現在の選択中Lighting
 			static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
 
@@ -1407,64 +1590,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	return 0;
 }
 
-IDxcBlob* CompileShader(
-	// CompilerするShaderファイルへのパス
-	const std::wstring& filePath,
-	// Compilerに使用するProfile
-	const wchar_t* profile,
-	// 初期化して生成したものを3つ
-	IDxcUtils* dxcUtils,
-	IDxcCompiler3* dxcCompiler,
-	IDxcIncludeHandler* includeHandler)
-{
-	// hlslファイルを読む
-	Log(std::format(L"Begin CompileShader,path:{},profile:{}\n", filePath, profile));
-	IDxcBlobEncoding* shaderSource = nullptr;
-	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
-	assert(SUCCEEDED(hr));
-	DxcBuffer shaderSourceBuffer;
-	shaderSourceBuffer.Ptr = shaderSource->GetBufferPointer();
-	shaderSourceBuffer.Size = shaderSource->GetBufferSize();
-	shaderSourceBuffer.Encoding = DXC_CP_UTF8;
-
-	// Compileする
-	LPCWSTR arguments[] = {
-		filePath.c_str(),
-		L"-E",L"main",
-		L"-T",profile,
-		L"-Zi",L"Qembed_debug",
-		L"-Od",
-		L"-Zpr",
-	};
-	IDxcResult* shaderResult = nullptr;
-	hr = dxcCompiler->Compile(
-		&shaderSourceBuffer,
-		arguments,
-		_countof(arguments),
-		includeHandler,
-		IID_PPV_ARGS(&shaderResult));
-	assert(SUCCEEDED(hr));
-
-	// 警告エラーが出ていないか確認する
-	IDxcBlobUtf8* shaderError = nullptr;
-	shaderResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&shaderError), nullptr);
-	if (shaderError != nullptr && shaderError->GetStringLength() != 0) {
-		Log(ConvertString(shaderError->GetStringPointer()));
-		assert(false); // 本当にエラーなら止め
-	}
-
-	// Compile結果を取得する
-	IDxcBlob* shaderBlob = nullptr;
-	hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
-	assert(SUCCEEDED(hr));
-	// 成功したログを出す
-	Log((std::format(L"Compile Succeeded,path:{},profile:{}\n", filePath, profile)));
-	// もう使わないリソースを開放
-	shaderSource->Release();
-	shaderResult->Release();
-	// 実行用のバイナリを返却
-	return shaderBlob;
-}
 
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	D3D12_HEAP_PROPERTIES heapProperties{};
