@@ -811,6 +811,82 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	dsOpaque.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
 	dsOpaque.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
+	// ================================
+// 3D 半透明 用 PSO（深度は読むだけ）
+// ================================
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlpha3D = {};
+	psoAlpha3D.pRootSignature = rootSignature;
+	psoAlpha3D.InputLayout = inputLayoutDesc;
+
+	// Shaders
+	psoAlpha3D.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	psoAlpha3D.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+
+	// Rasterizer
+	psoAlpha3D.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+	psoAlpha3D.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	psoAlpha3D.RasterizerState.FrontCounterClockwise = FALSE;
+	psoAlpha3D.RasterizerState.DepthBias = 0;
+	psoAlpha3D.RasterizerState.DepthBiasClamp = 0.0f;
+	psoAlpha3D.RasterizerState.SlopeScaledDepthBias = 0.0f;
+	psoAlpha3D.RasterizerState.DepthClipEnable = TRUE;
+	psoAlpha3D.RasterizerState.MultisampleEnable = FALSE;
+	psoAlpha3D.RasterizerState.AntialiasedLineEnable = FALSE;
+	psoAlpha3D.RasterizerState.ForcedSampleCount = 0;
+	psoAlpha3D.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+	// Blend（ストレートα）
+	psoAlpha3D.BlendState.AlphaToCoverageEnable = FALSE;
+	psoAlpha3D.BlendState.IndependentBlendEnable = FALSE;
+	auto& rt3D = psoAlpha3D.BlendState.RenderTarget[0];
+	rt3D.BlendEnable = TRUE;
+	rt3D.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	rt3D.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	rt3D.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	rt3D.BlendOp = D3D12_BLEND_OP_ADD;
+	rt3D.SrcBlendAlpha = D3D12_BLEND_ONE;
+	rt3D.DestBlendAlpha = D3D12_BLEND_ZERO;
+	rt3D.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+	// DepthStencil（読むだけ）
+	psoAlpha3D.DepthStencilState.DepthEnable = TRUE;
+	psoAlpha3D.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // 読むだけ
+	psoAlpha3D.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	psoAlpha3D.DepthStencilState.StencilEnable = FALSE;
+	psoAlpha3D.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	psoAlpha3D.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+
+	// RTV/DSV
+	psoAlpha3D.NumRenderTargets = 1;
+	psoAlpha3D.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	psoAlpha3D.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	// Topology / Sample
+	psoAlpha3D.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	psoAlpha3D.SampleDesc.Count = 1;
+	psoAlpha3D.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoAlpha3DPso = nullptr;
+	hr = device->CreateGraphicsPipelineState(&psoAlpha3D, IID_PPV_ARGS(&psoAlpha3DPso));
+	assert(SUCCEEDED(hr));
+
+
+	// =====================================
+	// HUD / スプライト 用 PSO（深度テストOFF）
+	// =====================================
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaHUD = psoAlpha3D; // ベースコピー
+
+	// そのままだと DSVFormat を参照してしまうので、深度を切る設定に明示的に上書き
+	psoAlphaHUD.DepthStencilState.DepthEnable = FALSE;
+	psoAlphaHUD.DepthStencilState.StencilEnable = FALSE;
+	// HUDは深度使わないので DSVFormat をそのままでも動くが、気持ち悪ければゼロ化でもOK
+	// psoAlphaHUD.DSVFormat = DXGI_FORMAT_UNKNOWN; // ←DSV未使用を明示したい場合
+
+	ID3D12PipelineState* psoAlphaSprite = nullptr;
+	hr = device->CreateGraphicsPipelineState(&psoAlphaHUD, IID_PPV_ARGS(&psoAlphaSprite));
+	assert(SUCCEEDED(hr));
+
+
 	// PSOベース
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 	psoDesc.pRootSignature = rootSignature;
@@ -830,6 +906,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12PipelineState* psoOpaque = nullptr;
 	hr=(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&psoOpaque)));
 
+	// アルファ用 PSO の組み立て
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = {};
 	psoAlphaDesc.pRootSignature = rootSignature;
 	psoAlphaDesc.InputLayout = inputLayoutDesc;
@@ -838,17 +915,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	psoAlphaDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
 	psoAlphaDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
 
-	// ★アルファブレンド
+	// ★ブレンド（OK）
 	psoAlphaDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
-	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;     // プリマルチなら D3D12_BLEND_ONE
+	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
 	psoAlphaDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
 	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
 	psoAlphaDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 	psoAlphaDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
-	// ★深度は読むだけ（書かない）
+	// ★深度（読むだけ）
 	psoAlphaDesc.DepthStencilState.DepthEnable = TRUE;
 	psoAlphaDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 	psoAlphaDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
@@ -858,7 +935,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	psoAlphaDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	psoAlphaDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	psoAlphaDesc.SampleDesc.Count = 1;
-	psoAlphaDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	// ★これが無いと“出ません”
+	psoAlphaDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;  // = 0xFFFFFFFF
+
 
 	ID3D12PipelineState* psoAlpha = nullptr;
 	device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha));
@@ -1145,41 +1225,69 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			const char* textureNames[] = { "uvChecker", "monsterBall", "checkerBoard" };
 			static int selectedTextureIndex = 0;
 
-			// DrawCall
-			// 共通設定
-			// --- 描画設定 ---
+			// --- DrawCall 共通設定 ---
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
-            // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
-           
+
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			// テクスチャ選択に応じて SRV を切り替え
+
+			// テクスチャ（t0）— モード共通のデフォルト選択（必要に応じて後で描画直前に上書き可）
 			commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 
-			// マテリアル・ライト共通設定（Plane, Sphere, Sprite 全部使う）
+			// マテリアル(b0), ライト(b1) — モード共通
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-			commandList->SetPipelineState(psoAlpha);
-			// ---------- モードごとの描画 ----------
+
+
+			// =====================
+			// 1) 不透明パス（Z書き込みON）
+			// =====================
+			commandList->SetPipelineState(psoOpaque);
+
 			if (currentMode == DisplayMode::Sprite) {
-				// --- モデル（Plane.obj）描画 ---
-				
+				// --- Plane（不透明）---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				// 必要なら Plane 用のテクスチャを差し替え
+				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
+			}
 
-				// --- スプライト描画 ---
-				
+			// 他モード（Sphere/Teapot/Bunny/MultiMesh）の不透明描画はここで psoOpaque のまま行う
+
+
+			// =====================
+			// 2) 3D半透明パス（必要時 / Z読むだけ、Z書かない）
+			// =====================
+			// 3Dで半透明メッシュを持つなら：
+			// commandList->SetPipelineState(psoAlpha3DPso);
+			// ★奥→手前にソートしてから描画すること
+			// ... Draw transparent 3D meshes ...
+
+
+			// =====================
+			// 3) HUD/スプライトパス（ZテストOFF）
+			// =====================
+			if (currentMode == DisplayMode::Sprite) {
+				commandList->SetPipelineState(psoAlphaSprite); // 深度OFF + ブレンドON
+
+				// スプライトのVB/IB
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 				commandList->IASetIndexBuffer(&indexBufferViewSprite);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+				// マテリアル(b0) → スプライト用
 				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+				// 変換行列(b2) → スプライト用（正射影WVP入り）
 				commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
-				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
+				// テクスチャ（t0）— スプライトで使うもの（ImGuiの選択を反映）
+				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
+
+				// 描画
+				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 			} else if (currentMode == DisplayMode::Sphere) {
 				// --- 球（Sphere.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
