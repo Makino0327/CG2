@@ -646,7 +646,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	
 
 	// Sprite用のTransformationMatrix用のリソースを作る
-	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	ID3D12Resource* transformationMatrixResourceSprite =
+		CreateBufferResource(device, sizeof(TransformationMatrix));
 	TransformationMatrix* transformationMatrixDataSprite = nullptr;
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
@@ -812,8 +813,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	dsOpaque.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
 	// ================================
-// 3D 半透明 用 PSO（深度は読むだけ）
-// ================================
+	// 3D 半透明 用 PSO（深度は読むだけ）
+	// ================================
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlpha3D = {};
 	psoAlpha3D.pRootSignature = rootSignature;
 	psoAlpha3D.InputLayout = inputLayoutDesc;
@@ -838,15 +839,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// Blend（ストレートα）
 	psoAlpha3D.BlendState.AlphaToCoverageEnable = FALSE;
 	psoAlpha3D.BlendState.IndependentBlendEnable = FALSE;
-	auto& rt3D = psoAlpha3D.BlendState.RenderTarget[0];
-	rt3D.BlendEnable = TRUE;
-	rt3D.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	rt3D.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	rt3D.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	rt3D.BlendOp = D3D12_BLEND_OP_ADD;
-	rt3D.SrcBlendAlpha = D3D12_BLEND_ONE;
-	rt3D.DestBlendAlpha = D3D12_BLEND_ZERO;
-	rt3D.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	psoAlpha3D.BlendState.RenderTarget[0].BlendEnable = TRUE;
+	psoAlpha3D.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	psoAlpha3D.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+	psoAlpha3D.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+	psoAlpha3D.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	psoAlpha3D.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	psoAlpha3D.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	psoAlpha3D.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
 
 	// DepthStencil（読むだけ）
 	psoAlpha3D.DepthStencilState.DepthEnable = TRUE;
@@ -1151,7 +1151,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				// 状態を記録
 				wasAPressed = isAPressed;
 
-				
 				// Yボタンの状態
 				bool isYPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
 
@@ -1229,132 +1228,145 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
 
+			// SRVヒープ
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 
-			// テクスチャ（t0）— モード共通のデフォルト選択（必要に応じて後で描画直前に上書き可）
+			// デフォルトのSRV（必要に応じて各描画直前に上書き）
 			commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
 
-			// マテリアル(b0), ライト(b1) — モード共通
+			// マテリアル(b0), ライト(b1) は共通
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
+			// ==========================================================
+			// 1) 不透明パス（DepthEnable=TRUE, DepthWrite=ALL, Blend=OFF）
+			// ==========================================================
+			// A が十分小さいなら半透明扱い
+			const bool isPlaneTransparent = (materialData->color.w < 0.999f);
 
-			// =====================
-			// 1) 不透明パス（Z書き込みON）
-			// =====================
-			commandList->SetPipelineState(psoOpaque);
 
-			if (currentMode == DisplayMode::Sprite) {
-				// --- Plane（不透明）---
-				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				// 必要なら Plane 用のテクスチャを差し替え
-				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
-				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
+			switch (currentMode)
+			{
+			case DisplayMode::Sprite:
+			{
+				// 不透明パス
+				if (!isPlaneTransparent) {
+					commandList->SetPipelineState(psoOpaque);                  // 深度書き込みON, Blend OFF
+					commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
+					commandList->DrawInstanced((UINT)allModels[0].meshes[0].vertices.size(), 1, 0, 0);
+				}
+
+				// 半透明パス（必要なときだけ）
+				if (isPlaneTransparent) {
+					commandList->SetPipelineState(psoAlpha3DPso);              // 深度書き込みOFF, Blend ON
+					commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
+					commandList->DrawInstanced((UINT)allModels[0].meshes[0].vertices.size(), 1, 0, 0);
+				}
+
 			}
 
-			// 他モード（Sphere/Teapot/Bunny/MultiMesh）の不透明描画はここで psoOpaque のまま行う
+			break;
 
-
-			// =====================
-			// 2) 3D半透明パス（必要時 / Z読むだけ、Z書かない）
-			// =====================
-			// 3Dで半透明メッシュを持つなら：
-			// commandList->SetPipelineState(psoAlpha3DPso);
-			// ★奥→手前にソートしてから描画すること
-			// ... Draw transparent 3D meshes ...
-
-
-			// =====================
-			// 3) HUD/スプライトパス（ZテストOFF）
-			// =====================
-			if (currentMode == DisplayMode::Sprite) {
-				commandList->SetPipelineState(psoAlphaSprite); // 深度OFF + ブレンドON
-
-				// スプライトのVB/IB
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-				commandList->IASetIndexBuffer(&indexBufferViewSprite);
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-				// マテリアル(b0) → スプライト用
-				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
-				// 変換行列(b2) → スプライト用（正射影WVP入り）
-				commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-
-				// テクスチャ（t0）— スプライトで使うもの（ImGuiの選択を反映）
-				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
-
-				// 描画
-				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
-			} else if (currentMode == DisplayMode::Sphere) {
-				// --- 球（Sphere.obj）描画 ---
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
+			case DisplayMode::Sphere:
+			{
+				// Sphere（不透明）
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceSphere->GetGPUVirtualAddress());
-
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSphere);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
 
-				// --- モデル（Plane.obj）描画（影などのため）---
+				// Plane（不透明・床など）
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
+			}
+			break;
 
-			} else if (currentMode == DisplayMode::Teapot) {
-				// --- ティーポット描画 ---
+			case DisplayMode::Teapot:
+			{
+				// Teapot（不透明）
 				Matrix4x4 worldMatrixTeapot = MakeAffineMatrix(teapotTransform.scale, teapotTransform.rotate, teapotTransform.translate);
 				wvpDataTeapot->WVP = Multiply(worldMatrixTeapot, Multiply(viewMatrix, projectionMatrix));
 				wvpDataTeapot->World = worldMatrixTeapot;
 
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceTeapot->GetGPUVirtualAddress());
-
-				int modelIndex = 1; // teapotModel
-				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
-					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
-					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
-				}
-
-			} else if (currentMode == DisplayMode::Bunny) {
-				// --- バニー描画 ---
-				Matrix4x4 worldMatrixBunny = MakeAffineMatrix(bunnyTransform.scale, bunnyTransform.rotate, bunnyTransform.translate);
-				wvpDataBunny->WVP = Multiply(worldMatrixBunny, Multiply(viewMatrix, projectionMatrix));
-				wvpDataBunny->World = worldMatrixBunny;
-
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceBunny->GetGPUVirtualAddress());
-
-				int modelIndex = 2; // modelDataBunny
-				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
-					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
-					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
-				}
-
-			} else if (currentMode == DisplayMode::MultiMesh) {
-				// --- マルチメッシュ描画 ---
-				Matrix4x4 worldMatrixMultiMesh = MakeAffineMatrix(multiMeshTransform.scale, multiMeshTransform.rotate, multiMeshTransform.translate);
-				wvpDataMultiMesh->WVP = Multiply(worldMatrixMultiMesh, Multiply(viewMatrix, projectionMatrix));
-				wvpDataMultiMesh->World = worldMatrixMultiMesh;
-
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceMultiMesh->GetGPUVirtualAddress());
-
-				int modelIndex = 3; // multiMeshModel
+				int modelIndex = 1;
 				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
 					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
 				}
 			}
+			break;
+
+			case DisplayMode::Bunny:
+			{
+				// Bunny（不透明）
+				Matrix4x4 worldMatrixBunny = MakeAffineMatrix(bunnyTransform.scale, bunnyTransform.rotate, bunnyTransform.translate);
+				wvpDataBunny->WVP = Multiply(worldMatrixBunny, Multiply(viewMatrix, projectionMatrix));
+				wvpDataBunny->World = worldMatrixBunny;
+
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceBunny->GetGPUVirtualAddress());
+				int modelIndex = 2;
+				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
+				}
+			}
+			break;
+
+			case DisplayMode::MultiMesh:
+			{
+				// MultiMesh（不透明）
+				Matrix4x4 worldMatrixMultiMesh = MakeAffineMatrix(multiMeshTransform.scale, multiMeshTransform.rotate, multiMeshTransform.translate);
+				wvpDataMultiMesh->WVP = Multiply(worldMatrixMultiMesh, Multiply(viewMatrix, projectionMatrix));
+				wvpDataMultiMesh->World = worldMatrixMultiMesh;
+
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceMultiMesh->GetGPUVirtualAddress());
+				int modelIndex = 3;
+				for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
+					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
+				}
+			}
+			break;
+			default:
+				break;
+			}
+
+			// ==========================================================
+			// 3) HUD / スプライト パス（DepthEnable=FALSE, Blend=ON）
+			// ==========================================================
+			if (currentMode == DisplayMode::Sprite)
+			{
+				commandList->SetPipelineState(psoAlphaSprite);
+
+				// スプライトの VB/IB
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+				commandList->IASetIndexBuffer(&indexBufferViewSprite);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				// スプライト用マテリアル(b0), 行列(b2)
+				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+				commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+
+				// スプライトのテクスチャ
+				commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
+
+				// 描画
+				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+			}
+
 
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();

@@ -158,7 +158,6 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="Util.cpp" />
 
-    <ClCompile Include="main.cpp" />
     <ClCompile Include="ResourceObject.cpp" />
 
   </ItemGroup>
