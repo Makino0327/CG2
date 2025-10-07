@@ -59,7 +59,7 @@ PixelShaderOutput main(VertexShaderOutput input)
         finalColor *= gDirectionalLight.color.rgb * gDirectionalLight.intensity * halfLambert * 0.4f;
     }
 
-    output.color = float4(finalColor, 1.0f);
+    output.color = gMaterial.color * gDirectionalLight.color * cos() * gDirectionalLight.intensity;
     return output;
 }
 
