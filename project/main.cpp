@@ -26,7 +26,9 @@
 #include <d3d12.h>
 #include <d3d12shader.h>
 #include <wrl.h>
-using Microsoft::WRL::ComPtr;
+
+#include "Input.h"
+
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -34,6 +36,8 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib,"dxcompiler.lib")
 #pragma comment(lib,"xaudio2.lib")
 #pragma comment(lib, "xinput.lib")
+
+using Microsoft::WRL::ComPtr;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -1325,6 +1329,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	bool useMonsterBall = false;
 
+	// Input
+	Input *input=nullptr;
+
+	// 初期化
+	input = new Input();
+	input->Initialize(hInstance, hwnd);
+
 	// --- メインループ ---
 	MSG msg{};
 	bool wasYPressed = false;
@@ -1802,6 +1813,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		}
 	}
 
+	delete input;
 
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
