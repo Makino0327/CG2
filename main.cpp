@@ -637,10 +637,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
-	char exePath[MAX_PATH]{};
+	/*char exePath[MAX_PATH]{};
 	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
 	std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
-	std::filesystem::current_path(exeDir);
+	std::filesystem::current_path(exeDir);*/
 
 
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
@@ -1052,7 +1052,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	
 
 	// Sprite用のTransformationMatrix用のリソースを作る
-	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(TransformationMatrix));
 	TransformationMatrix* transformationMatrixDataSprite = nullptr;
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
@@ -1211,6 +1211,53 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
 
+	// ==========================
+// 半透明専用 PSO（psoAlpha）
+// ==========================
+
+// ブレンド（αブレンド）
+	
+	auto& rt0 = blendDesc.RenderTarget[0];
+	rt0.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	rt0.BlendEnable = TRUE;
+	rt0.SrcBlend = D3D12_BLEND_SRC_ALPHA;       // src = α
+	rt0.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;   // dst = 1-α
+	rt0.BlendOp = D3D12_BLEND_OP_ADD;
+	rt0.SrcBlendAlpha = D3D12_BLEND_ONE;             // αチャンネルは足し算
+	rt0.DestBlendAlpha = D3D12_BLEND_ZERO;
+	rt0.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+
+
+	// PSO 設定
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+	desc.pRootSignature = rootSignature;
+	desc.InputLayout = inputLayoutDesc;
+	desc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	desc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	desc.BlendState = blendDesc;
+	desc.RasterizerState = rasterizerDesc;
+
+	desc.NumRenderTargets = 1;
+	// ★ SwapChain と一致させる（UNORMに統一推奨）
+	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	D3D12_DEPTH_STENCIL_DESC dss{};
+	dss.DepthEnable = TRUE;
+	dss.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	// ★ 半透明は書き込みOFF（重ね順を壊さない）
+	dss.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthStencilState = dss;
+	desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	desc.SampleDesc.Count = 1;
+	desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoAlpha = nullptr;
+	hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&psoAlpha));
+	assert(SUCCEEDED(hr));
+
 
 	ID3D12Resource* vertexResourceSphere = CreateBufferResource(
 		device, sizeof(VertexData) * vertexDataSphere.size());
@@ -1229,8 +1276,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ModelData teapotModel = LoadObjFile("resources", "teapot.obj");
 	ModelData modelDataBunny = LoadObjFile("Resources", "bunny.obj");
 	ModelData multiMeshModel = LoadObjFile("Resources", "multiMesh.obj");
-
-
 
 	// モデル一覧
 	std::vector<ModelData> allModels = {
@@ -1511,6 +1556,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
+				commandList->SetPipelineState(psoAlpha);
 				// --- モデル（Plane.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
@@ -1594,13 +1640,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				}
 			}
 
-
-
-
-
 			//描画
-
-
 
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
@@ -1693,6 +1733,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				directionalLightData->direction = Normalize(directionalLightData->direction);
 
 			}
+			static float alphaValue = 1.0f;
+			ImGui::SliderFloat("Alpha", &alphaValue, 0.0f, 1.0f, "%.2f");
+			materialData->color.w = alphaValue;
+			materialDataSprite->color.w = alphaValue; // スプライトも同様なら
+
 
 			// 現在の選択中Lighting
 			static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
@@ -1735,12 +1780,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::Text("Rstick : cameraRotate");
 				ImGui::Text("A : PlaySound");
 				ImGui::Text("Y : switchOBJ");
-				
-
+			
 				ImGui::End();
 			}
-
-
 
 			ImGui::End();
 
