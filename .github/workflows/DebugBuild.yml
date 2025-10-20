@@ -7,9 +7,9 @@ name: DebugBuild
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master1" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master1" ]
 
 env:
   # Path to the solution file relative to the root of the project.
