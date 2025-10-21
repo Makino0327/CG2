@@ -26,15 +26,6 @@
 #include <d3d12.h>
 #include <d3d12shader.h>
 #include <wrl.h>
-
-#include "Math.h"
-#include "Types.h"
-#include "ModelLoader.h"
-#include "SoundManager.h"
-#include "TextureManager.h"
-#include "Util.h"
-#include "ShaderCompiler.h"
-
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -629,7 +620,6 @@ LightingType currentLighting = LightingType::Lambert;
 
 SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 
-
 // ウィンドウプロシージャ（標準）
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -793,13 +783,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
 	ID3D12Resource* textureResource3 = CreateTextureResource(device, metadata3);
 	UploadTextureData(textureResource3, mipImages3);
-
-	if (!soundManager.Initialize()) {
-		MessageBoxA(nullptr, "XAudio2 Init Failed", "Error", MB_OK);
-		return -1;
-	}
-
-	soundData1 = soundManager.SoundLoadWave("Resources/fanfare.wav");
 
 	//metaDataを基にSRVの設定
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -1067,7 +1050,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
 	materialDataSprite->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	materialDataSprite->lightingType = 0;
-	
+
 
 	// Sprite用のTransformationMatrix用のリソースを作る
 	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
@@ -1176,8 +1159,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 	D3D12_COLOR_WRITE_ENABLE_ALL;
 
-
-
 	// ラスタライザーステイト
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
 	// 裏面（時計回り）を表示しない
@@ -1220,152 +1201,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// どのように画面に色を打ち込むかの設定
 	graphicsPipelineStateDesc.SampleDesc.Count = 1;
 	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-
-	// 不透明用ブレンド
-	D3D12_BLEND_DESC blendOpaque{};
-	blendOpaque.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	blendOpaque.RenderTarget[0].BlendEnable = FALSE;  // 不透明はブレンドOFF
-
-	// 深度（不透明は書き込む）
-	D3D12_DEPTH_STENCIL_DESC dsOpaque{};
-	dsOpaque.DepthEnable = TRUE;
-	dsOpaque.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-	dsOpaque.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-
-	// ================================
-	// 3D 半透明 用 PSO（深度は読むだけ）
-	// ================================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlpha3D = {};
-	psoAlpha3D.pRootSignature = rootSignature;
-	psoAlpha3D.InputLayout = inputLayoutDesc;
-
-	// Shaders
-	psoAlpha3D.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-	psoAlpha3D.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
-
-	// Rasterizer
-	psoAlpha3D.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-	psoAlpha3D.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-	psoAlpha3D.RasterizerState.FrontCounterClockwise = FALSE;
-	psoAlpha3D.RasterizerState.DepthBias = 0;
-	psoAlpha3D.RasterizerState.DepthBiasClamp = 0.0f;
-	psoAlpha3D.RasterizerState.SlopeScaledDepthBias = 0.0f;
-	psoAlpha3D.RasterizerState.DepthClipEnable = TRUE;
-	psoAlpha3D.RasterizerState.MultisampleEnable = FALSE;
-	psoAlpha3D.RasterizerState.AntialiasedLineEnable = FALSE;
-	psoAlpha3D.RasterizerState.ForcedSampleCount = 0;
-	psoAlpha3D.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
-
-	// Blend（ストレートα）
-	psoAlpha3D.BlendState.AlphaToCoverageEnable = FALSE;
-	psoAlpha3D.BlendState.IndependentBlendEnable = FALSE;
-	psoAlpha3D.BlendState.RenderTarget[0].BlendEnable = TRUE;
-	psoAlpha3D.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoAlpha3D.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	psoAlpha3D.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	psoAlpha3D.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	psoAlpha3D.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	psoAlpha3D.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	psoAlpha3D.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-
-	// DepthStencil（読むだけ）
-	psoAlpha3D.DepthStencilState.DepthEnable = TRUE;
-	psoAlpha3D.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // 読むだけ
-	psoAlpha3D.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	psoAlpha3D.DepthStencilState.StencilEnable = FALSE;
-	psoAlpha3D.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
-	psoAlpha3D.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
-
-	// RTV/DSV
-	psoAlpha3D.NumRenderTargets = 1;
-	psoAlpha3D.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-	psoAlpha3D.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-
-	// Topology / Sample
-	psoAlpha3D.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoAlpha3D.SampleDesc.Count = 1;
-	psoAlpha3D.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-	ID3D12PipelineState* psoAlpha3DPso = nullptr;
-	hr = device->CreateGraphicsPipelineState(&psoAlpha3D, IID_PPV_ARGS(&psoAlpha3DPso));
-	assert(SUCCEEDED(hr));
-
-
-	// =====================================
-	// HUD / スプライト 用 PSO（深度テストOFF）
-	// =====================================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaHUD = psoAlpha3D; // ベースコピー
-
-	// そのままだと DSVFormat を参照してしまうので、深度を切る設定に明示的に上書き
-	psoAlphaHUD.DepthStencilState.DepthEnable = FALSE;
-	psoAlphaHUD.DepthStencilState.StencilEnable = FALSE;
-	// HUDは深度使わないので DSVFormat をそのままでも動くが、気持ち悪ければゼロ化でもOK
-	// psoAlphaHUD.DSVFormat = DXGI_FORMAT_UNKNOWN; // ←DSV未使用を明示したい場合
-
-	ID3D12PipelineState* psoAlphaSprite = nullptr;
-	hr = device->CreateGraphicsPipelineState(&psoAlphaHUD, IID_PPV_ARGS(&psoAlphaSprite));
-	assert(SUCCEEDED(hr));
-
-
-	// PSOベース
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
-	psoDesc.pRootSignature = rootSignature;
-	psoDesc.InputLayout = inputLayoutDesc;
-	psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-	psoDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
-	psoDesc.BlendState = blendOpaque;
-	psoDesc.RasterizerState = rasterizerDesc;
-	psoDesc.DepthStencilState = dsOpaque;
-	psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // あなたの設定に合わせる
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.SampleDesc.Count = 1;
-	psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-	ID3D12PipelineState* psoOpaque = nullptr;
-	hr=(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&psoOpaque)));
-
-	// アルファ用 PSO の組み立て
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoAlphaDesc = {};
-	psoAlphaDesc.pRootSignature = rootSignature;
-	psoAlphaDesc.InputLayout = inputLayoutDesc;
-	psoAlphaDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-	psoAlphaDesc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
-	psoAlphaDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-	psoAlphaDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-
-	// ★ブレンド（OK）
-	psoAlphaDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoAlphaDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
-	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-	psoAlphaDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-	psoAlphaDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	psoAlphaDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	psoAlphaDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	psoAlphaDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-
-	// ★深度（読むだけ）
-	psoAlphaDesc.DepthStencilState.DepthEnable = TRUE;
-	psoAlphaDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	psoAlphaDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-
-	psoAlphaDesc.NumRenderTargets = 1;
-	psoAlphaDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-	psoAlphaDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-	psoAlphaDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoAlphaDesc.SampleDesc.Count = 1;
-
-	// ★これが無いと“出ません”
-	psoAlphaDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;  // = 0xFFFFFFFF
-
-
-	ID3D12PipelineState* psoAlpha = nullptr;
-	device->CreateGraphicsPipelineState(&psoAlphaDesc, IID_PPV_ARGS(&psoAlpha));
-
-
-
 	// 実際に生成
 	ID3D12PipelineState* graphicsPipelineState = nullptr;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
@@ -1559,7 +1394,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				const float rotateSpeed = 0.02f;
 				cameraTransform.rotate.y += normalizedRX * rotateSpeed; // 左右旋回
 				cameraTransform.rotate.x -= normalizedRY * rotateSpeed; // ✅ ここをマイナスに
-				
+
 
 				bool wasAPressed = false;
 				// Aボタンが押されているか？
@@ -1573,7 +1408,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				// 状態を記録
 				wasAPressed = isAPressed;
 
-				
+
 				// Yボタンの状態
 				bool isYPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
 
@@ -1596,7 +1431,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				0.45f,
 				float(kClientWidth) / float(kClientHeight),
 				0.1f, 100.0f);
-			
+
 			Matrix4x4 worldMatrixSphere = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
 			wvpDataSphere->WVP = Multiply(worldMatrixSphere, Multiply(viewMatrix, projectionMatrix));
 			wvpDataSphere->World = worldMatrixSphere;
@@ -1642,9 +1477,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 			D3D12_GPU_DESCRIPTOR_HANDLE textureSRVs[] = {
-	             textureSrvHandleGPU,   // uvChecker
-	             textureSrvHandleGPU2,  // monsterBall
-	             textureSrvHandleGPU3   // checkerBoard
+				 textureSrvHandleGPU,   // uvChecker
+				 textureSrvHandleGPU2,  // monsterBall
+				 textureSrvHandleGPU3   // checkerBoard
 			};
 
 			const char* textureNames[] = { "uvChecker", "monsterBall", "checkerBoard" };
@@ -1656,9 +1491,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
 			commandList->SetPipelineState(graphicsPipelineState);
-            // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
-           
-			// SRVヒープ
+			// 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
+
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// テクスチャ選択に応じて SRV を切り替え
@@ -1669,27 +1503,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
-			// ==========================================================
-			// 1) 不透明パス（DepthEnable=TRUE, DepthWrite=ALL, Blend=OFF）
-			// ==========================================================
-			// A が十分小さいなら半透明扱い
-			const bool isPlaneTransparent = (materialData->color.w < 0.999f);
 
-
-			switch (currentMode)
-			{
-			case DisplayMode::Sprite:
-			{
-				// 不透明パス
-				if (!isPlaneTransparent) {
-					commandList->SetPipelineState(psoOpaque);                  // 深度書き込みON, Blend OFF
-					commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]);
-					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					commandList->SetGraphicsRootDescriptorTable(3, textureSRVs[selectedTextureIndex]);
-					commandList->DrawInstanced((UINT)allModels[0].meshes[0].vertices.size(), 1, 0, 0);
-				}
-	
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
 				// --- モデル（Plane.obj）描画 ---
@@ -1722,8 +1536,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
-			}
-			break;
 
 			} else if (currentMode == DisplayMode::Teapot) {
 				// --- ティーポット描画 ---
@@ -1741,8 +1553,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
 				}
-			}
-			break;
 
 			} else if (currentMode == DisplayMode::Bunny) {
 				// --- バニー描画 ---
@@ -1760,8 +1570,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
 				}
-			}
-			break;
 
 			} else if (currentMode == DisplayMode::MultiMesh) {
 				// --- マルチメッシュ描画 ---
@@ -1780,10 +1588,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
 				}
 			}
-			break;
-			default:
-				break;
-			}
 
 			//描画
 
@@ -1794,7 +1598,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// 自作ウィンドウだけ表示する
 			ImGui::Begin("Sprite Transform");
 
-			const char* modeItems[] = { "Sprite", "Sphere", "Teapot", "Bunny","MultiMesh"};
+			const char* modeItems[] = { "Sprite", "Sphere", "Teapot", "Bunny","MultiMesh" };
 			int currentModeIndex = static_cast<int>(currentMode);
 			if (ImGui::Combo("Display Mode", &currentModeIndex, modeItems, IM_ARRAYSIZE(modeItems))) {
 				currentMode = static_cast<DisplayMode>(currentModeIndex);
@@ -1818,7 +1622,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					ImGui::SliderFloat3("##SpriteTranslate", &transformSprite.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
 					ImGui::SliderFloat3("##SpriteRotate", &transformSprite.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##SpriteScale", &transformSprite.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-					
+
 				}
 
 				// UVTranslate（2D）
@@ -1848,13 +1652,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);       ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);            ImGui::SameLine(); ImGui::Text("Scale");
 				}
-			}else if (currentMode == DisplayMode::Teapot) {
+			} else if (currentMode == DisplayMode::Teapot) {
 				ImGui::Text("Teapot Controls");
 				ImGui::SliderFloat3("Teapot Translate", &teapotTransform.translate.x, -10.0f, 10.0f);
 				ImGui::SliderFloat3("Teapot Rotate", &teapotTransform.rotate.x, -3.14f, 3.14f);
 				ImGui::SliderFloat3("Teapot Scale", &teapotTransform.scale.x, 0.0f, 5.0f);
 
-			} else if (currentMode == DisplayMode::Bunny){
+			} else if (currentMode == DisplayMode::Bunny) {
 				ImGui::Text("Bunny Controls");
 
 				ImGui::SliderFloat3("Bunny Translate", &bunnyTransform.translate.x, -10.0f, 10.0f);
@@ -1874,19 +1678,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
 				ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
 
-
 				// ライトの方向を正規化する（ImGuiで編集後に毎回）
 				directionalLightData->direction = Normalize(directionalLightData->direction);
 
 			}
 
-			// 一括で色(A込み)をいじるなら ColorEdit4 が楽
-			ImGui::ColorEdit4("Model Color", &materialData->color.x,
-				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
-			ImGui::ColorEdit4("Sprite Color", &materialDataSprite->color.x,
-				ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
-
-		
 			// 現在の選択中Lighting
 			static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
 
@@ -1928,7 +1724,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::Text("Rstick : cameraRotate");
 				ImGui::Text("A : PlaySound");
 				ImGui::Text("Y : switchOBJ");
-				
+
 
 				ImGui::End();
 			}
