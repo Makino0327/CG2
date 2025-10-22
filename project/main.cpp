@@ -23,9 +23,6 @@
 #include <xaudio2.h>
 #include <wrl.h>
 #include <Xinput.h>
-#include <d3d12.h>
-#include <d3d12shader.h>
-#include <wrl.h>
 using Microsoft::WRL::ComPtr;
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -38,6 +35,8 @@ using Microsoft::WRL::ComPtr;
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
+
+
 
 enum class DisplayMode {
 	Sprite,
@@ -638,10 +637,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
-	char exePath[MAX_PATH]{};
+	/*char exePath[MAX_PATH]{};
 	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
 	std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
-	std::filesystem::current_path(exeDir);
+	std::filesystem::current_path(exeDir);*/
 
 
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
@@ -1050,10 +1049,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
 	materialDataSprite->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	materialDataSprite->lightingType = 0;
-	
+
 
 	// Sprite用のTransformationMatrix用のリソースを作る
-	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(TransformationMatrix));
 	TransformationMatrix* transformationMatrixDataSprite = nullptr;
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
@@ -1157,7 +1156,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_BLEND_DESC blendDesc{};
 	// すべての色要素を書き込む
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	D3D12_COLOR_WRITE_ENABLE_ALL;
+	blendDesc.RenderTarget[0].BlendEnable = TRUE;
+	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA; // ソースの値はα
+	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD; // 加算
+	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA; // デストの値は1-α
+	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 
 	// ラスタライザーステイト
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
@@ -1206,6 +1211,53 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
 
+	// ==========================
+// 半透明専用 PSO（psoAlpha）
+// ==========================
+
+// ブレンド（αブレンド）
+
+	auto& rt0 = blendDesc.RenderTarget[0];
+	rt0.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+	rt0.BlendEnable = TRUE;
+	rt0.SrcBlend = D3D12_BLEND_SRC_ALPHA;       // src = α
+	rt0.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;   // dst = 1-α
+	rt0.BlendOp = D3D12_BLEND_OP_ADD;
+	rt0.SrcBlendAlpha = D3D12_BLEND_ONE;             // αチャンネルは足し算
+	rt0.DestBlendAlpha = D3D12_BLEND_ZERO;
+	rt0.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+
+
+
+	// PSO 設定
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+	desc.pRootSignature = rootSignature;
+	desc.InputLayout = inputLayoutDesc;
+	desc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+	desc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
+	desc.BlendState = blendDesc;
+	desc.RasterizerState = rasterizerDesc;
+
+	desc.NumRenderTargets = 1;
+	// ★ SwapChain と一致させる（UNORMに統一推奨）
+	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	D3D12_DEPTH_STENCIL_DESC dss{};
+	dss.DepthEnable = TRUE;
+	dss.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	// ★ 半透明は書き込みOFF（重ね順を壊さない）
+	dss.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthStencilState = dss;
+	desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	desc.SampleDesc.Count = 1;
+	desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	ID3D12PipelineState* psoAlpha = nullptr;
+	hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&psoAlpha));
+	assert(SUCCEEDED(hr));
+
 
 	ID3D12Resource* vertexResourceSphere = CreateBufferResource(
 		device, sizeof(VertexData) * vertexDataSphere.size());
@@ -1224,8 +1276,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ModelData teapotModel = LoadObjFile("resources", "teapot.obj");
 	ModelData modelDataBunny = LoadObjFile("Resources", "bunny.obj");
 	ModelData multiMeshModel = LoadObjFile("Resources", "multiMesh.obj");
-
-
 
 	// モデル一覧
 	std::vector<ModelData> allModels = {
@@ -1394,7 +1444,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				const float rotateSpeed = 0.02f;
 				cameraTransform.rotate.y += normalizedRX * rotateSpeed; // 左右旋回
 				cameraTransform.rotate.x -= normalizedRY * rotateSpeed; // ✅ ここをマイナスに
-				
+
 
 				bool wasAPressed = false;
 				// Aボタンが押されているか？
@@ -1408,7 +1458,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				// 状態を記録
 				wasAPressed = isAPressed;
 
-				
+
 				// Yボタンの状態
 				bool isYPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
 
@@ -1431,7 +1481,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				0.45f,
 				float(kClientWidth) / float(kClientHeight),
 				0.1f, 100.0f);
-			
+
 			Matrix4x4 worldMatrixSphere = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
 			wvpDataSphere->WVP = Multiply(worldMatrixSphere, Multiply(viewMatrix, projectionMatrix));
 			wvpDataSphere->World = worldMatrixSphere;
@@ -1477,9 +1527,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 			D3D12_GPU_DESCRIPTOR_HANDLE textureSRVs[] = {
-	             textureSrvHandleGPU,   // uvChecker
-	             textureSrvHandleGPU2,  // monsterBall
-	             textureSrvHandleGPU3   // checkerBoard
+				 textureSrvHandleGPU,   // uvChecker
+				 textureSrvHandleGPU2,  // monsterBall
+				 textureSrvHandleGPU3   // checkerBoard
 			};
 
 			const char* textureNames[] = { "uvChecker", "monsterBall", "checkerBoard" };
@@ -1491,8 +1541,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);
 			commandList->RSSetScissorRects(1, &scissorRect);
 			commandList->SetPipelineState(graphicsPipelineState);
-            // 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
-           
+			// 'graphicsPipelineState' が nullptr でないことを確認するためのチェックを追加  
+
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// テクスチャ選択に応じて SRV を切り替え
@@ -1503,9 +1553,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
-	
+
 			// ---------- モードごとの描画 ----------
 			if (currentMode == DisplayMode::Sprite) {
+				commandList->SetPipelineState(psoAlpha);
 				// --- モデル（Plane.obj）描画 ---
 				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
@@ -1598,7 +1649,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// 自作ウィンドウだけ表示する
 			ImGui::Begin("Sprite Transform");
 
-			const char* modeItems[] = { "Sprite", "Sphere", "Teapot", "Bunny","MultiMesh"};
+			const char* modeItems[] = { "Sprite", "Sphere", "Teapot", "Bunny","MultiMesh" };
 			int currentModeIndex = static_cast<int>(currentMode);
 			if (ImGui::Combo("Display Mode", &currentModeIndex, modeItems, IM_ARRAYSIZE(modeItems))) {
 				currentMode = static_cast<DisplayMode>(currentModeIndex);
@@ -1622,7 +1673,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					ImGui::SliderFloat3("##SpriteTranslate", &transformSprite.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
 					ImGui::SliderFloat3("##SpriteRotate", &transformSprite.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##SpriteScale", &transformSprite.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-					
+
 				}
 
 				// UVTranslate（2D）
@@ -1652,13 +1703,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);       ImGui::SameLine(); ImGui::Text("Rotate");
 					ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);            ImGui::SameLine(); ImGui::Text("Scale");
 				}
-			}else if (currentMode == DisplayMode::Teapot) {
+			} else if (currentMode == DisplayMode::Teapot) {
 				ImGui::Text("Teapot Controls");
 				ImGui::SliderFloat3("Teapot Translate", &teapotTransform.translate.x, -10.0f, 10.0f);
 				ImGui::SliderFloat3("Teapot Rotate", &teapotTransform.rotate.x, -3.14f, 3.14f);
 				ImGui::SliderFloat3("Teapot Scale", &teapotTransform.scale.x, 0.0f, 5.0f);
 
-			} else if (currentMode == DisplayMode::Bunny){
+			} else if (currentMode == DisplayMode::Bunny) {
 				ImGui::Text("Bunny Controls");
 
 				ImGui::SliderFloat3("Bunny Translate", &bunnyTransform.translate.x, -10.0f, 10.0f);
@@ -1682,6 +1733,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				directionalLightData->direction = Normalize(directionalLightData->direction);
 
 			}
+			static float alphaValue = 1.0f;
+			ImGui::SliderFloat("Alpha", &alphaValue, 0.0f, 1.0f, "%.2f");
+			materialData->color.w = alphaValue;
+			materialDataSprite->color.w = alphaValue; // スプライトも同様なら
+
 
 			// 現在の選択中Lighting
 			static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
@@ -1724,12 +1780,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::Text("Rstick : cameraRotate");
 				ImGui::Text("A : PlaySound");
 				ImGui::Text("Y : switchOBJ");
-				
 
 				ImGui::End();
 			}
-
-
 
 			ImGui::End();
 
