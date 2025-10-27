@@ -1422,6 +1422,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					-std::sin(cameraTransform.rotate.y)
 				};
 
+				input->Update();
+
 				// 左スティックで前後左右移動
 				cameraTransform.translate = Add(
 					cameraTransform.translate,

@@ -8,8 +8,6 @@
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-using Microsoft::WRL::ComPtr;
-
 class Input
 {
 public:
@@ -19,7 +17,11 @@ public:
 	// 更新
 	void Update();
 
+public:
+	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
+
 private:
 	HRESULT result_;
+	ComPtr<IDirectInputDevice8> keyboard;
 };
 
