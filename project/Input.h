@@ -17,11 +17,28 @@ public:
 	// 更新
 	void Update();
 
+	/// <summary>
+	/// キーの押したかをチェック
+	/// </summary>
+	/// <param name="keyNumber">キー番号</param>
+	/// <returns>押されているか</returns>
+	bool PushKey(BYTE keyNumber);
+
+	/// <summary>
+	/// キーのトリガーチェック
+	/// </summary>
+	/// <param name="keyNumber">キー番号</param>
+	/// <returns>トリガーか</returns>
+	bool TriggerKey(BYTE keyNumber);
+
 public:
 	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
 private:
+	ComPtr<IDirectInput8> directInput = nullptr;
 	HRESULT result_;
 	ComPtr<IDirectInputDevice8> keyboard;
+	BYTE key[256] = {};
+	BYTE prevKey[256] = {};
 };
 
