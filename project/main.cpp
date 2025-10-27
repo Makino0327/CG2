@@ -32,6 +32,8 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib,"xaudio2.lib")
 #pragma comment(lib, "xinput.lib")
 
+#include "Input.h"
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
@@ -635,13 +637,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-
-
-	/*char exePath[MAX_PATH]{};
-	GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-	std::filesystem::path exeDir = std::filesystem::path(exePath).parent_path();
-	std::filesystem::current_path(exeDir);*/
-
 
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
 
@@ -1375,6 +1370,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	bool useMonsterBall = false;
 
+	// 入力処理
+	Input* input = nullptr;
+	// 入力の初期化
+	input = new Input();
+	input->Initialize(hInstance, hwnd);
+
 	// --- メインループ ---
 	MSG msg{};
 	bool wasYPressed = false;
@@ -1855,6 +1856,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		}
 	}
 
+	delete input;
 
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
