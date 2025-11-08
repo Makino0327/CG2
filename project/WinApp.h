@@ -16,6 +16,8 @@ public:
 	void Initialize();
 	// 更新
 	void Update();
+	// 終了
+	void Finalize();
 
 	// ゲッター
 	HWND GetHwnd() const{ return hwnd; }

@@ -15,6 +15,15 @@ void WinApp::Initialize()
 	RECT wrc = { 0, 0, kClientWidth, kClientHeight };
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
 
+	hwnd = CreateWindow(
+		wc.lpszClassName,
+		L"My DirectX12 App",
+		WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT, CW_USEDEFAULT,
+		wrc.right - wrc.left,
+		wrc.bottom - wrc.top,
+		nullptr, nullptr, wc.hInstance, nullptr);
+
 	assert(hwnd);
 	ShowWindow(hwnd, SW_SHOW);
 
@@ -23,6 +32,12 @@ void WinApp::Initialize()
 void WinApp::Update()
 {
 
+}
+
+void WinApp::Finalize()
+{
+	CloseWindow(hwnd);
+	CoUninitialize();
 }
 
 // ウィンドウプロシージャ

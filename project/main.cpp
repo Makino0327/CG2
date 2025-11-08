@@ -1357,7 +1357,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// 入力の初期化
 	input = new Input();
-	input->Initialize(winApp->GetHInstance(), winApp->GetHwnd());
+	input->Initialize(winApp);
 
 	// --- メインループ ---
 	MSG msg{};
@@ -1848,7 +1848,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 	delete input;
-	delete winApp;
+	
 
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
@@ -1864,7 +1864,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		debug->Release();
 	}
 
-	CoUninitialize();
+	// 終了
+	winApp->Finalize();
+	delete winApp;
 
 	return 0;
 }
