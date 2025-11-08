@@ -19,6 +19,9 @@ public:
 	// 終了
 	void Finalize();
 
+	// メッセージ処理
+	bool ProcessMessage();
+
 	// ゲッター
 	HWND GetHwnd() const{ return hwnd; }
 	HINSTANCE GetHInstance() const { return wc.hInstance; }
