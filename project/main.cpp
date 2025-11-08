@@ -33,6 +33,7 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "xinput.lib")
 
 #include "Input.h"
+#include "WinApp.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -621,6 +622,12 @@ LightingType currentLighting = LightingType::Lambert;
 
 SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 
+/// ポインタ
+// WindowsAPI
+WinApp* winApp = nullptr;
+// 入力処理
+Input* input = nullptr;
+
 // ウィンドウプロシージャ（標準）
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -637,6 +644,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+
+	// WindowsAPI初期化
+	winApp = new WinApp();
+	winApp->Initialize();
 
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
 
@@ -1370,8 +1381,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	bool useMonsterBall = false;
 
-	// 入力処理
-	Input* input = nullptr;
 	// 入力の初期化
 	input = new Input();
 	input->Initialize(hInstance, hwnd);
@@ -1422,7 +1431,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					-std::sin(cameraTransform.rotate.y)
 				};
 
-				
+
 
 				// 左スティックで前後左右移動
 				cameraTransform.translate = Add(
@@ -1865,6 +1874,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 	delete input;
+	delete winApp;
 
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
