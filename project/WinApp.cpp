@@ -5,30 +5,16 @@ void WinApp::Initialize()
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
 
 	// --- ウィンドウ作成 ---
-	WNDCLASS wc{};
 	wc.lpfnWndProc = WindowProc;
 	wc.hInstance = GetModuleHandle(nullptr);
 	wc.lpszClassName = L"MyWindowClass";
 	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	RegisterClass(&wc);
 
-	// 画面サイズ
-	const int32_t kClientWidth = 1280;
-	const int32_t kClientHeight = 720;
-
 	// クライアント領域サイズ調整
 	RECT wrc = { 0, 0, kClientWidth, kClientHeight };
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
 
-	// ウィンドウ生成
-	HWND hwnd = CreateWindow(
-		wc.lpszClassName,
-		L"My DirectX12 App",
-		WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		wrc.right - wrc.left, wrc.bottom - wrc.top,
-		nullptr, nullptr, wc.hInstance, nullptr
-	);
 	assert(hwnd);
 	ShowWindow(hwnd, SW_SHOW);
 

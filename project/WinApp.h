@@ -16,5 +16,19 @@ public:
 	void Initialize();
 	// 更新
 	void Update();
+
+	// ゲッター
+	HWND GetHwnd() const{ return hwnd; }
+	HINSTANCE GetHInstance() const { return wc.hInstance; }
+private:
+	// ウィンドウハンドル
+	HWND hwnd = nullptr;
+	// ウィンドウクラス
+	WNDCLASS wc{};
+
+public:
+	// 画面サイズ
+	static constexpr int32_t kClientWidth = 1280;
+	static constexpr int32_t kClientHeight = 720;
 };
 
