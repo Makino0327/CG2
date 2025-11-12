@@ -32,14 +32,14 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib,"xaudio2.lib")
 #pragma comment(lib, "xinput.lib")
 
+// クラス
+#include "Math.h"
 #include "Input.h"
 #include "WinApp.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 extern std::vector<std::vector<D3D12_VERTEX_BUFFER_VIEW>> vertexBufferViewsPerModel;
-
-
 
 enum class DisplayMode {
 	Sprite,
@@ -49,8 +49,6 @@ enum class DisplayMode {
 	MultiMesh,
 	Count
 };
-
-
 
 const char* textureNames[] = {
 	"uvChecker",
@@ -88,34 +86,6 @@ enum class LightingType {
 	None = 0,
 	Lambert,
 	HalfLambert
-};
-
-
-// Vector4型を定義する
-struct Vector4 {
-	float x, y, z, w;
-};
-
-struct Vector3 {
-	float x, y, z;
-};
-
-struct Vector2 {
-	float x, y;
-};
-
-struct Matrix4x4 {
-	float m[4][4];
-};
-
-struct Matrix3x3 {
-	float m[3][3];
-};
-
-struct Transform {
-	Vector3 scale;
-	Vector3 rotate;
-	Vector3 translate;
 };
 
 struct VertexData {
@@ -199,92 +169,7 @@ static Transform multiMeshTransform = {
 	{0.0f, 0.0f, 0.0f}   // translate
 };
 
-/// <summary>
-///ディスクリプタヒープを作成
-/// </summary>
-/// <param name="device">ディスクリプタヒープを作成する対象の ID3D12Device</param>
-/// <param name="heapType">作成するディスクリプタヒープの種類（CBV/SRV/UAV など）</param>
-/// <param name="numDescriptors">ディスクリプタの数</param>
-/// <param name="shaderVisible">シェーダーから参照可能にするかどうか</param>
-/// <returns>作成された ID3D12DescriptorHeap のポインタ。失敗した場合は nullptr。</returns>
 ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible);
-/// <summary>
-/// 単位行列
-/// </summary>
-/// <returns>単位行列</returns>
-Matrix4x4 MakeIdentity4x4();
-/// <summary>
-/// スケール、回転、平行移動の各要素からアフィン変換行列（4x4）を生成。
-/// </summary>
-/// <param name="scale">拡大縮小を表すスケールベクトル。</param>
-/// <param name="rotate">回転を表すオイラー角（ラジアン）ベクトル。</param>
-/// <param name="translate">位置を表す平行移動ベクトル。</param>
-/// <returns>アフィン変換を表す 4x4 行列。</returns>
-Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate);
-/// <summary>
-/// 垂直方向の視野角、アスペクト比、近距離および遠距離クリップ面を元に透視投影行列（4x4）を生成。
-/// </summary>
-/// <param name="fovY">垂直方向の視野角（ラジアン単位）。</param>
-/// <param name="aspect">アスペクト比（横幅 ÷ 高さ）。</param>
-/// <param name="nearZ">近距離クリップ面の距離。</param>
-/// <param name="farZ">遠距離クリップ面の距離。</param>
-/// <returns>透視投影を表す 4x4 行列。</returns>
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ);
-/// <summary>
-/// 2つの 4x4 行列の積を計算し、合成された変換行列を返します。
-/// </summary>
-/// <param name="a">左側の行列（先に適用される変換）。</param>
-/// <param name="b">右側の行列（後に適用される変換）。</param>
-/// <returns>掛け算の結果となる 4x4 行列。</returns>
-Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
-/// <summary>
-/// 指定された 4x4 行列の逆行列を計算して返します。
-/// </summary>
-/// <param name="m">逆行列を求める対象の 4x4 行列。</param>
-/// <returns>指定された行列の逆行列（Matrix4x4 型）。</returns>
-Matrix4x4 Inverse(const Matrix4x4& m);
-
-Vector3 Normalize(const Vector3& v) {
-	float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-	if (length == 0.0f) return { 0.0f, 0.0f, 0.0f };
-	return { v.x / length, v.y / length, v.z / length };
-}
-
-Matrix4x4 MakeScaleMatrix(const Vector3& scale) {
-	Matrix4x4 result = {};
-	result.m[0][0] = scale.x;
-	result.m[1][1] = scale.y;
-	result.m[2][2] = scale.z;
-	result.m[3][3] = 1.0f;
-	return result;
-}
-
-Matrix4x4 MakeRotateZMatrix(float angle) {
-	Matrix4x4 result = {};
-	float c = cosf(angle);
-	float s = sinf(angle);
-
-	result.m[0][0] = c;
-	result.m[0][1] = -s;
-	result.m[1][0] = s;
-	result.m[1][1] = c;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-	return result;
-}
-
-Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
-	Matrix4x4 result = {};
-	result.m[0][0] = 1.0f;
-	result.m[1][1] = 1.0f;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-
-	result.m[3][0] = translate.x;
-	result.m[3][1] = translate.y;
-	result.m[3][2] = translate.z;
-	return result;
-}
 
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
 	ModelData modelData;
@@ -502,8 +387,6 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
 	result = pSourceVoice->SubmitSourceBuffer(&buf);
 	result = pSourceVoice->Start();
 }
-
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ);
 
 DirectX::ScratchImage LoadTexture(const std::string& filePath);
 
@@ -1523,7 +1406,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			 textureSrvHandleGPU3   // checkerBoard
 		};
 
-		const char* textureNames[] = { "uvChecker", "monsterBall", "checkerBoard" };
 		static int selectedTextureIndex = 0;
 
 		// DrawCall
@@ -1815,57 +1697,117 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 	// --- 後片付け ---
-	CloseHandle(fenceEvent);
-	if (fence) fence->Release();
-	for (int i = 0; i < 2; ++i) {
-		if (swapChainResources[i]) swapChainResources[i]->Release();
-	}
-	if (rtvDescriptorHeap) rtvDescriptorHeap->Release();
-	if (swapChain) swapChain->Release();
-	if (commandList) commandList->Release();
-	if (commandAllocator) commandAllocator->Release();
-	if (commandQueue) commandQueue->Release();
-	if (device) device->Release();
-	if (dxgiFactory) dxgiFactory->Release();
+	// --- 後片付け（Release/Destroy/Close）---
 
-	if (vertexResourceSphere) vertexResourceSphere->Release();
-	if (graphicsPipelineState) graphicsPipelineState->Release();
-	if (rootSignature) rootSignature->Release();
-	if (vertexShaderBlob) vertexShaderBlob->Release();
-	if (pixelShaderBlob) pixelShaderBlob->Release();
-	if (signatureBlob) signatureBlob->Release();
-	if (errorBlob) errorBlob->Release();
-	materialResource->Release();
-
-	for (auto& resourceList : vertexResourcesPerModel) {
-		for (ID3D12Resource* res : resourceList) {
-			if (res) {
-				res->Release();
-				res = nullptr;
-			}
-		}
-	}
-
-	delete input;
-
-
-	xAudio2.Reset();
-	SoundUnload(&soundData1);
-
+// ImGuiは先に終了
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	// リソース全開放後、LiveObjectsレポート
+	// XAudio2
+	if (masteringVoice) {
+		masteringVoice->DestroyVoice();
+		masteringVoice = nullptr;
+	}
+	xAudio2.Reset();
+	// ※ SourceVoice は SoundPlayWave 内で DestroyVoice する設計に直しておくとベター
+	SoundUnload(&soundData1);
+
+	// フェンスイベント
+	if (fenceEvent) {
+		CloseHandle(fenceEvent);
+		fenceEvent = nullptr;
+	}
+
+	// D3D12/DXGI リソース類（子→親の順で解放）
+	if (psoAlpha) psoAlpha->Release();                           // 半透明用PSO
+	if (graphicsPipelineState) graphicsPipelineState->Release(); // 不透明用PSO
+
+	// CBuffer / テクスチャ / VB/IB
+	if (materialResourceSprite) materialResourceSprite->Release();
+	if (transformationMatrixResourceSprite) transformationMatrixResourceSprite->Release();
+
+	if (materialResource) materialResource->Release();
+
+	if (wvpResourceSphere) wvpResourceSphere->Release();
+	if (wvpResourceModel)  wvpResourceModel->Release();
+	if (wvpResourceTeapot) wvpResourceTeapot->Release();
+	if (wvpResourceBunny)  wvpResourceBunny->Release();
+	if (wvpResourceMultiMesh) wvpResourceMultiMesh->Release();
+
+	if (directionalLightResource) directionalLightResource->Release();
+
+	if (vertexResourceSprite) vertexResourceSprite->Release();
+	if (indexResourceSprite)  indexResourceSprite->Release();
+
+	if (vertexResourceSphere) vertexResourceSphere->Release();
+
+	if (textureResource)  textureResource->Release();
+	if (textureResource2) textureResource2->Release();
+	if (textureResource3) textureResource3->Release();
+
+	if (depthStencilResource) depthStencilResource->Release();
+
+	// モデルごとの頂点バッファ（2重ループで全部解放）
+	for (auto& resourceList : vertexResourcesPerModel) {
+		for (ID3D12Resource*& res : resourceList) {
+			if (res) { res->Release(); res = nullptr; }
+		}
+	}
+
+	// ヒープ
+	if (srvDescriptorHeap) srvDescriptorHeap->Release();
+	if (rtvDescriptorHeap) rtvDescriptorHeap->Release();
+	if (dsvDescriptorHeap) dsvDescriptorHeap->Release();
+
+	// バックバッファ
+	for (int i = 0; i < 2; ++i) {
+		if (swapChainResources[i]) {
+			swapChainResources[i]->Release();
+			swapChainResources[i] = nullptr;
+		}
+	}
+
+	// ルート/シェーダ関連
+	if (rootSignature) rootSignature->Release();
+
+	if (vertexShaderBlob)  vertexShaderBlob->Release();
+	if (pixelShaderBlob)   pixelShaderBlob->Release();
+	if (signatureBlob)     signatureBlob->Release();
+	if (errorBlob)         errorBlob->Release();
+
+	if (dxcUtils)      dxcUtils->Release();
+	if (dxcCompiler)   dxcCompiler->Release();
+	if (includeHandler) includeHandler->Release();
+
+	// コマンド周り・スワップチェイン・デバイス
+	if (fence)            fence->Release();
+	if (commandList)      commandList->Release();
+	if (commandAllocator) commandAllocator->Release();
+	if (commandQueue)     commandQueue->Release();
+	if (swapChain)        swapChain->Release();
+	if (device)           device->Release();
+	if (dxgiFactory)      dxgiFactory->Release();
+
+	// 入力
+	delete input;
+	input = nullptr;
+
+	// LiveObjects レポート
 	IDXGIDebug1* debug = nullptr;
 	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
 		debug->Release();
+		debug = nullptr;
 	}
 
-	// 終了
-	winApp->Finalize();
-	delete winApp;
+	// WinApp の終了（最後）
+	if (winApp) {
+		winApp->Finalize();
+		delete winApp;
+		winApp = nullptr;
+	}
+
 
 	return 0;
 }
@@ -1969,203 +1911,7 @@ ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	assert(SUCCEEDED(hr));
 	return resource;
 }
-Matrix4x4 MakeIdentity4x4() {
-	Matrix4x4 result = {};
 
-	result.m[0][0] = 1.0f;
-	result.m[1][1] = 1.0f;
-	result.m[2][2] = 1.0f;
-	result.m[3][3] = 1.0f;
-
-	return result;
-}
-Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate)
-{
-	Matrix4x4 matrix = {};
-	float cosX = cosf(rotate.x);
-	float sinX = sinf(rotate.x);
-	float cosY = cosf(rotate.y);
-	float sinY = sinf(rotate.y);
-	float cosZ = cosf(rotate.z);
-	float sinZ = sinf(rotate.z);
-	matrix.m[0][0] = scale.x * (cosY * cosZ);
-	matrix.m[0][1] = scale.x * (cosY * sinZ);
-	matrix.m[0][2] = scale.x * (-sinY);
-	matrix.m[0][3] = 0.0f;
-	matrix.m[1][0] = scale.y * (sinX * sinY * cosZ - cosX * sinZ);
-	matrix.m[1][1] = scale.y * (sinX * sinY * sinZ + cosX * cosZ);
-	matrix.m[1][2] = scale.y * (sinX * cosY);
-	matrix.m[1][3] = 0.0f;
-	matrix.m[2][0] = scale.z * (cosX * sinY * cosZ + sinX * sinZ);
-	matrix.m[2][1] = scale.z * (cosX * sinY * sinZ - sinX * cosZ);
-	matrix.m[2][2] = scale.z * (cosX * cosY);
-	matrix.m[2][3] = 0.0f;
-	matrix.m[3][0] = translate.x;
-	matrix.m[3][1] = translate.y;
-	matrix.m[3][2] = translate.z;
-	matrix.m[3][3] = 1.0f;
-	return matrix;
-}
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ) {
-	Matrix4x4 m{};
-	float yScale = 1.0f / tanf(fovY / 2.0f);
-	float xScale = yScale / aspect;
-	float range = farZ - nearZ;
-
-	m.m[0][0] = xScale;
-	m.m[1][1] = yScale;
-	m.m[2][2] = farZ / range;
-	m.m[2][3] = 1.0f;
-	m.m[3][2] = -nearZ * farZ / range;
-
-	return m;
-}
-Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b) {
-	Matrix4x4 r{};
-	for (int row = 0; row < 4; ++row) {
-		for (int col = 0; col < 4; ++col) {
-			for (int k = 0; k < 4; ++k) {
-				r.m[row][col] += a.m[row][k] * b.m[k][col];
-			}
-		}
-	}
-	return r;
-}
-Matrix4x4 Inverse(const Matrix4x4& m)
-{
-	Matrix4x4 result;
-	float* inv = &result.m[0][0];
-	const float* mat = &m.m[0][0];
-
-	float invOut[16];
-
-	invOut[0] = mat[5] * mat[10] * mat[15] -
-		mat[5] * mat[11] * mat[14] -
-		mat[9] * mat[6] * mat[15] +
-		mat[9] * mat[7] * mat[14] +
-		mat[13] * mat[6] * mat[11] -
-		mat[13] * mat[7] * mat[10];
-
-	invOut[1] = -mat[1] * mat[10] * mat[15] +
-		mat[1] * mat[11] * mat[14] +
-		mat[9] * mat[2] * mat[15] -
-		mat[9] * mat[3] * mat[14] -
-		mat[13] * mat[2] * mat[11] +
-		mat[13] * mat[3] * mat[10];
-
-	invOut[2] = mat[1] * mat[6] * mat[15] -
-		mat[1] * mat[7] * mat[14] -
-		mat[5] * mat[2] * mat[15] +
-		mat[5] * mat[3] * mat[14] +
-		mat[13] * mat[2] * mat[7] -
-		mat[13] * mat[3] * mat[6];
-
-	invOut[3] = -mat[1] * mat[6] * mat[11] +
-		mat[1] * mat[7] * mat[10] +
-		mat[5] * mat[2] * mat[11] -
-		mat[5] * mat[3] * mat[10] -
-		mat[9] * mat[2] * mat[7] +
-		mat[9] * mat[3] * mat[6];
-
-	invOut[4] = -mat[4] * mat[10] * mat[15] +
-		mat[4] * mat[11] * mat[14] +
-		mat[8] * mat[6] * mat[15] -
-		mat[8] * mat[7] * mat[14] -
-		mat[12] * mat[6] * mat[11] +
-		mat[12] * mat[7] * mat[10];
-
-	invOut[5] = mat[0] * mat[10] * mat[15] -
-		mat[0] * mat[11] * mat[14] -
-		mat[8] * mat[2] * mat[15] +
-		mat[8] * mat[3] * mat[14] +
-		mat[12] * mat[2] * mat[11] -
-		mat[12] * mat[3] * mat[10];
-
-	invOut[6] = -mat[0] * mat[6] * mat[15] +
-		mat[0] * mat[7] * mat[14] +
-		mat[4] * mat[2] * mat[15] -
-		mat[4] * mat[3] * mat[14] -
-		mat[12] * mat[2] * mat[7] +
-		mat[12] * mat[3] * mat[6];
-
-	invOut[7] = mat[0] * mat[6] * mat[11] -
-		mat[0] * mat[7] * mat[10] -
-		mat[4] * mat[2] * mat[11] +
-		mat[4] * mat[3] * mat[10] +
-		mat[8] * mat[2] * mat[7] -
-		mat[8] * mat[3] * mat[6];
-
-	invOut[8] = mat[4] * mat[9] * mat[15] -
-		mat[4] * mat[11] * mat[13] -
-		mat[8] * mat[5] * mat[15] +
-		mat[8] * mat[7] * mat[13] +
-		mat[12] * mat[5] * mat[11] -
-		mat[12] * mat[7] * mat[9];
-
-	invOut[9] = -mat[0] * mat[9] * mat[15] +
-		mat[0] * mat[11] * mat[13] +
-		mat[8] * mat[1] * mat[15] -
-		mat[8] * mat[3] * mat[13] -
-		mat[12] * mat[1] * mat[11] +
-		mat[12] * mat[3] * mat[9];
-
-	invOut[10] = mat[0] * mat[5] * mat[15] -
-		mat[0] * mat[7] * mat[13] -
-		mat[4] * mat[1] * mat[15] +
-		mat[4] * mat[3] * mat[13] +
-		mat[12] * mat[1] * mat[7] -
-		mat[12] * mat[3] * mat[5];
-
-	invOut[11] = -mat[0] * mat[5] * mat[11] +
-		mat[0] * mat[7] * mat[9] +
-		mat[4] * mat[1] * mat[11] -
-		mat[4] * mat[3] * mat[9] -
-		mat[8] * mat[1] * mat[7] +
-		mat[8] * mat[3] * mat[5];
-
-	invOut[12] = -mat[4] * mat[9] * mat[14] +
-		mat[4] * mat[10] * mat[13] +
-		mat[8] * mat[5] * mat[14] -
-		mat[8] * mat[6] * mat[13] -
-		mat[12] * mat[5] * mat[10] +
-		mat[12] * mat[6] * mat[9];
-
-	invOut[13] = mat[0] * mat[9] * mat[14] -
-		mat[0] * mat[10] * mat[13] -
-		mat[8] * mat[1] * mat[14] +
-		mat[8] * mat[2] * mat[13] +
-		mat[12] * mat[1] * mat[10] -
-		mat[12] * mat[2] * mat[9];
-
-	invOut[14] = -mat[0] * mat[5] * mat[14] +
-		mat[0] * mat[6] * mat[13] +
-		mat[4] * mat[1] * mat[14] -
-		mat[4] * mat[2] * mat[13] -
-		mat[12] * mat[1] * mat[6] +
-		mat[12] * mat[2] * mat[5];
-
-	invOut[15] = mat[0] * mat[5] * mat[10] -
-		mat[0] * mat[6] * mat[9] -
-		mat[4] * mat[1] * mat[10] +
-		mat[4] * mat[2] * mat[9] +
-		mat[8] * mat[1] * mat[6] -
-		mat[8] * mat[2] * mat[5];
-
-	float det = mat[0] * invOut[0] + mat[1] * invOut[4] + mat[2] * invOut[8] + mat[3] * invOut[12];
-	if (det == 0.0f)
-	{
-		// 逆行列なし（特異行列）
-		return MakeIdentity4x4(); // または assert, エラーログ等
-	}
-
-	float invDet = 1.0f / det;
-	for (int i = 0; i < 16; ++i)
-	{
-		inv[i] = invOut[i] * invDet;
-	}
-
-	return result;
-}
 DirectX::ScratchImage LoadTexture(const std::string& filePath)
 {
 	DirectX::ScratchImage image{};
@@ -2250,17 +1996,4 @@ void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mip
 		);
 		assert(SUCCEEDED(hr));
 	}
-}
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearZ, float farZ) {
-	Matrix4x4 result{};
-
-	result.m[0][0] = 2.0f / (right - left);
-	result.m[1][1] = 2.0f / (top - bottom);
-	result.m[2][2] = 1.0f / (farZ - nearZ);
-	result.m[3][0] = (left + right) / (left - right);
-	result.m[3][1] = (top + bottom) / (bottom - top);
-	result.m[3][2] = nearZ / (nearZ - farZ);
-	result.m[3][3] = 1.0f;
-
-	return result;
 }
