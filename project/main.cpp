@@ -36,6 +36,7 @@ using Microsoft::WRL::ComPtr;
 #include "Math.h"
 #include "Input.h"
 #include "WinApp.h"
+#include "DirectXCommon.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -508,6 +509,8 @@ HRESULT hr;
 WinApp* winApp = nullptr;
 // 入力処理
 Input* input = nullptr;
+// DirectX共通処理
+DirectXCommon* dxCommon = nullptr;
 
 // ウィンドウプロシージャ（標準）
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -543,6 +546,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		debugController->Release();
 	}
 #endif
+
+	// DirectX初期化
+	dxCommon = new DirectXCommon();
+	dxCommon->Initialize();
 
 	// --- DirectX12初期化 ---
 	hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
@@ -1718,6 +1725,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		CloseHandle(fenceEvent);
 		fenceEvent = nullptr;
 	}
+
+	delete dxCommon;
 
 	// D3D12/DXGI リソース類（子→親の順で解放）
 	if (psoAlpha) psoAlpha->Release();                           // 半透明用PSO
