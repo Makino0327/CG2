@@ -407,58 +407,7 @@ ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTO
 	return descriptorHeap;
 }
 
-ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
-{
-	// 生成するResourceの設定
-	D3D12_RESOURCE_DESC resourceDesc{};
-	resourceDesc.Width = width; // Textureの幅
-	resourceDesc.Height = height; // Textureの高さ
-	resourceDesc.MipLevels = 1; // MipMapの数
-	resourceDesc.DepthOrArraySize = 1; // 奥行きor配列Textureの配列数
-	resourceDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // DepthStencilとして利用可能なフォーマット
-	resourceDesc.SampleDesc.Count = 1; // サンプリングカウント。1固定
-	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; // 2次元
-	resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; // DepthStencilとして使う通知
-
-	// 利用するHeapの設定
-	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT; // VRAM状に作る
-
-	// 深度値のクリア設定
-	D3D12_CLEAR_VALUE depthClearValue{};
-	depthClearValue.DepthStencil.Depth = 1.0f; // 深度値のクリア値
-	depthClearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // 深度値のフォーマット
-
-	// Resourceの生成
-	ID3D12Resource* resource = nullptr;
-	HRESULT hr = device->CreateCommittedResource(
-		&heapProperties, // Heapの設定
-		D3D12_HEAP_FLAG_NONE, // Heapの特殊な設定。特になし。
-		&resourceDesc, // Resourceの設定
-		D3D12_RESOURCE_STATE_DEPTH_WRITE, // 深度値を書き込む状態にしておく
-		&depthClearValue, // Clear最適値
-		IID_PPV_ARGS(&resource)); // 作成するResourceポインタへのポインタ
-	assert(SUCCEEDED(hr));
-
-	return resource;
-}
-
 IDxcBlob* CompileShader(const std::wstring& filePath, const wchar_t* profile, IDxcUtils* dxcUtils, IDxcCompiler3* dxcCompiler, IDxcIncludeHandler* includeHandler);
-
-D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
-{
-	D3D12_CPU_DESCRIPTOR_HANDLE  handleCPU = descriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	handleCPU.ptr += (descriptorSize * index);
-	return handleCPU;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
-{
-	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU = descriptorHeap->GetGPUDescriptorHandleForHeapStart();
-	handleGPU.ptr += (descriptorSize * index);
-	return handleGPU;
-}
-
 
 // 1. ConvertString関数
 std::wstring ConvertString(const std::string& str) {
@@ -483,7 +432,6 @@ EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_D3D12 = { 0x6d2e06cf, 0x9646, 
 
 // グローバル変数（各種DirectXオブジェクト）
 ID3D12Device* device = nullptr;
-IDXGIFactory7* dxgiFactory = nullptr;
 ID3D12CommandQueue* commandQueue = nullptr;
 ID3D12CommandAllocator* commandAllocator = nullptr;
 ID3D12GraphicsCommandList* commandList = nullptr;
@@ -512,19 +460,19 @@ Input* input = nullptr;
 // DirectX共通処理
 DirectXCommon* dxCommon = nullptr;
 
-// ウィンドウプロシージャ（標準）
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
-		return true; // ImGuiが処理した場合はここで返す
-	}
-
-	switch (msg) {
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		return 0;
-	}
-	return DefWindowProc(hwnd, msg, wparam, lparam);
-}
+//// ウィンドウプロシージャ（標準）
+//LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+//	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
+//		return true; // ImGuiが処理した場合はここで返す
+//	}
+//
+//	switch (msg) {
+//	case WM_DESTROY:
+//		PostQuitMessage(0);
+//		return 0;
+//	}
+//	return DefWindowProc(hwnd, msg, wparam, lparam);
+//}
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -533,23 +481,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	winApp = new WinApp();
 	winApp->Initialize();
 
-#ifdef _DEBUG
-	// デバッグレイヤー有効化
-	ID3D12Debug* debugController = nullptr;
-	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
-		debugController->EnableDebugLayer();
-		ID3D12Debug1* debugController1 = nullptr;
-		if (SUCCEEDED(debugController->QueryInterface(IID_PPV_ARGS(&debugController1)))) {
-			debugController1->SetEnableGPUBasedValidation(TRUE);
-			debugController1->Release();
-		}
-		debugController->Release();
-	}
-#endif
-
 	// DirectX初期化
 	dxCommon = new DirectXCommon();
-	dxCommon->Initialize();
+	dxCommon->Initialize(winApp);
 
 	// --- DirectX12初期化 ---
 	hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
@@ -568,58 +502,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// SRV用のヒープでディスクリプタの数は128.
 	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 
-	// コマンドキュー作成
-	D3D12_COMMAND_QUEUE_DESC queueDesc{};
-	hr = device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&commandQueue));
-	assert(SUCCEEDED(hr));
-
-	// コマンドアロケータ作成
-	hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator));
-	assert(SUCCEEDED(hr));
-
-	// コマンドリスト作成
-	hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator, nullptr, IID_PPV_ARGS(&commandList));
-	assert(SUCCEEDED(hr));
-
-	// スワップチェイン作成
-	DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
-	swapChainDesc.Width = WinApp::kClientWidth;
-	swapChainDesc.Height = WinApp::kClientHeight;
-	swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	swapChainDesc.SampleDesc.Count = 1;
-	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	swapChainDesc.BufferCount = 2;
-	swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-	IDXGISwapChain1* tempSwapChain = nullptr;
-	hr = dxgiFactory->CreateSwapChainForHwnd(commandQueue, winApp->GetHwnd(), &swapChainDesc, nullptr, nullptr, &tempSwapChain);
-	assert(SUCCEEDED(hr));
-	hr = tempSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain));
-	assert(SUCCEEDED(hr));
-	tempSwapChain->Release();
-
-	// ImGui初期化
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui::StyleColorsDark();
-	ImGui_ImplWin32_Init(winApp->GetHwnd());
-	ImGui_ImplDX12_Init(device, swapChainDesc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap, srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
 
 	result = xAudio2->CreateMasteringVoice(&masteringVoice);
 	assert(SUCCEEDED(result));
-
-	// コマンドリストクローズ
-	hr = commandList->Close();
-	assert(SUCCEEDED(hr));
-
-	// フェンス作成
-	hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
-	assert(SUCCEEDED(hr));
-	fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-	assert(fenceEvent != nullptr);
 
 	// dxcCompilerを初期化
 	IDxcUtils* dxcUtils = nullptr;

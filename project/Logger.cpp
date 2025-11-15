@@ -1,5 +1,6 @@
 #include "Logger.h"
-#include <debugapi.h>
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>   // ← これで OutputDebugStringA が使える
 
 namespace Logger
 {

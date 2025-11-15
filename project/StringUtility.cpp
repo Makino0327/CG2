@@ -1,5 +1,5 @@
 #include "StringUtility.h"
-#include <WinNls.h>
+#include <Windows.h>
 
 namespace StringUtility
 {
