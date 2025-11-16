@@ -6,6 +6,8 @@
 #include <string>                               // ★ 追加：std::string, std::wstring
 #include "WinApp.h"
 #include <dxcapi.h>
+#include <chrono>
+
 #include "externals/DirectXTex/DirectXTex.h"    // ★ 追加：DirectX::TexMetadata 等
 
 class DirectXCommon
@@ -65,6 +67,11 @@ public:
     // 描画開始前処理 / 描画後処理
     void PreDraw();
     void PostDraw();
+
+	// FPS制御関連
+    void InitializeFixFPS();
+	// FPS制御の更新
+	void UpdateFixFPS();
 
     // Getter
     ID3D12Device* GetDevice() const { return device.Get(); }
@@ -127,4 +134,7 @@ private:
         D3D12_DESCRIPTOR_HEAP_TYPE heapType,
         UINT numDescriptors,
         bool shaderVisible);
+
+	// --- FPS制御関連 ---
+	std::chrono::steady_clock::time_point reference_;
 };
