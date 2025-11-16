@@ -49,6 +49,11 @@ public:
    void InitializeDXC();
 
    void InitializeImGui();
+   // 描画開始前処理
+   void PreDraw();
+   // 描画後処理
+   void PostDraw();
+
 private:  
    // DirectX12デバイス  
    Microsoft::WRL::ComPtr<ID3D12Device> device;  

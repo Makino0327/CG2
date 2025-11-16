@@ -167,7 +167,7 @@ void DirectXCommon::InitializeCommand()
     Logger::Log("Command List created successfully.");
 
     // いったんクローズしておく（再利用時のため）
-    hr = commandList_->Close();
+   // hr = commandList_->Close();
     assert(SUCCEEDED(hr));
 }
 
@@ -408,4 +408,122 @@ void DirectXCommon::InitializeImGui()
         srvDescriptorHeap_.Get(),          // srvDescriptorHeap
         srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
         srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+}
+
+void DirectXCommon::PreDraw()
+{
+    assert(commandList_);
+    assert(swapChain_);
+    assert(rtvDescriptorHeap_);
+    assert(dsvDescriptorHeap_);
+    assert(srvDescriptorHeap_);
+
+    // 1) バックバッファの番号取得
+    UINT backBufferIndex = swapChain_->GetCurrentBackBufferIndex();
+
+    // 2) Present -> RenderTarget にリソースバリア
+    D3D12_RESOURCE_BARRIER barrierBegin{};
+    barrierBegin.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierBegin.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierBegin.Transition.pResource = swapChainResources_[backBufferIndex].Get();
+    barrierBegin.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    barrierBegin.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barrierBegin.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList_->ResourceBarrier(1, &barrierBegin);
+
+    // 3) 今のバックバッファ用の RTV ハンドルを計算
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle =
+        rtvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+    rtvHandle.ptr += static_cast<SIZE_T>(backBufferIndex) * descriptorSizeRTV_;
+
+    // 4) DSV ハンドル取得
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
+        dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+
+    // 5) 画面全体の色をクリア
+    float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f }; // ← main と同じ色
+    commandList_->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+    // 6) 画面全体の深度をクリア
+    commandList_->ClearDepthStencilView(
+        dsvHandle,
+        D3D12_CLEAR_FLAG_DEPTH,
+        1.0f,            // 深度クリア値
+        0,               // ステンシル値
+        0, nullptr);
+
+    // 7) 描画先の RTV / DSV を指定
+    commandList_->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+
+    // 8) SRV 用ディスクリプタヒープをセット
+    ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap_.Get() };
+    commandList_->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    // 9) ビューポート領域の設定
+    D3D12_VIEWPORT viewport{};
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = static_cast<float>(WinApp::kClientWidth);
+    viewport.Height = static_cast<float>(WinApp::kClientHeight);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    commandList_->RSSetViewports(1, &viewport);
+
+    // 10) シザー矩形の設定
+    commandList_->RSSetScissorRects(1, &scissorRect_);
+}
+
+void DirectXCommon::PostDraw()
+{
+    assert(commandList_);
+    assert(commandQueue_);
+    assert(swapChain_);
+    assert(fence_);
+
+    HRESULT hr = S_OK;
+
+    // 1. バックバッファの番号取得
+    UINT backBufferIndex = swapChain_->GetCurrentBackBufferIndex();
+
+    // 2. RenderTarget -> Present にリソースバリア
+    D3D12_RESOURCE_BARRIER barrierEnd{};
+    barrierEnd.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierEnd.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierEnd.Transition.pResource = swapChainResources_[backBufferIndex].Get();
+    barrierEnd.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barrierEnd.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    barrierEnd.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList_->ResourceBarrier(1, &barrierEnd);
+
+    // 3. グラフィックスコマンドをクローズ
+    hr = commandList_->Close();
+    assert(SUCCEEDED(hr));
+
+    // 4. GPU コマンドの実行
+    ID3D12CommandList* cmdLists[] = { commandList_.Get() };
+    commandQueue_->ExecuteCommandLists(1, cmdLists);
+
+    // 5. GPU 画面の交換（Present）
+    hr = swapChain_->Present(1, 0);
+    assert(SUCCEEDED(hr));
+
+    // 6. Fence の値を更新 & キューにシグナルを送る
+    fenceValue_++;
+    hr = commandQueue_->Signal(fence_, fenceValue_);
+    assert(SUCCEEDED(hr));
+
+    // 7. コマンド完了待ち
+    if (fence_->GetCompletedValue() < fenceValue_) {
+        hr = fence_->SetEventOnCompletion(fenceValue_, fenceEvent_);
+        assert(SUCCEEDED(hr));
+        WaitForSingleObject(fenceEvent_, INFINITE);
+    }
+
+    // 8. コマンドアロケータのリセット
+    hr = commandAllocator_->Reset();
+    assert(SUCCEEDED(hr));
+
+    // 9. コマンドリストのリセット（PSO はあとでセットするので nullptr）
+    hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
+    assert(SUCCEEDED(hr));
 }
