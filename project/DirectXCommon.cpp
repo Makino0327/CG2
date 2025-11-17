@@ -330,7 +330,7 @@ void DirectXCommon::InitializeRenderTargetView() {
         rtvHandle.ptr += static_cast<SIZE_T>(i) * descriptorSizeRTV_;
 
         D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{};
-        rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;    // ← SRGB にする
+        rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;    // ← SRGB にする
         rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
         rtvDesc.Texture2D.MipSlice = 0;
         rtvDesc.Texture2D.PlaneSlice = 0;
@@ -426,7 +426,7 @@ void DirectXCommon::InitializeImGui()
     ImGui_ImplDX12_Init(
         device.Get(),                      // device
         swapDesc.BufferCount,              // swapChainDesc.BufferCount 相当
-        DXGI_FORMAT_R8G8B8A8_UNORM,   // main と同じフォーマット
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,   // main と同じフォーマット
         srvDescriptorHeap_.Get(),          // srvDescriptorHeap
         srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
         srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());

@@ -35,37 +35,45 @@ struct PixelShaderOutput
 PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
-    
+
+    // UV & テクスチャ
     float4 transformedUV = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
 
-    float3 finalColor = gMaterial.color.rgb * textureColor.rgb;
+    // マテリアル × テクスチャ
+    float4 baseColor = gMaterial.color * textureColor;
 
+    // 法線とライト方向
     float3 normal = normalize(input.normal);
     float3 lightDir = normalize(-gDirectionalLight.direction);
-    
-    float NdoL = dot(normalize(input.normal), -gDirectionalLight.direction);
-    float cos = pow(NdoL * 0.5 + 0.5, 2.0);
+
+    float NdotL = dot(normal, lightDir);
+
+    // ライティング係数
+    float lightTerm = 1.0f; // 0: Unlit 相当
 
     if (gMaterial.lightingType == 1)
     {
-        // Lambert（やや暗め）
-        float ndotl = saturate(dot(normal, lightDir));
-        float lambert = pow(ndotl, 1.5f); // 少しシャープに
-        finalColor *= gDirectionalLight.color.rgb * gDirectionalLight.intensity * lambert * 0.5f;
+        // Lambert
+        lightTerm = saturate(NdotL); // 0～1
     }
     else if (gMaterial.lightingType == 2)
     {
-        // Half Lambert（かなり暗めに調整）
-        float ndotl = dot(normal, lightDir);
-        float halfLambert = pow(ndotl * 0.5f + 0.5f, 2.5f);
-        finalColor *= gDirectionalLight.color.rgb * gDirectionalLight.intensity * halfLambert * 0.4f;
+        // Half Lambert
+        lightTerm = NdotL * 0.5f + 0.5f; // 0～1
+        // もう少し暗くしたければ:
+        // lightTerm = pow(lightTerm, 1.5f);
     }
-    output.color.rgb = gMaterial.color.rgb * textureColor.rgb * gDirectionalLight.color.rgb * cos * gDirectionalLight.intensity;
-    output.color.a = gMaterial.color.a * textureColor.a;
 
-    //output.color = gMaterial.color *textureColor* gDirectionalLight.color * cos * gDirectionalLight.intensity;
-    //output.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    float3 lightColor = gDirectionalLight.color.rgb * gDirectionalLight.intensity;
+
+    float3 finalColor = baseColor.rgb * lightColor * lightTerm;
+
+    // 範囲を0～1に抑えたいなら saturate してもOK
+    finalColor = saturate(finalColor);
+
+    output.color.rgb = finalColor;
+    output.color.a = baseColor.a;
     return output;
 }
 
