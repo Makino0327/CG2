@@ -966,49 +966,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 // 半透明専用 PSO（psoAlpha）
 // ==========================
 
-// ブレンド（αブレンド）
-
-	auto& rt0 = blendDesc.RenderTarget[0];
-	rt0.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	rt0.BlendEnable = TRUE;
-	rt0.SrcBlend = D3D12_BLEND_SRC_ALPHA;       // src = α
-	rt0.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;   // dst = 1-α
-	rt0.BlendOp = D3D12_BLEND_OP_ADD;
-	rt0.SrcBlendAlpha = D3D12_BLEND_ONE;             // αチャンネルは足し算
-	rt0.DestBlendAlpha = D3D12_BLEND_ZERO;
-	rt0.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-
-
-
-	// PSO 設定
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
-	desc.pRootSignature = rootSignature;
-	desc.InputLayout = inputLayoutDesc;
-	desc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-	desc.PS = { pixelShaderBlob->GetBufferPointer(),  pixelShaderBlob->GetBufferSize() };
-	desc.BlendState = blendDesc;
-	desc.RasterizerState = rasterizerDesc;
-
-	desc.NumRenderTargets = 1;
-	// ★ SwapChain と一致させる（UNORMに統一推奨）
-	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-	D3D12_DEPTH_STENCIL_DESC dss{};
-	dss.DepthEnable = TRUE;
-	dss.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	// ★ 半透明は書き込みOFF（重ね順を壊さない）
-	dss.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	desc.DepthStencilState = dss;
-	desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-
-	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	desc.SampleDesc.Count = 1;
-	desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-	ID3D12PipelineState* psoAlpha = nullptr;
-	hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&psoAlpha));
-	assert(SUCCEEDED(hr));
-
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSphere = dxCommon->CreateBufferResource(
 		sizeof(VertexData) * vertexDataSphere.size());
@@ -1508,12 +1465,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
-
-	// D3D12 リソース（Rawポインタだけ解放する）
-	if (psoAlpha) {
-		psoAlpha->Release();
-		psoAlpha = nullptr;
-	}
 	if (graphicsPipelineState) {
 		graphicsPipelineState->Release();
 		graphicsPipelineState = nullptr;
