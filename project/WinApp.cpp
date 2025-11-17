@@ -1,8 +1,11 @@
 #include "WinApp.h"
+#pragma comment(lib, "winmm.lib")
 
 void WinApp::Initialize()
 {
 	HRESULT hr = CoInitializeEx(0, COINIT_MULTITHREADED);
+
+	timeBeginPeriod(1); // タイマーの分解能を1msに設定
 
 	// --- ウィンドウ作成 ---
 	wc.lpfnWndProc = WindowProc;
