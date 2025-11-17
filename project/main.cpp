@@ -40,6 +40,8 @@ using Microsoft::WRL::ComPtr;
 #include "Logger.h"
 #include "StringUtility.h"
 #include "D3DResourceLeakChecker.h"
+#include "SpriteCommon.h"
+#include "Sprite.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -425,7 +427,10 @@ WinApp* winApp = nullptr;
 Input* input = nullptr;
 // DirectX共通処理
 DirectXCommon* dxCommon = nullptr;
+// スプライト共通処理
+SpriteCommon* spriteCommon = nullptr;
 
+Sprite* sprite = nullptr;
 //// ウィンドウプロシージャ（標準）
 //LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 //	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -485,6 +490,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// DirectX初期化
 	dxCommon = new DirectXCommon();
 	dxCommon->Initialize(winApp);
+
+	// SpriteCommonの初期化
+	spriteCommon = new SpriteCommon();
+	spriteCommon->Initialize();
+
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
@@ -1032,6 +1042,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	input = new Input();
 	input->Initialize(winApp);
 
+	// Spriteの初期化
+	sprite = new Sprite();
+	sprite->Initialize();
+
 	// --- メインループ ---
 	bool wasYPressed = false;
 	while (TRUE) {
@@ -1497,7 +1511,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	//    すべて ComPtr なので Release 不要（スコープ終了で自動解放）
 
 	delete dxCommon;   dxCommon = nullptr;
+	delete spriteCommon; spriteCommon = nullptr;
 	delete input;      input = nullptr;
+	delete sprite;     sprite = nullptr;
+
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
