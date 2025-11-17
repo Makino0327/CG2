@@ -430,6 +430,9 @@ void DirectXCommon::InitializeImGui()
         srvDescriptorHeap_.Get(),          // srvDescriptorHeap
         srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
         srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+
+    ImGui::GetIO().IniFilename = nullptr;
+
 }
 
 void DirectXCommon::PreDraw()
