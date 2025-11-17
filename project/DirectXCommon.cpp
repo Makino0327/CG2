@@ -113,14 +113,13 @@ void DirectXCommon::InitializeDevice()
     HRESULT hr;
 
 #ifdef _DEBUG
-    // デバッグレイヤー有効化（GPU-based Validation は一旦 OFF）
     ComPtr<ID3D12Debug1> debugController;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
         debugController->EnableDebugLayer();
-        //debugController->SetEnableGPUBasedValidation(TRUE); // ← コメントアウト
-        Logger::Log("[DebugLayer] Enabled debug layer (GPU-based validation OFF)");
+        // debugController->SetEnableGPUBasedValidation(TRUE); // ← 一旦コメントアウト
     }
 #endif
+
 
 
     // DXGIファクトリ生成
