@@ -19,12 +19,15 @@ private:
 	void CreateRootSignature();
 	// グラフィクスパイプラインの作成
 	void CreateGraphicsPipelineState();
+
+public:
+	DirectXCommon* dxCommon_;
+
 private:
 	// ルートシグネチャ
 	ID3D12RootSignature* rootSignature_ = nullptr;
 	// グラフィクスパイプラインステート
 	ID3D12PipelineState* pipelineState_ = nullptr; 
 
-	DirectXCommon* dxCommon_;
 };
 
