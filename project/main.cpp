@@ -431,52 +431,6 @@ DirectXCommon* dxCommon = nullptr;
 SpriteCommon* spriteCommon = nullptr;
 
 Sprite* sprite = nullptr;
-//// ウィンドウプロシージャ（標準）
-//LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-//	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
-//		return true; // ImGuiが処理した場合はここで返す
-//	}
-//
-//	switch (msg) {
-//	case WM_DESTROY:
-//		PostQuitMessage(0);
-//		return 0;
-//	}
-//	return DefWindowProc(hwnd, msg, wparam, lparam);
-//}
-
-//// エントリーポイント
-//int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
-//
-//	// WindowsAPI初期化
-//	winApp = new WinApp();
-//	winApp->Initialize();
-//
-//	// DirectX初期化（★引数に winApp を渡す）
-//	dxCommon = new DirectXCommon();
-//	dxCommon->Initialize(winApp);
-//
-//	// メッセージループ（毎フレーム処理はまだ何もしない版）
-//	MSG msg{};
-//	while (msg.message != WM_QUIT) {
-//		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
-//			TranslateMessage(&msg);
-//			DispatchMessage(&msg);
-//		} else {
-//			dxCommon->PreDraw();
-//			// ここでモデルやスプライトの描画
-//			dxCommon->PostDraw();
-//
-//		}
-//	}
-//
-//	// 後始末（とりあえず最低限）
-//	delete dxCommon;
-//	winApp->Finalize();
-//	delete winApp;
-//
-//	return 0;
-//}
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -1177,13 +1131,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		dxCommon->PreDraw();                              // ← まずこれ
 
-		ID3D12GraphicsCommandList* commandList =
-			dxCommon->GetCommandList();                   // ← このフレームのコマンドリスト
+		spriteCommon->CommonDrawSetting(); // ← 共通描画設定を行う
 
-		// ルートシグネチャ / 共通CBV
-		commandList->SetGraphicsRootSignature(rootSignature);
-		commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
+		//ID3D12GraphicsCommandList* commandList =
+		//	dxCommon->GetCommandList();                   // ← このフレームのコマンドリスト
+
+		//// ルートシグネチャ / 共通CBV
+		//commandList->SetGraphicsRootSignature(rootSignature);
+		//commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+		//commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
 
 		// SRVヒープ（必要なら再セット。PreDrawでもセットしてるのでどちらでもOK）
 		ID3D12DescriptorHeap* descriptorHeaps[] = {
@@ -1236,74 +1192,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		}
 
 
-		//else if (currentMode == DisplayMode::Sphere) {
-		//	// --- 球（Sphere.obj）描画 ---
-		//	commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(2, wvpResourceSphere->GetGPUVirtualAddress());
-
-		//	commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSphere);
-		//	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		//	commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
-
-		//	// --- モデル（Plane.obj）描画（影などのため）---
-		//	commandList->SetGraphicsRootConstantBufferView(2, wvpResourceModel->GetGPUVirtualAddress());
-		//	commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]); // modelData（Plane）
-		//	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		//	commandList->DrawInstanced(static_cast<UINT>(allModels[0].meshes[0].vertices.size()), 1, 0, 0);
-
-		//} else if (currentMode == DisplayMode::Teapot) {
-		//	// --- ティーポット描画 ---
-		//	Matrix4x4 worldMatrixTeapot = MakeAffineMatrix(teapotTransform.scale, teapotTransform.rotate, teapotTransform.translate);
-		//	wvpDataTeapot->WVP = Multiply(worldMatrixTeapot, Multiply(viewMatrix, projectionMatrix));
-		//	wvpDataTeapot->World = worldMatrixTeapot;
-
-		//	commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(2, wvpResourceTeapot->GetGPUVirtualAddress());
-
-		//	int modelIndex = 1; // teapotModel
-		//	for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
-		//		commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
-		//		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		//		commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
-		//	}
-
-		//} else if (currentMode == DisplayMode::Bunny) {
-		//	// --- バニー描画 ---
-		//	Matrix4x4 worldMatrixBunny = MakeAffineMatrix(bunnyTransform.scale, bunnyTransform.rotate, bunnyTransform.translate);
-		//	wvpDataBunny->WVP = Multiply(worldMatrixBunny, Multiply(viewMatrix, projectionMatrix));
-		//	wvpDataBunny->World = worldMatrixBunny;
-
-		//	commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(2, wvpResourceBunny->GetGPUVirtualAddress());
-
-		//	int modelIndex = 2; // modelDataBunny
-		//	for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
-		//		commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
-		//		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		//		commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
-		//	}
-
-		//} else if (currentMode == DisplayMode::MultiMesh) {
-		//	// --- マルチメッシュ描画 ---
-		//	Matrix4x4 worldMatrixMultiMesh = MakeAffineMatrix(multiMeshTransform.scale, multiMeshTransform.rotate, multiMeshTransform.translate);
-		//	wvpDataMultiMesh->WVP = Multiply(worldMatrixMultiMesh, Multiply(viewMatrix, projectionMatrix));
-		//	wvpDataMultiMesh->World = worldMatrixMultiMesh;
-
-		//	commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-		//	commandList->SetGraphicsRootConstantBufferView(2, wvpResourceMultiMesh->GetGPUVirtualAddress());
-
-		//	int modelIndex = 3; // multiMeshModel
-		//	for (size_t i = 0; i < vertexBufferViewsPerModel[modelIndex].size(); ++i) {
-		//		commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[modelIndex][i]);
-		//		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		//		commandList->DrawInstanced(static_cast<UINT>(allModels[modelIndex].meshes[i].vertices.size()), 1, 0, 0);
-		//	}
-		//}
-
 		//描画
 
 		ImGui_ImplDX12_NewFrame();
@@ -1312,13 +1200,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		// 自作ウィンドウだけ表示する
 		ImGui::Begin("Sprite Transform");
-
-		/*const char* modeItems[] = { "Sprite", "Sphere", "Teapot", "Bunny","MultiMesh" };
-		int currentModeIndex = static_cast<int>(currentMode);
-		if (ImGui::Combo("Display Mode", &currentModeIndex, modeItems, IM_ARRAYSIZE(modeItems))) {
-			currentMode = static_cast<DisplayMode>(currentModeIndex);
-		}*/
-
 
 		// === モード別UI分岐 ===
 		if (currentMode == DisplayMode::Sprite) {
@@ -1351,40 +1232,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// UVScale（2D）
 			ImGui::DragFloat2("##UVScale", &uvTransformSprite.scale.x, 0.01f, 0.0f, 10.0f);
 			ImGui::SameLine(); ImGui::Text("UVScale");
-
-
-			//} else if (currentMode == DisplayMode::Sphere) {
-			//	// Sphere用Object編集
-			//	if (ImGui::CollapsingHeader("Sphere", ImGuiTreeNodeFlags_DefaultOpen)) {
-			//		ImGui::SliderFloat3("##SphereTranslate", &sphereTransform.translate.x, -10.0f, 10.0f); ImGui::SameLine(); ImGui::Text("Translate");
-			//		ImGui::SliderFloat3("##SphereRotate", &sphereTransform.rotate.x, -3.14f, 3.14f);       ImGui::SameLine(); ImGui::Text("Rotate");
-			//		ImGui::SliderFloat3("##SphereScale", &sphereTransform.scale.x, 0.0f, 5.0f);            ImGui::SameLine(); ImGui::Text("Scale");
-			//	}
-
-			//	// Planeモデル共通で表示
-			//	if (ImGui::CollapsingHeader("Plane", ImGuiTreeNodeFlags_DefaultOpen)) {
-			//		ImGui::SliderFloat3("##PlaneTranslate", &modelTransform.translate.x, -10.0f, 10.0f); ImGui::SameLine(); ImGui::Text("Translate");
-			//		ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);       ImGui::SameLine(); ImGui::Text("Rotate");
-			//		ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);            ImGui::SameLine(); ImGui::Text("Scale");
-			//	}
-			//} else if (currentMode == DisplayMode::Teapot) {
-			//	ImGui::Text("Teapot Controls");
-			//	ImGui::SliderFloat3("Teapot Translate", &teapotTransform.translate.x, -10.0f, 10.0f);
-			//	ImGui::SliderFloat3("Teapot Rotate", &teapotTransform.rotate.x, -3.14f, 3.14f);
-			//	ImGui::SliderFloat3("Teapot Scale", &teapotTransform.scale.x, 0.0f, 5.0f);
-
-			//} else if (currentMode == DisplayMode::Bunny) {
-			//	ImGui::Text("Bunny Controls");
-
-			//	ImGui::SliderFloat3("Bunny Translate", &bunnyTransform.translate.x, -10.0f, 10.0f);
-			//	ImGui::SliderFloat3("Bunny Rotate", &bunnyTransform.rotate.x, -3.14f, 3.14f);
-			//	ImGui::SliderFloat3("Bunny Scale", &bunnyTransform.scale.x, 0.0f, 5.0f);
-			//} else if (currentMode == DisplayMode::MultiMesh) {
-			//	ImGui::Text("MultiMesh Controls");
-			//	ImGui::DragFloat3("MultiMesh Translate", &multiMeshTransform.translate.x, 0.01f);
-			//	ImGui::DragFloat3("MultiMesh Rotate", &multiMeshTransform.rotate.x, 0.01f);
-			//	ImGui::DragFloat3("MultiMesh Scale", &multiMeshTransform.scale.x, 0.01f);
-			//}
 
 			ImGui::Combo("Texture", &selectedTextureIndex, textureNames, IM_ARRAYSIZE(textureNames));
 
@@ -1504,11 +1351,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		errorBlob->Release();
 		errorBlob = nullptr;
 	}
-
-	// ※ materialResourceSprite, transformationMatrixResourceSprite,
-	//    materialResource, wvpResourceXXX, directionalLightResource,
-	//    vertexResourceSphere, vertexResourcesPerModel などは
-	//    すべて ComPtr なので Release 不要（スコープ終了で自動解放）
 
 	delete dxCommon;   dxCommon = nullptr;
 	delete spriteCommon; spriteCommon = nullptr;
