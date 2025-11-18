@@ -59,7 +59,9 @@ void Sprite::Update()
 	// ============================
 
 	// ひとまず固定の Transform（必要になったらメンバにして外から変更）
-
+	transform_.translate = { position_.x, position_.y, 0.0f };
+	transform_.rotate = { 0.0f, 0.0f, rotation_ };
+	transform_.scale = { size_.x, size_.y, 1.0f };
 
 	// World 行列
 	Matrix4x4 worldMatrix = MakeAffineMatrix(transform_.scale, transform_.rotate, transform_.translate);

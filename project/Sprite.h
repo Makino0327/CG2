@@ -45,6 +45,18 @@ public:
 	//	座標変換行列データ作成
 	void CreateTransformationMatrixData();
 
+	// getter
+	const Vector2& GetPosition() const { return position_; }
+	float GetRotation() const { return rotation_; }
+	const Vector4& GetColor() const { return materialData->color; }
+	const Vector2& GetSize() const { return size_; }
+
+	// setter
+	void SetPosition(const Vector2& position) { position_ = position; }
+	void SetRotation(float rotation) { rotation_ = rotation; }
+	void SetColor(const Vector4& color) { materialData->color = color; }
+	void SetSize(const Vector2& size) { size_ = size; }
+
 private:
 	SpriteCommon* spriteCommon_=nullptr;
 
@@ -79,5 +91,10 @@ private:
 	   {0.0f, 0.0f, 0.0f},
 	   {0.0f, 0.0f, 0.0f}
 	};
+
+	Vector2 position_ = { 0.0f, 0.0f };
+	float rotation_ = 0.0f;
+
+	Vector2 size_ = { 1.0f,1.0f };
 };
 

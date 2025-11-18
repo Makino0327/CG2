@@ -406,6 +406,8 @@ SpriteCommon* spriteCommon = nullptr;
 
 Sprite* sprite = nullptr;
 
+std::vector<Sprite*> sprites;
+
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
@@ -714,8 +716,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	input->Initialize(winApp);
 
 	// Spriteの初期化
-	sprite = new Sprite();
-	sprite->Initialize(spriteCommon, directionalLightResource.Get());
+
+	// 個別スプライト生成
+	for (uint32_t i = 0; i < 5; ++i) {
+		Sprite* sprite = new Sprite();
+		sprite->Initialize(spriteCommon, directionalLightResource.Get());
+
+		// 位置をずらしておく（例）
+		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
+		sprite->SetPosition(pos);
+
+		sprites.push_back(sprite);
+	}
 
 	// --- メインループ ---
 	bool wasYPressed = false;
@@ -866,7 +878,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// 今フレームで使うテクスチャ（ImGuiの選択を反映）
 		D3D12_GPU_DESCRIPTOR_HANDLE currentTextureSrv = textureSRVs[selectedTextureIndex];
 
+		// --- スプライトの基本パラメータ更新（必要なら）---
+		for (Sprite* sprite : sprites) {
+			// 現在の座標を取得
+			Vector2 position = sprite->GetPosition();
+			// ※アニメさせたければここで position を変化させる
+			sprite->SetPosition(position);
 
+			// 回転
+			float rotation = sprite->GetRotation();
+			// rotation += 0.01f;  など
+			sprite->SetRotation(rotation);
+
+			// 色
+			Vector4 color = sprite->GetColor();
+			// color.x += 0.01f;  など
+			sprite->SetColor(color);
+
+			// スケール
+			Vector2 size = sprite->GetSize();
+			size.x = 0.2f; // など
+			size.y = 0.3f;
+			sprite->SetSize(size);
+		}
 		// ---------- モードごとの描画 ----------
 		if (currentMode == DisplayMode::Sprite) {
 
@@ -884,8 +918,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			//commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			//commandList->DrawInstanced((UINT)allModels[0].meshes[0].vertices.size(), 1, 0, 0);
 
-			sprite->Update();                 // 位置や行列の更新
-			sprite->Draw(currentTextureSrv);  // テクスチャ SRV を渡して描画
+			for (Sprite* sprite : sprites) {
+				sprite->Update();
+			}              // 位置や行列の更新
+	
+			for (Sprite* sprite : sprites) {
+				sprite->Draw(currentTextureSrv);
+			}
 		}
 
 
@@ -1027,7 +1066,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete dxCommon;   dxCommon = nullptr;
 	delete spriteCommon; spriteCommon = nullptr;
 	delete input;      input = nullptr;
-	delete sprite;     sprite = nullptr;
+	for (Sprite* sprite : sprites) {
+		delete sprite;
+	}
+	sprites.clear();
 
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
