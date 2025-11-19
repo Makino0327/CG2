@@ -33,6 +33,8 @@ using Microsoft::WRL::ComPtr;
 #include "SpriteCommon.h"
 #include "Sprite.h"
 #include "TextureManager.h"
+#include "Object3dCommon.h"
+#include "Object3d.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -404,10 +406,14 @@ Input* input = nullptr;
 DirectXCommon* dxCommon = nullptr;
 // スプライト共通処理
 SpriteCommon* spriteCommon = nullptr;
-
+// スプライト
 Sprite* sprite = nullptr;
-
+// スプライト群
 std::vector<Sprite*> sprites;
+// 3Dオブジェクト共通処理
+Object3dCommon* object3dCommon = nullptr;
+// 3Dオブジェクト
+Object3d* object3d = nullptr;
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -425,6 +431,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// SpriteCommonの初期化
 	spriteCommon = new SpriteCommon();
 	spriteCommon->Initialize(dxCommon);
+
+	// 3dオブジェクト共通処理の初期化
+	object3dCommon = new Object3dCommon();
+	object3dCommon->Initialize();
+
+	// 3Dオブジェクトの初期化
+	object3d = new Object3d();
+	object3d->Initialize();
 
 	// テクスチャマネージャーの初期化
 	TextureManager::GetInstance()->Initialize(dxCommon);
@@ -918,18 +932,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// テクスチャマネージャーの終了
 	TextureManager::GetInstance()->Finalize();
 
-	delete dxCommon;   dxCommon = nullptr;
 	delete spriteCommon; spriteCommon = nullptr;
 	delete input;      input = nullptr;
 	for (Sprite* sprite : sprites) {
 		delete sprite;
 	}
 	sprites.clear();
-
+	delete object3d;   object3d = nullptr;
+	delete object3dCommon; object3dCommon = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
-
+	delete dxCommon;   dxCommon = nullptr;
 	if (winApp) {
 		winApp->Finalize();
 		delete winApp;
