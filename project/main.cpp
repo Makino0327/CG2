@@ -701,6 +701,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		// --- スプライトの基本パラメータ更新（必要なら）---
 		for (Sprite* sprite : sprites) {
+
+			Vector2 anchor = { 0.0f,0.0f };
+
+			sprite->SetAnchorPoint(anchor);
 			// 現在の座標を取得
 			Vector2 position = sprite->GetPosition();
 			// ※アニメさせたければここで position を変化させる
@@ -708,7 +712,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// 回転
 			float rotation = sprite->GetRotation();
-			// rotation += 0.01f;  など
+			//rotation += 0.01f;  
 			sprite->SetRotation(rotation);
 
 			// 色
@@ -717,11 +721,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			sprite->SetColor(color);
 
 			// スケール
-			Vector2 size = sprite->GetSize();
-			size.x = 0.2f; // など
-			size.y = 0.3f;
-			sprite->SetSize(size);
+			//Vector2 size = sprite->GetSize();
+			//size.x = 0.2f; // など
+			//size.y = 0.3f;
+			//sprite->SetSize(size);
 		}
+
 		// ---------- モードごとの描画 ----------
 		if (currentMode == DisplayMode::Sprite) {
 
@@ -763,27 +768,73 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::Text("Create");
 			ImGui::Separator();
 
-			// Object (Plane)
-			if (ImGui::CollapsingHeader("Plane", ImGuiTreeNodeFlags_DefaultOpen)) {
-				ImGui::SliderFloat3("##PlaneTranslate", &modelTransform.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
-				ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
-				ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
+			// === モード別UI分岐 ===
+			if (currentMode == DisplayMode::Sprite) {
+				ImGui::Text("Create");
+				ImGui::Separator();
+
+				// ★ Sprite[0] だけ操作する UI ★
+				if (!sprites.empty()) {
+
+					// 0番目のスプライトを取る
+					Sprite* target = sprites[0];
+
+					// ---- Position ----
+					Vector2 pos = target->GetPosition();
+					if (ImGui::SliderFloat2(
+						"Sprite[0] Pos",
+						&pos.x,
+						0.0f,
+						(float)WinApp::kClientWidth))   // とりあえず画面幅を上限
+					{
+						target->SetPosition(pos);
+					}
+
+					// ---- Size ----
+					Vector2 size = target->GetSize();
+					if (ImGui::SliderFloat2(
+						"Sprite[0] Size",
+						&size.x,
+						0.0f,
+						800.0f))   // 適当に 800 くらい（必要なら変えてOK）
+					{
+						target->SetSize(size);
+					}
+
+					// ---- Rotation ----
+					float rot = target->GetRotation();
+					if (ImGui::SliderFloat(
+						"Sprite[0] Rot",
+						&rot,
+						-3.14f, 3.14f))
+					{
+						target->SetRotation(rot);
+					}
+				}
 			}
 
-			
 
-			if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-				ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
-				ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
-				ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
+			//// Object (Plane)
+			//if (ImGui::CollapsingHeader("Plane", ImGuiTreeNodeFlags_DefaultOpen)) {
+			//	ImGui::SliderFloat3("##PlaneTranslate", &modelTransform.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
+			//	ImGui::SliderFloat3("##PlaneRotate", &modelTransform.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
+			//	ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
+			//}
 
-				// ライトの方向を正規化する（ImGuiで編集後に毎回）
-				directionalLightData->direction = Normalize(directionalLightData->direction);
+			//
 
-			}
-			static float alphaValue = 1.0f;
-			ImGui::SliderFloat("Alpha", &alphaValue, 0.0f, 1.0f, "%.2f");
-			materialData->color.w = alphaValue;
+			//if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+			//	ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
+			//	ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
+			//	ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
+
+			//	// ライトの方向を正規化する（ImGuiで編集後に毎回）
+			//	directionalLightData->direction = Normalize(directionalLightData->direction);
+
+			//}
+			//static float alphaValue = 1.0f;
+			//ImGui::SliderFloat("Alpha", &alphaValue, 0.0f, 1.0f, "%.2f");
+			//materialData->color.w = alphaValue;
 			//materialDataSprite->color.w = alphaValue; // スプライトも同様なら
 
 

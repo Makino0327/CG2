@@ -47,17 +47,32 @@ public:
 	//	座標変換行列データ作成
 	void CreateTransformationMatrixData();
 
+	void AdjustTextureSize();
+
 	// getter
 	const Vector2& GetPosition() const { return position_; }
 	float GetRotation() const { return rotation_; }
 	const Vector4& GetColor() const { return materialData->color; }
 	const Vector2& GetSize() const { return size_; }
+	const Vector2& GetAnchorPoint() const { return anchorPoint_; }
+	bool GetFlipX() const { return isFlipX_; }
+	bool GetFlipY() const { return isFlipY_; }
+	const Vector2& GetTextureLeftTop() const { return textureLeftTop_; }
+	const Vector2& GetTextureSize() const { return textureSize_; }
+
+
 
 	// setter
 	void SetPosition(const Vector2& position) { position_ = position; }
 	void SetRotation(float rotation) { rotation_ = rotation; }
 	void SetColor(const Vector4& color) { materialData->color = color; }
 	void SetSize(const Vector2& size) { size_ = size; }
+	void SetAnchorPoint(const Vector2& anchorPoint) { anchorPoint_ = anchorPoint; }
+	void SetFlipX(bool isFlipX) { isFlipX_ = isFlipX; }
+	void SetFlipY(bool isFlipY) { isFlipY_ = isFlipY; }
+	void SetTextureLeftTop(const Vector2& leftTop) { textureLeftTop_ = leftTop; }
+	void SetTextureSize(const Vector2& size) { textureSize_ = size; }
+
 
 private:
 	SpriteCommon* spriteCommon_=nullptr;
@@ -100,6 +115,19 @@ private:
 	Vector2 position_ = { 0.0f, 0.0f };
 	float rotation_ = 0.0f;
 
-	Vector2 size_ = { 1.0f,1.0f };
+	Vector2 size_ = { 100.0f,100.0f };
+
+	// アンカーポイント（0.0～1.0）
+	Vector2 anchorPoint_ = { 0.0f, 0.0f };
+
+	// 左右フリップ
+	bool isFlipX_ = false;
+	// 上下フリップ
+	bool isFlipY_ = false;
+
+	// テクスチャ左上座標
+	Vector2 textureLeftTop_ = { 0.0f,0.0f };
+	// テクスチャ切り出しサイズ
+	Vector2 textureSize_ = { 512.0f,512.0f };
 };
 

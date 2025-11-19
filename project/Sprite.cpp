@@ -3,7 +3,7 @@
 #include "WinApp.h"
 #include "Math.h"
 
-void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource,std::string textureFilePath)
+void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource, std::string textureFilePath)
 {
 	// 引数をメンバ変数にセット
 	spriteCommon_ = spriteCommon;
@@ -18,6 +18,9 @@ void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalL
 	CreateMaterialData();
 	// 座標変換行列データ作成
 	CreateTransformationMatrixData();
+
+	// テクスチャサイズ調整
+	AdjustTextureSize();
 
 }
 
@@ -37,24 +40,63 @@ void Sprite::Update()
 	indexData[5] = 2;
 
 	// 左上
-	vertexData[0].position = { 0.0f, 360.0f, 0.0f, 1.0f };
 	vertexData[0].texcoord = { 0.0f, 1.0f };
 	vertexData[0].normal = { 0.0f, 0.0f, -1.0f };
 
 	// 左下
-	vertexData[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };
 	vertexData[1].texcoord = { 0.0f, 0.0f };
 	vertexData[1].normal = { 0.0f, 0.0f, -1.0f };
 
 	// 右上
-	vertexData[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };
 	vertexData[2].texcoord = { 1.0f, 1.0f };
 	vertexData[2].normal = { 0.0f, 0.0f, -1.0f };
 
 	// 右下
-	vertexData[3].position = { 640.0f, 0.0f, 0.0f, 1.0f };
 	vertexData[3].texcoord = { 1.0f, 0.0f };
 	vertexData[3].normal = { 0.0f, 0.0f, -1.0f };
+
+	float left = 0.0f - anchorPoint_.x;
+	float right = 1.0f - anchorPoint_.x;
+	float top = 0.0f - anchorPoint_.y;
+	float bottom = 1.0f - anchorPoint_.y;
+
+	vertexData[0].position = { left,bottom,0.0f,1.0f }; // 左下
+	vertexData[1].position = { left,top,0.0f,1.0f };    // 左上
+	vertexData[2].position = { right,bottom,0.0f,1.0f }; // 右下
+	vertexData[3].position = { right,top,0.0f,1.0f };   // 右上
+
+	// ============================
+	//  テクスチャ範囲指定（UV反映）
+	// ============================
+
+// メタデータ取得（width / height）
+	const DirectX::TexMetadata& metadata =
+		TextureManager::GetInstance()->GetMetaData(textureIndex_);
+
+	// UV計算（左上・右下）
+	float tex_left = textureLeftTop_.x / metadata.width;
+	float tex_right = (textureLeftTop_.x + textureSize_.x) / metadata.width;
+	float tex_top = textureLeftTop_.y / metadata.height;
+	float tex_bottom = (textureLeftTop_.y + textureSize_.y) / metadata.height;
+
+	// 頂点データに書き込む（左下→左上→右下→右上）
+	vertexData[0].texcoord = { tex_left,  tex_bottom }; // 左下
+	vertexData[1].texcoord = { tex_left,  tex_top }; // 左上
+	vertexData[2].texcoord = { tex_right, tex_bottom }; // 右下
+	vertexData[3].texcoord = { tex_right, tex_top }; // 右上
+
+
+	// 左右反転
+	if (isFlipX_) {
+		left = -left;
+		right = -right;
+	}
+
+	// 上下反転
+	if (isFlipY_) {
+		top = -top;
+		bottom = -bottom;
+	}
 
 	// ============================
 	// Transform情報を作る → 行列を作って ConstantBuffer に書き込む
@@ -198,3 +240,15 @@ void Sprite::CreateTransformationMatrixData()
 	transformationMatrixData->WVP = MakeIdentity4x4();
 	transformationMatrixData->World = MakeIdentity4x4();
 }
+
+void Sprite::AdjustTextureSize()
+{
+	const DirectX::TexMetadata& metadata =
+		TextureManager::GetInstance()->GetMetaData(textureIndex_);
+
+	textureSize_.x = static_cast<float>(metadata.width);
+	textureSize_.y = static_cast<float>(metadata.height);
+
+	size_ = textureSize_;
+}
+
