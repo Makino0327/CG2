@@ -43,7 +43,7 @@ public:
         const DirectX::TexMetadata& metadata);
 
     // テクスチャデータのアップロード
-    void UploadTextureData(
+    Microsoft::WRL::ComPtr<ID3D12Resource> UploadTextureData(
         const Microsoft::WRL::ComPtr<ID3D12Resource>& texture,
         const DirectX::ScratchImage& mipImages);
 
@@ -82,6 +82,9 @@ public:
     }
 
     uint32_t GetDescriptorSizeSRV() const { return descriptorSizeSRV_; }
+
+    // 最大SRV数
+    static const uint32_t kMaxSRVCount;
 
 private:
     // DirectX12デバイス
