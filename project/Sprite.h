@@ -5,6 +5,8 @@
 
 #include "Math.h"
 
+#include "TextureManager.h"
+
 class SpriteCommon;
 
 // 頂点データ構造体
@@ -33,11 +35,11 @@ class Sprite
 {
 public:
 	// 初期化
-	void Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource);
+	void Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource, std::string textureFilePath);
 	// 更新
 	void Update();
 	// 描画
-	void Draw(D3D12_GPU_DESCRIPTOR_HANDLE textureSrv);
+	void Draw();
 	// 頂点データ作成
 	void CreateVertexData();
 	// マテリアルデータ作成
@@ -85,6 +87,9 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResource;
 	// バッファリソース内のデータを指すポインタ
 	TransformationMatrix* transformationMatrixData = nullptr;
+
+	// テクスチャ番号
+	uint32_t textureIndex_ = 0;
 
 	Transform transform_{
 	   {1.0f, 1.0f, 1.0f},

@@ -1,38 +1,28 @@
-// 必要なヘッダー
+// 標準ライブラリ
+#define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <filesystem>
-#include <d3d12.h>
-#include <dxgi1_6.h>
-#include <dxgidebug.h>
-#include <cstdint>
 #include <cassert>
-#include <initguid.h>
-#include <dxcapi.h>
+#include <cstdint>
 #include <string>
-#include <format>
-#include <cmath>
-#include <DirectXMath.h>
+#include <fstream>
+#include <sstream>
+
+#define _USE_MATH_DEFINES
+#include <cmath>      // sinf, cosf, M_PI など
+
+// DirectX / COM 周り
+#include <d3d12.h>    // ID3D12GraphicsCommandList, ID3D12DescriptorHeap などで必要
+#include <xaudio2.h>
+#include <Xinput.h>
+#include <wrl.h>
+using Microsoft::WRL::ComPtr;
+
+// ImGui
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
-#include "externals/DirectXTex/DirectXTex.h" // DirectXTexヘッダーをインクルード
-#define _USE_MATH_DEFINES
-#include <math.h>
-#include <fstream>   // ifstream 用
-#include <sstream>   // istringstream 用（後で使う）
-#include <xaudio2.h>
-#include <wrl.h>
-#include <Xinput.h>
-using Microsoft::WRL::ComPtr;
-// 必要なライブラリリンク
-#pragma comment(lib, "d3d12.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "dxguid.lib")
-#pragma comment(lib,"dxcompiler.lib")
-#pragma comment(lib,"xaudio2.lib")
-#pragma comment(lib, "xinput.lib")
 
-// クラス
+// 自作ヘッダー
 #include "Math.h"
 #include "Input.h"
 #include "WinApp.h"
@@ -42,6 +32,17 @@ using Microsoft::WRL::ComPtr;
 #include "D3DResourceLeakChecker.h"
 #include "SpriteCommon.h"
 #include "Sprite.h"
+#include "TextureManager.h"
+
+// ライブラリリンク（ここにまとめておく）
+#pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "dxcompiler.lib")
+#pragma comment(lib, "xaudio2.lib")
+#pragma comment(lib, "xinput.lib")
+
+
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -425,96 +426,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	spriteCommon = new SpriteCommon();
 	spriteCommon->Initialize(dxCommon);
 
+	// テクスチャマネージャーの初期化
+	TextureManager::GetInstance()->Initialize(dxCommon);
+
+	auto texMan = TextureManager::GetInstance();
+	texMan->LoadTexture("Resources/uvChecker.png");
+	texMan->LoadTexture("Resources/monsterBall.png");
+	texMan->LoadTexture("Resources/checkerBoard.png");
+
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
 
 	result = xAudio2->CreateMasteringVoice(&masteringVoice);
 	assert(SUCCEEDED(result));
-
-	// Textureを読んで転送する
-	DirectX::ScratchImage mipImages = DirectXCommon::LoadTexture("Resources/uvChecker.png");
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	auto textureResource = dxCommon->CreateTextureResource(metadata);
-	dxCommon->UploadTextureData(textureResource, mipImages);
-
-	// 2枚目のTextureを読んで転送する
-	DirectX::ScratchImage mipImages2 = DirectXCommon::LoadTexture("Resources/monsterBall.png");
-	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
-	auto textureResource2 = dxCommon->CreateTextureResource(metadata2);
-	dxCommon->UploadTextureData(textureResource2, mipImages2);
-
-	// checkerBoard.png を読み込む
-	DirectX::ScratchImage mipImages3 = DirectXCommon::LoadTexture("Resources/checkerBoard.png");
-	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
-	auto textureResource3 = dxCommon->CreateTextureResource(metadata3);
-	dxCommon->UploadTextureData(textureResource3, mipImages3);
-
-	//metaDataを基にSRVの設定
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = metadata.format;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;// 2Dテクスチャ
-	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
-
-	// SRV用のヒープでディスクリプタの数は128.
-	// DirectXCommon が作った SRV ヒープを借りる
-	ID3D12DescriptorHeap* srvDescriptorHeap = dxCommon->GetSrvDescriptorHeap();
-
-	// SRVを作成するDescriptorHeapの場所を決める
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
-
-	// ★ここを追加
-	ID3D12Device* device = dxCommon->GetDevice();
-
-	// 先頭はImGuiが使っているのでその次を使う
-	UINT increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	textureSrvHandleCPU.ptr += increment;
-	textureSrvHandleGPU.ptr += increment;
-
-	// SRVを作成
-	device->CreateShaderResourceView(
-		textureResource.Get(),
-		&srvDesc,
-		textureSrvHandleCPU);
-
-
-	// metaDataを基にSRVの設定
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
-	srvDesc2.Format = metadata2.format;
-	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; // 2Dテクスチャ
-	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
-
-	// SRVを作成するDescriptorHeapの場所を決める（1回だけでOK）
-	auto    srvHeap = dxCommon->GetSrvDescriptorHeap();
-	uint32_t descriptorSizeSRV = dxCommon->GetDescriptorSizeSRV();
-
-	// ★2枚目用（スロット2）
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 =
-		DirectXCommon::GetCPUDescriptorHandle(srvHeap, descriptorSizeSRV, 2);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 =
-		DirectXCommon::GetGPUDescriptorHandle(srvHeap, descriptorSizeSRV, 2);
-
-	// SRVを作成
-	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
-
-	// checkerBoard.png のメタデータを元にSRV設定
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{};
-	srvDesc3.Format = metadata3.format;
-	srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
-
-	// ★3枚目用（スロット3）
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 =
-		DirectXCommon::GetCPUDescriptorHandle(srvHeap, descriptorSizeSRV, 3);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 =
-		DirectXCommon::GetGPUDescriptorHandle(srvHeap, descriptorSizeSRV, 3);
-
-	// SRV作成
-	device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
 
 	// 球の頂点データを生成
 	std::vector<VertexData> vertexDataSphere;
@@ -717,12 +642,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// Spriteの初期化
 
-	// 個別スプライト生成
 	for (uint32_t i = 0; i < 5; ++i) {
 		Sprite* sprite = new Sprite();
-		sprite->Initialize(spriteCommon, directionalLightResource.Get());
 
-		// 位置をずらしておく（例）
+		// 交互にテクスチャファイルを切り替え
+		std::string texPath;
+		if (i % 2 == 0) {
+			texPath = "Resources/uvChecker.png";
+		} else {
+			texPath = "Resources/monsterBall.png";
+		}
+
+		sprite->Initialize(spriteCommon, directionalLightResource.Get(), texPath);
+
 		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
 		sprite->SetPosition(pos);
 
@@ -730,100 +662,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 	// --- メインループ ---
-	bool wasYPressed = false;
 	while (TRUE) {
 		// メッセージ処理
 		if (winApp->ProcessMessage()) {
 			// break
 			break;
-		}
-
-		// ゲームパッドの状態取得
-		XINPUT_STATE state{};
-		DWORD result = XInputGetState(0, &state); // 0は1Pコントローラー
-
-		if (result == ERROR_SUCCESS) {
-			// ----- Lスティックでカメラ位置を移動 -----
-			constexpr float deadZone = 7849.0f;
-			constexpr float maxStick = 32767.0f;
-
-			float lx = static_cast<float>(state.Gamepad.sThumbLX);
-			float ly = static_cast<float>(state.Gamepad.sThumbLY);
-
-			if (std::abs(lx) < deadZone) lx = 0;
-			if (std::abs(ly) < deadZone) ly = 0;
-
-			float normalizedLX = lx / maxStick;
-			float normalizedLY = ly / maxStick;
-
-			// カメラの移動速度
-			const float moveSpeed = 0.1f;
-
-			// カメラの正面・右方向ベクトルを計算
-			Vector3 forward = {
-				std::sin(cameraTransform.rotate.y),
-				0.0f,
-				std::cos(cameraTransform.rotate.y)
-			};
-			Vector3 right = {
-				std::cos(cameraTransform.rotate.y),
-				0.0f,
-				-std::sin(cameraTransform.rotate.y)
-			};
-
-
-
-			// 左スティックで前後左右移動
-			cameraTransform.translate = Add(
-				cameraTransform.translate,
-				AddVector(forward, normalizedLY * moveSpeed)
-			);
-			cameraTransform.translate = Add(
-				cameraTransform.translate,
-				AddVector(right, normalizedLX * moveSpeed)
-			);
-
-			// ----- Rスティックでカメラ回転 -----
-			float rx = static_cast<float>(state.Gamepad.sThumbRX);
-			float ry = static_cast<float>(state.Gamepad.sThumbRY);
-
-			if (std::abs(rx) < deadZone) rx = 0;
-			if (std::abs(ry) < deadZone) ry = 0;
-
-			float normalizedRX = rx / maxStick;
-			float normalizedRY = ry / maxStick;
-
-			const float rotateSpeed = 0.02f;
-			cameraTransform.rotate.y += normalizedRX * rotateSpeed; // 左右旋回
-			cameraTransform.rotate.x -= normalizedRY * rotateSpeed; // ✅ ここをマイナスに
-
-
-			bool wasAPressed = false;
-			// Aボタンが押されているか？
-			bool isAPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_A);
-
-			// 押しっぱなし防止：前フレーム押されてなかった → 今押された
-			if (isAPressed && !wasAPressed) {
-				SoundPlayWave(xAudio2.Get(), soundData1); // サウンド再生関数
-			}
-
-			// 状態を記録
-			wasAPressed = isAPressed;
-
-
-			// Yボタンの状態
-			bool isYPressed = (state.Gamepad.wButtons & XINPUT_GAMEPAD_Y);
-
-			if (isYPressed && !wasYPressed) {
-				// モード切り替え（enumを循環）
-				int mode = static_cast<int>(currentMode);
-				mode = (mode + 1) % static_cast<int>(DisplayMode::Count); // ← Count を追加しておくと安全
-				currentMode = static_cast<DisplayMode>(mode);
-			}
-
-			wasYPressed = isYPressed;
-
-
 		}
 
 		input->Update();
@@ -855,28 +698,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		ID3D12GraphicsCommandList* commandList =
 			dxCommon->GetCommandList();                   // ← このフレームのコマンドリスト
-
-		//// ルートシグネチャ / 共通CBV
-		//commandList->SetGraphicsRootSignature(rootSignature);
-		//commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-		//commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-
-		// SRVヒープ（必要なら再セット。PreDrawでもセットしてるのでどちらでもOK）
-		ID3D12DescriptorHeap* descriptorHeaps[] = {
-			dxCommon->GetSrvDescriptorHeap()
-		};
-		commandList->SetDescriptorHeaps(1, descriptorHeaps);
-
-		// テクスチャ SRV（配列は今まで通りでOK）
-		D3D12_GPU_DESCRIPTOR_HANDLE textureSRVs[] = {
-			textureSrvHandleGPU,   // uvChecker
-			textureSrvHandleGPU2,  // monsterBall
-			textureSrvHandleGPU3   // checkerBoard
-		};
-		static int selectedTextureIndex = 0;
-
-		// 今フレームで使うテクスチャ（ImGuiの選択を反映）
-		D3D12_GPU_DESCRIPTOR_HANDLE currentTextureSrv = textureSRVs[selectedTextureIndex];
 
 		// --- スプライトの基本パラメータ更新（必要なら）---
 		for (Sprite* sprite : sprites) {
@@ -923,7 +744,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			}              // 位置や行列の更新
 	
 			for (Sprite* sprite : sprites) {
-				sprite->Draw(currentTextureSrv);
+				sprite->Draw();
 			}
 		}
 
@@ -949,27 +770,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				ImGui::SliderFloat3("##PlaneScale", &modelTransform.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
 			}
 
-			//// Material
-			//if (ImGui::CollapsingHeader("Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
-			//	ImGui::SliderFloat3("##SpriteTranslate", &transformSprite.translate.x, -100.0f, 100.0f); ImGui::SameLine(); ImGui::Text("Translate");
-			//	ImGui::SliderFloat3("##SpriteRotate", &transformSprite.rotate.x, -3.14f, 3.14f);         ImGui::SameLine(); ImGui::Text("Rotate");
-			//	ImGui::SliderFloat3("##SpriteScale", &transformSprite.scale.x, 0.0f, 5.0f);              ImGui::SameLine(); ImGui::Text("Scale");
-
-			//}
-
-			//// UVTranslate（2D）
-			//ImGui::DragFloat2("##UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
-			//ImGui::SameLine(); ImGui::Text("UVTranslate");
-
-			//// UVRotate（Z軸のみ）
-			//ImGui::DragFloat("##UVRotate", &uvTransformSprite.rotate.z, 0.01f, -3.14f, 3.14f);
-			//ImGui::SameLine(); ImGui::Text("UVRotate");
-
-			//// UVScale（2D）
-			//ImGui::DragFloat2("##UVScale", &uvTransformSprite.scale.x, 0.01f, 0.0f, 10.0f);
-			//ImGui::SameLine(); ImGui::Text("UVScale");
-
-			ImGui::Combo("Texture", &selectedTextureIndex, textureNames, IM_ARRAYSIZE(textureNames));
+			
 
 			if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
@@ -1062,6 +863,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
+
+	// テクスチャマネージャーの終了
+	TextureManager::GetInstance()->Finalize();
 
 	delete dxCommon;   dxCommon = nullptr;
 	delete spriteCommon; spriteCommon = nullptr;

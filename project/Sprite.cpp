@@ -3,12 +3,14 @@
 #include "WinApp.h"
 #include "Math.h"
 
-void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource)
+void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalLightResource,std::string textureFilePath)
 {
 	// 引数をメンバ変数にセット
 	spriteCommon_ = spriteCommon;
 	// ライト情報リソースをセット
 	directionalLightResource_ = directionalLightResource;
+	// テクスチャ番号取得
+	textureIndex_ = TextureManager::GetInstance()->GetTextureIndexByFilePath(textureFilePath);
 
 	// 頂点データ作成
 	CreateVertexData();
@@ -86,40 +88,42 @@ void Sprite::Update()
 	transformationMatrixData->World = worldMatrix;
 }
 
-void Sprite::Draw(D3D12_GPU_DESCRIPTOR_HANDLE textureSrv)
+void Sprite::Draw()
 {
 	// DirectXCommon & コマンドリスト取得
 	DirectXCommon* dxCommon = spriteCommon_->GetDxCommon();
 	ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
 	// スプライト共通描画設定
-	// ルートシグネチャ・PSO・プリミティブトポロジの設定
 	spriteCommon_->CommonDrawSetting();
 
 	// ===== VertexBufferView / IndexBufferView を設定 =====
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 	commandList->IASetIndexBuffer(&indexBufferView);
 
-	// ===== 定数バッファ（Material / TransformationMatrix）を設定 =====
-	// b0 : Material
+	// ===== 定数バッファ（Material / DirectionalLight / Transform）を設定 =====
 	commandList->SetGraphicsRootConstantBufferView(
 		0, materialResource->GetGPUVirtualAddress());
 
 	commandList->SetGraphicsRootConstantBufferView(
 		1, directionalLightResource_->GetGPUVirtualAddress());
 
-	// b2 : TransformationMatrix
 	commandList->SetGraphicsRootConstantBufferView(
 		2, transformationMatrixResource->GetGPUVirtualAddress());
 
 	// ===== SRV の DescriptorTable を設定 =====
-	// t0 を束ねているテーブルの 3 番目の RootParameter に設定（main と同じ）
+	// ★ ここで TextureManager から GPU ハンドルを取得する
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrv =
+		TextureManager::GetInstance()->GetSrvHandleGPU(textureIndex_);
+
+	// t0 を束ねているテーブルの 3 番目の RootParameter に設定
+	// （ここはあなたのルートシグネチャに合わせて 2/3 どちらかに）
 	commandList->SetGraphicsRootDescriptorTable(3, textureSrv);
 
 	// ===== 描画！（DrawCall） =====
-	// インデックス 6 個で四角形 1 枚分
 	commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 }
+
 
 void Sprite::CreateVertexData()
 {

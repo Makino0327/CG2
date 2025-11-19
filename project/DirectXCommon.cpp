@@ -12,6 +12,7 @@
 #include "externals/DirectXTex/DirectXTex.h"
 #include <thread>
 
+const uint32_t DirectXCommon::kMaxSRVCount = 512;
 
 using namespace Microsoft::WRL;
 
@@ -272,7 +273,7 @@ void DirectXCommon::InitializeDescriptorHeaps()
     // SRV用（128個）
     srvDescriptorHeap_ = CreateDescriptorHeap(
         D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-        128,
+        kMaxSRVCount,
         true
     );
 
@@ -723,7 +724,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateTextureResource(
     return resource;
 }
 
-void DirectXCommon::UploadTextureData(
+Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::UploadTextureData(
     const Microsoft::WRL::ComPtr<ID3D12Resource>& texture,
     const DirectX::ScratchImage& mipImages)
 {
@@ -745,43 +746,12 @@ void DirectXCommon::UploadTextureData(
             static_cast<UINT>(img->slicePitch));
         assert(SUCCEEDED(hr));
     }
+
+    // ★ 今は中間リソースを使っていないので、空の ComPtr を返す
+    return Microsoft::WRL::ComPtr<ID3D12Resource>{};
+    // もしくは単に  return {};  でもOK
 }
 
-// DirectXCommon.cpp
 
-DirectX::ScratchImage DirectXCommon::LoadTexture(const std::string& filePath)
-{
-    DirectX::ScratchImage image{};
 
-    // std::string → std::wstring 変換（自前のユーティリティを使用）
-    std::wstring filePathW(filePath.begin(), filePath.end());
 
-    // ログ（簡単な文字列だけにしておく）
-    Logger::Log("Attempting to load texture: " + filePath);
-
-    // WIC 経由でテクスチャ読み込み
-    HRESULT hr = DirectX::LoadFromWICFile(
-        filePathW.c_str(),
-        DirectX::WIC_FLAGS_FORCE_SRGB,
-        nullptr,
-        image);
-
-    if (FAILED(hr)) {
-        Logger::Log("Failed to load texture: " + filePath);
-        // エラー時はいったん空の ScratchImage を返す
-        return DirectX::ScratchImage{};
-    }
-
-    // ミップマップ生成
-    DirectX::ScratchImage mipImages{};
-    hr = DirectX::GenerateMipMaps(
-        image.GetImages(),
-        image.GetImageCount(),
-        image.GetMetadata(),
-        DirectX::TEX_FILTER_SRGB,
-        0,
-        mipImages);
-    assert(SUCCEEDED(hr));
-
-    return mipImages;
-}
