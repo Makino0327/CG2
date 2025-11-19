@@ -434,7 +434,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// 3dオブジェクト共通処理の初期化
 	object3dCommon = new Object3dCommon();
-	object3dCommon->Initialize();
+	object3dCommon->Initialize(dxCommon);
 
 	// 3Dオブジェクトの初期化
 	object3d = new Object3d();
@@ -757,6 +757,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			//commandList->IASetVertexBuffers(0, 1, &vertexBufferViewsPerModel[0][0]);
 			//commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			//commandList->DrawInstanced((UINT)allModels[0].meshes[0].vertices.size(), 1, 0, 0);
+
+			object3dCommon->CommonDrawSetting(); // 3Dオブジェクト共通描画設定
 
 			for (Sprite* sprite : sprites) {
 				sprite->Update();
