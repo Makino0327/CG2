@@ -6,11 +6,14 @@ class Model
 {
 public:
 	//初期化
-	void Initialize(ModelCommon* modelCommon);
+	void Initialize(ModelCommon* modelCommon,const std::string& directorypath,const std::string& filename);
 
 	void Draw();
 
 	static ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
+
+	void SetTextureIndex(uint32_t index) { modelData_.material.textureIndex = index; }
+
 
 private:
 	// 頂点バッファ作成

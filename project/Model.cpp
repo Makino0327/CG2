@@ -1,28 +1,29 @@
 #include "Model.h"
 
-void Model::Initialize(ModelCommon* modelCommon)
+void Model::Initialize(ModelCommon* modelCommon,
+    const std::string& directoryPath,
+    const std::string& filename)
 {
-	// 引き渡し
-	modelCommon_ = modelCommon;
+    modelCommon_ = modelCommon;
 
-	// OBJ 読み込み
-	modelData_ = LoadObjFile("Resources", "plane.obj");
-    modelData_.material.textureFilePath = "Resources/uvChecker.png";
+    // ▼ OBJ読み込み（スライドの指示）
+    modelData_ = LoadObjFile(directoryPath, filename);
 
-    // 残りの初期化
-    InitializeVertexBuffer();
-    InitializeMaterial();
-
-    // .obj が参照しているテクスチャファイルを読み込み
+    // ▼ テクスチャ読み込み
     TextureManager::GetInstance()->LoadTexture(
         modelData_.material.textureFilePath);
 
-    // 読み込んだテクスチャの番号を取得
     modelData_.material.textureIndex =
         TextureManager::GetInstance()->GetTextureIndexByFilePath(
             modelData_.material.textureFilePath);
 
+    // ▼ 頂点バッファ初期化
+    InitializeVertexBuffer();
+
+    // ▼ マテリアル初期化
+    InitializeMaterial();
 }
+
 
 void Model::Draw()
 {
@@ -57,6 +58,30 @@ void Model::Draw()
 ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string& filename)
 {
     ModelData modelData;
+
+    std::string mtlFileName;
+
+    {
+        std::ifstream file(directoryPath + "/" + filename);
+        assert(file.is_open());
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.rfind("mtllib", 0) == 0) {
+                std::istringstream s(line);
+                std::string id;
+                s >> id >> mtlFileName;   // mtllib xxxx.mtl
+                break;
+            }
+        }
+    }
+
+    // ② mtl が見つかった場合、Object3d の関数を使って読み込む
+    if (!mtlFileName.empty()) {
+        Object3d::LoadMaterialTemplateFile(
+            directoryPath,
+            mtlFileName,
+            modelData.material);
+    }
 
     std::vector<Vector4> positions;
     std::vector<Vector3> normals;

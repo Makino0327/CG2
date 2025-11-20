@@ -36,6 +36,7 @@ using Microsoft::WRL::ComPtr;
 #include "Object3d.h"
 #include "Model.h"
 #include "ModelCommon.h"
+#include "ModelManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -242,9 +243,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	modelCommon = new ModelCommon();
 	modelCommon->Initialize(dxCommon);
 
-	// plane
-	Model* planeModel = new Model();
-	planeModel->Initialize(modelCommon);
+	// 3Dモデルマネージャー
+	ModelManager::GetInstance()->Initialize(dxCommon);
+
+	ModelManager::GetInstance()->LoadModel("plane.obj");
+	ModelManager::GetInstance()->LoadModel("bunny.obj");
+
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
@@ -302,18 +306,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		sprites.push_back(sprite);
 	}
 
-	std::vector<Object3d*> models;
+	// Object3d を２つ作る
+	Object3d* objA = new Object3d();
+	objA->Initialize(object3dCommon);
+	objA->SetModel("plane.obj");     // ← 1つめは plane
+	objA->SetTexture("Resources/monsterBall.png");
 
-	for (int i = 0; i < 2; i++) {
-		Object3d* obj = new Object3d();
-		obj->Initialize(object3dCommon);
+	Object3d* objB = new Object3d();
+	objB->Initialize(object3dCommon);
+	objB->SetModel("bunny.obj");     // ← 2つめは bunny
+	objB->SetTexture("Resources/uvChecker.png");
 
-		obj->SetModel(planeModel);   // ← これ必須！
+	// 位置変える
+	objA->SetTranslate({ -3, 0, 0 });
+	objB->SetTranslate({ 3, 0, 0 });
 
-		obj->SetTranslate({ float(i * 3.0f), 0.0f, 0.0f });
-
-		models.push_back(obj);
-	}
 
 
 	// --- メインループ ---
@@ -347,15 +354,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			sprite->Draw();
 		}*/
 
-		// ===== 3Dオブジェクト =====
-		for (auto obj : models) {
-			obj->Update();
-		}
+		// ======= Update =======
+		objA->Update();
+		objB->Update();
+
+		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
-		for (auto obj : models) {
-			obj->Draw();
-		}
+		objA->Draw();
+		objB->Draw();
+
 
 
 		//描画
@@ -460,6 +468,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	xAudio2.Reset();
 	SoundUnload(&soundData1);
 
+	// 3Dモデルマネージャーの終了
+	ModelManager::GetInstance()->Finalize();
 	// テクスチャマネージャーの終了
 	TextureManager::GetInstance()->Finalize();
 

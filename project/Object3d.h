@@ -51,8 +51,10 @@ public:
 
 	void Draw();
 
-	static MaterialData LoadMaterialTemplateFile(const std::string& directoryPath,
-		const std::string& filename);
+	static MaterialData  LoadMaterialTemplateFile(
+		const std::string& directoryPath,
+		const std::string& mtlFileName,
+		MaterialData& material);
 
 	// 座標変換行列初期化
 	void InitializeTransformationMatrix();
@@ -60,8 +62,12 @@ public:
 	// 
 	void InitializeDirectionalLight();
 
+	void SetModel(const std::string& filePath);
+
 	// セッター
 	void SetModel(Model* model) { model_ = model; }
+	void SetTexture(const std::string& filePath);
+
 
 	// ----- setter -----
 	void SetScale(const Vector3& scale) { transform.scale = scale; }

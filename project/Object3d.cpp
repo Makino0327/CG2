@@ -1,6 +1,7 @@
 #include "Object3d.h"
 #include "Object3dCommon.h"
 #include "Model.h"  
+#include "ModelManager.h"
 
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
@@ -67,12 +68,33 @@ void Object3d::Draw()
 }
 
 
-MaterialData Object3d::LoadMaterialTemplateFile(const std::string& directoryPath,
-    const std::string& filename) {
-    MaterialData material{};
-    material.textureFilePath = directoryPath + "/" + filename; // 必要なら
+MaterialData Object3d::LoadMaterialTemplateFile(
+    const std::string& directoryPath,
+    const std::string& mtlFileName,
+    MaterialData& material)
+{
+    std::ifstream file(directoryPath + "/" + mtlFileName);
+    if (!file.is_open()) {
+        return material;   // 読めない場合そのまま返す
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream s(line);
+        std::string id;
+        s >> id;
+
+        if (id == "map_Kd") {
+            std::string texName;
+            s >> texName;
+            material.textureFilePath = directoryPath + "/" + texName;
+        }
+    }
+
     return material;
 }
+
+
 
 
 void Object3d::InitializeTransformationMatrix()
@@ -111,4 +133,21 @@ void Object3d::InitializeDirectionalLight()
     directionalLightData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     directionalLightData_->direction = Vector3(0.0f, -1.0f, 0.0f);
     directionalLightData_->intensity = 4.0f;
+}
+
+void Object3d::SetModel(const std::string& filePath)
+{
+    // モデルを検索してセットする
+    model_ = ModelManager::GetInstance()->FindModel(filePath);
+}
+
+void Object3d::SetTexture(const std::string& filePath)
+{
+    TextureManager* texMan = TextureManager::GetInstance();
+    texMan->LoadTexture(filePath);
+
+    if (model_) {
+        model_->SetTextureIndex(
+            texMan->GetTextureIndexByFilePath(filePath));
+    }
 }
