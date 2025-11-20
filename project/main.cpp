@@ -34,6 +34,8 @@ using Microsoft::WRL::ComPtr;
 #include "TextureManager.h"
 #include "Object3dCommon.h"
 #include "Object3d.h"
+#include "Model.h"
+#include "ModelCommon.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -205,6 +207,8 @@ std::vector<Sprite*> sprites;
 Object3dCommon* object3dCommon = nullptr;
 // 3Dオブジェクト
 Object3d* object3d = nullptr;
+// 
+ModelCommon* modelCommon = nullptr;
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -233,6 +237,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 3D オブジェクト
 	object3d = new Object3d();
 	object3d->Initialize(object3dCommon);
+
+	// モデル共通処理
+	modelCommon = new ModelCommon();
+	modelCommon->Initialize(dxCommon);
+
+	// plane
+	Model* planeModel = new Model();
+	planeModel->Initialize(modelCommon);
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
@@ -290,6 +302,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		sprites.push_back(sprite);
 	}
 
+	std::vector<Object3d*> models;
+
+	for (int i = 0; i < 2; i++) {
+		Object3d* obj = new Object3d();
+		obj->Initialize(object3dCommon);
+
+		obj->SetModel(planeModel);   // ← これ必須！
+
+		obj->SetTranslate({ float(i * 3.0f), 0.0f, 0.0f });
+
+		models.push_back(obj);
+	}
+
+
 	// --- メインループ ---
 	while (TRUE) {
 		// メッセージ処理
@@ -322,9 +348,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		}*/
 
 		// ===== 3Dオブジェクト =====
-		object3d->Update();                 // Transform → WVP 更新
-		object3dCommon->CommonDrawSetting();// 3D PSO 設定
-		object3d->Draw();                   // plane.obj を描画
+		for (auto obj : models) {
+			obj->Update();
+		}
+		object3dCommon->CommonDrawSetting();
+
+		for (auto obj : models) {
+			obj->Draw();
+		}
+
 
 		//描画
 
@@ -379,11 +411,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				target->SetRotation(rot);
 			}
 		}
-
-		Transform& objTr = object3d->GetTransform();
-		ImGui::SliderFloat3("Obj Translate", &objTr.translate.x, -10.0f, 10.0f);
-		ImGui::SliderFloat3("Obj Rotate", &objTr.rotate.x, -3.14f, 3.14f);
-		ImGui::SliderFloat3("Obj Scale", &objTr.scale.x, 0.1f, 5.0f);
 
 		// 現在の選択中Lighting
 		static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert

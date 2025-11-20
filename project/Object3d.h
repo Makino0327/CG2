@@ -8,6 +8,7 @@
 #include <sstream>
 
 class Object3dCommon;
+class Model;
 
 struct MaterialData
 {
@@ -52,40 +53,30 @@ public:
 
 	static MaterialData LoadMaterialTemplateFile(const std::string& directoryPath,
 		const std::string& filename);
-	static ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 
 	// 座標変換行列初期化
 	void InitializeTransformationMatrix();
 
-	// 頂点バッファ作成
-	void InitializeVertexBuffer();
-	// マテリアル初期化
-	void InitializeMaterial();
 	// 
 	void InitializeDirectionalLight();
 
-	Transform& GetTransform() { return transform; }
+	// セッター
+	void SetModel(Model* model) { model_ = model; }
+
+	// ----- setter -----
+	void SetScale(const Vector3& scale) { transform.scale = scale; }
+	void SetRotate(const Vector3& rotate) { transform.rotate = rotate; }
+	void SetTranslate(const Vector3& translate) { transform.translate = translate; }
+
+	// ----- getter -----
+	const Vector3& GetScale()     const { return transform.scale; }
+	const Vector3& GetRotate()    const { return transform.rotate; }
+	const Vector3& GetTranslate() const { return transform.translate; }
+
 
 private:
 	// 3Dオブジェクト共通処理
 	Object3dCommon* object3dCommon_ = nullptr;
-
-	// objファイルデータ
-	ModelData modelData_;
-
-	// バッファリソース
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
-
-	// バッファリソース内のデータを指すポインタ
-	VertexData* vertexData = nullptr;
-
-	// 頂点バッファビュー
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
-
-	// バッファリソース（ConstantBuffer）
-	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-	// バッファリソース内のデータを指すポインタ
-	Material* materialData_ = nullptr;
 
 	// バッファリソース（ConstantBuffer）
 	Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResource_;
@@ -97,5 +88,7 @@ private:
 
 	Transform transform;
 	Transform cameraTransform;
+
+	Model* model_ = nullptr;
 };
 
