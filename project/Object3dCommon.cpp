@@ -150,6 +150,8 @@ void Object3dCommon::CreateGraphicsPipelineState()
     desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;  // = 0xFFFFFFFF
+
     desc.SampleDesc.Count = 1;
 
     HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipelineState_));

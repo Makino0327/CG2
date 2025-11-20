@@ -258,3 +258,19 @@ Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
 	result.m[3][2] = translate.z;
 	return result;
 }
+
+Vector3 Add(const Vector3& a, const Vector3& b) {
+	return {
+		a.x + b.x,
+		a.y + b.y,
+		a.z + b.z
+	};
+}
+
+Vector3 AddVector(const Vector3& v, float scalar) {
+	return {
+		v.x * scalar,
+		v.y * scalar,
+		v.z * scalar
+	};
+}
