@@ -12,6 +12,7 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
+    InitializeMaterial();
 }
 
 void Object3d::Update()
@@ -53,19 +54,23 @@ void Object3d::Draw()
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // ---------- 平行光源 CBuffer の場所を設定 ----------
+    // ★Material CBuffer(b0)
+    commandList->SetGraphicsRootConstantBufferView(
+        0, materialResource_->GetGPUVirtualAddress());
+
+    // 平行光源(b1)
     commandList->SetGraphicsRootConstantBufferView(
         1, directionalLightResource_->GetGPUVirtualAddress());
 
-    // ---------- 座標変換行列 CBuffer の場所を設定 ----------
+    // 行列(b2)
     commandList->SetGraphicsRootConstantBufferView(
         2, transformationMatrixResource_->GetGPUVirtualAddress());
 
-    if (model_)
-    {
+    if (model_) {
         model_->Draw();
     }
 }
+
 
 
 MaterialData Object3d::LoadMaterialTemplateFile(
@@ -149,5 +154,25 @@ void Object3d::SetTexture(const std::string& filePath)
     if (model_) {
         model_->SetTextureIndex(
             texMan->GetTextureIndexByFilePath(filePath));
+    }
+}
+
+void Object3d::InitializeMaterial()
+{
+    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
+
+    materialResource_ = dxCommon->CreateBufferResource(sizeof(Material));
+    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
+
+    // 初期値
+    materialData_->color = Vector4(1, 1, 1, 1);
+    materialData_->lightingType = 1; // Lambertとか使うなら。無ければ0でもOK
+    materialData_->uvTransform = MakeIdentity4x4();
+}
+
+void Object3d::SetColor(const Vector4& color)
+{
+    if (materialData_) {
+        materialData_->color = color;
     }
 }

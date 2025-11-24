@@ -101,9 +101,23 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)
     // ===========================
     // デスクリプタハンドル計算
     // ===========================
-    uint32_t srvIndex = static_cast<uint32_t>(textureDatas_.size() - 1)+kSRVIndexTop;
-    textureData.srvHandleCPU = dxCommon_->GetSRVCPUDescriptorHandle(srvIndex);
-    textureData.srvHandleGPU = dxCommon_->GetSRVGPUDescriptorHandle(srvIndex);
+    uint32_t srvIndex =
+        static_cast<uint32_t>(textureDatas_.size() - 1) + kSRVIndexTop;
+
+    // SRVのincrementサイズ
+    uint32_t descriptorSizeSRV =
+        dxCommon_->GetDevice()->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // ★ dxCommon が持つ共有SRVヒープを使う
+    ID3D12DescriptorHeap* heap = dxCommon_->GetSrvDescriptorHeap();
+
+    textureData.srvHandleCPU =
+        dxCommon_->GetCPUDescriptorHandle(heap, descriptorSizeSRV, srvIndex);
+
+    textureData.srvHandleGPU =
+        dxCommon_->GetGPUDescriptorHandle(heap, descriptorSizeSRV, srvIndex);
+
 
     // ===========================
     // SRV の生成

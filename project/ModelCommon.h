@@ -1,4 +1,5 @@
 #pragma once
+#include "Object3dCommon.h"
 #include "DirectXCommon.h"
 class ModelCommon
 {

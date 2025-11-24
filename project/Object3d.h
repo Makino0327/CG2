@@ -79,6 +79,8 @@ public:
 	const Vector3& GetRotate()    const { return transform.rotate; }
 	const Vector3& GetTranslate() const { return transform.translate; }
 
+	void SetColor(const Vector4& color);
+	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
 
 private:
 	// 3Dオブジェクト共通処理
@@ -96,5 +98,10 @@ private:
 	Transform cameraTransform;
 
 	Model* model_ = nullptr;
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
+	Material* materialData_ = nullptr;
+
+	void InitializeMaterial();
 };
 

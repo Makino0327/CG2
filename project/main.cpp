@@ -246,15 +246,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
 
-	ModelManager::GetInstance()->LoadModel("plane.obj");
-	ModelManager::GetInstance()->LoadModel("bunny.obj");
-
+	ModelManager::GetInstance()->LoadModel("fence.obj");
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
 	texMan->LoadTexture("Resources/uvChecker.png");
 	texMan->LoadTexture("Resources/monsterBall.png");
 	texMan->LoadTexture("Resources/checkerBoard.png");
+	texMan->LoadTexture("Resources/fence.png");
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
@@ -309,19 +308,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// Object3d を２つ作る
 	Object3d* objA = new Object3d();
 	objA->Initialize(object3dCommon);
-	objA->SetModel("plane.obj");     // ← 1つめは plane
-	objA->SetTexture("Resources/monsterBall.png");
-
-	Object3d* objB = new Object3d();
-	objB->Initialize(object3dCommon);
-	objB->SetModel("bunny.obj");     // ← 2つめは bunny
-	objB->SetTexture("Resources/uvChecker.png");
+	objA->SetModel("fence.obj");     // ← 1つめは plane
+	objA->SetTexture("Resources/fence.png");
 
 	// 位置変える
-	objA->SetTranslate({ -3, 0, 0 });
-	objB->SetTranslate({ 3, 0, 0 });
-
-
+	objA->SetTranslate({ 0, 0, 0 });
 
 	// --- メインループ ---
 	while (TRUE) {
@@ -356,15 +347,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		// ======= Update =======
 		objA->Update();
-		objB->Update();
 
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
 		objA->Draw();
-		objB->Draw();
-
-
 
 		//描画
 
@@ -380,45 +367,35 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::Text("Create");
 		ImGui::Separator();
 
+		if (objA) {
 
-		// ★ Sprite[0] だけ操作する UI ★
-		if (!sprites.empty()) {
+			// ====== Transform ======
 
-			// 0番目のスプライトを取る
-			Sprite* target = sprites[0];
-
-			// ---- Position ----
-			Vector2 pos = target->GetPosition();
-			if (ImGui::SliderFloat2(
-				"Sprite[0] Pos",
-				&pos.x,
-				0.0f,
-				(float)WinApp::kClientWidth))   // とりあえず画面幅を上限
-			{
-				target->SetPosition(pos);
+			Vector3 tr = objA->GetTranslate();
+			if (ImGui::SliderFloat3("Translate", &tr.x, -10.0f, 10.0f)) {
+				objA->SetTranslate(tr);
 			}
 
-			// ---- Size ----
-			Vector2 size = target->GetSize();
-			if (ImGui::SliderFloat2(
-				"Sprite[0] Size",
-				&size.x,
-				0.0f,
-				800.0f))   // 適当に 800 くらい（必要なら変えてOK）
-			{
-				target->SetSize(size);
+			Vector3 rot = objA->GetRotate();
+			if (ImGui::SliderFloat3("Rotate", &rot.x, -3.14f, 3.14f)) {
+				objA->SetRotate(rot);
 			}
 
-			// ---- Rotation ----
-			float rot = target->GetRotation();
-			if (ImGui::SliderFloat(
-				"Sprite[0] Rot",
-				&rot,
-				-3.14f, 3.14f))
-			{
-				target->SetRotation(rot);
+			Vector3 sc = objA->GetScale();
+			if (ImGui::SliderFloat3("Scale", &sc.x, 0.1f, 5.0f)) {
+				objA->SetScale(sc);
+			}
+
+			// ====== Color ======
+
+			Material* mat = objA->GetMaterial();
+			Vector4 col = mat->color;
+			if (ImGui::ColorEdit4("Color", &col.x)) {
+				objA->SetColor(col);
 			}
 		}
+
+
 
 		// 現在の選択中Lighting
 		static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
@@ -430,21 +407,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		int currentLightingIndex = static_cast<int>(currentLighting);
 
-		// Comboで選択
+		// Comboで選択が変わったら…
 		if (ImGui::Combo("Lighting", &currentLightingIndex, lightingItems, IM_ARRAYSIZE(lightingItems))) {
-			currentLighting = static_cast<LightingType>(currentLightingIndex); // 選択変更を反映
+			currentLighting = static_cast<LightingType>(currentLightingIndex);
 		}
-		// Debug 表示
-		ImGui::Separator();
-		ImGui::Text("Play Sound");
 
-		materialData->lightingType = static_cast<int>(currentLighting);
+		// ★こっちに入れる！！
+		objA->GetMaterial()->lightingType = static_cast<int>(currentLighting);
+
 
 		// フレームの一番最後で呼ぶ（描画後でも可）
 		ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowBgAlpha(0.35f); // 半透明にする（好みで調整）
 
 		ImGui::End();
+
 
 
 		ImGui::Render();
