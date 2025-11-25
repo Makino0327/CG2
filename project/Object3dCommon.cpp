@@ -138,8 +138,8 @@ void Object3dCommon::CreateGraphicsPipelineState()
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
     // --- シェーダをロード ---
-    auto vs = dxCommon_->CompileShader(L"Object3D.VS.hlsl", L"vs_6_0");
-    auto ps = dxCommon_->CompileShader(L"Object3D.PS.hlsl", L"ps_6_0");
+    auto vs = dxCommon_->CompileShader(L"Resources/shaders/Object3D.VS.hlsl", L"vs_6_0");
+    auto ps = dxCommon_->CompileShader(L"Resources/shaders/Object3D.PS.hlsl", L"ps_6_0");
 
     // --- PSO 設定 ---
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};

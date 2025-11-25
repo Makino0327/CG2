@@ -594,6 +594,7 @@ Microsoft::WRL::ComPtr<IDxcBlob> DirectXCommon::CompileShader(
     // 開始ログ（とりあえず簡単な文字列だけ）
     Logger::Log("Begin CompileShader");
 
+
     // 1. hlslファイル読み込み
     Microsoft::WRL::ComPtr<IDxcBlobEncoding> shaderSource;
     hr = dxcUtils_->LoadFile(filePath.c_str(), nullptr, &shaderSource);
