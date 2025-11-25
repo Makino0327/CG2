@@ -1,3 +1,4 @@
+
 struct VertexShaderOutput
 {
     float4 position : SV_POSITION;
@@ -15,7 +16,7 @@ struct DirectionalLight
 struct Material
 {
     float4 color;
-    int lightingType; // 0: None(Unlit), 1: Lambert, 2: HalfLambert
+    int lightingType;
     float3 padding;
     float4x4 uvTransform;
 };
@@ -24,6 +25,7 @@ ConstantBuffer<Material> gMaterial : register(b0);
 ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
+
 
 struct PixelShaderOutput
 {
@@ -34,72 +36,48 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
 
-    // ----------------------------
-    // UV変換 & テクスチャ取得
-    // ----------------------------
-    float4 transformedUV = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
-    float4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
+    float4 uv = mul(float4(input.texcoord, 0, 1), gMaterial.uvTransform);
+    float4 textureColor = gTexture.Sample(gSampler, uv.xy);
 
-    // ============================
-    // ★ 黒背景（カラーキー）を抜く
-    // fence.png は黒背景で α が常に1なので
-    // α判定では抜けない → 色で判定してdiscard
-    // ============================
-    if (textureColor.r < 0.1f &&
-        textureColor.g < 0.1f &&
-        textureColor.b < 0.1f)
+    if (textureColor.a <= 0.1f)
     {
-        discard; // 背景を完全に消す（穴になる）
+        discard;
     }
 
-    // ----------------------------
-    // マテリアル × テクスチャ
-    // ----------------------------
-    float4 baseColor = gMaterial.color * textureColor;
+    float3 normal = normalize(input.normal);
+    float3 lightDir = normalize(-gDirectionalLight.direction);
 
-    // ----------------------------
-    // ライティング
-    // ----------------------------
-    float3 finalColor;
+    float ndotl = saturate(dot(normal, lightDir));
 
-    // 0: None（Unlit）→ ライトを掛けずにそのまま出す
-    if (gMaterial.lightingType == 0)
+    float lighting = 1.0f; // None用
+
+    if (gMaterial.lightingType == 1)
     {
-        finalColor = baseColor.rgb;
+        // Lambert
+        lighting = ndotl;
+    }
+    else if (gMaterial.lightingType == 2)
+    {
+        // Half Lambert
+        lighting = pow(ndotl * 0.5f + 0.5f, 2.0f);
     }
     else
     {
-        // 法線とライト方向
-        float3 normal = normalize(input.normal);
-        float3 lightDir = normalize(-gDirectionalLight.direction);
-        float NdotL = dot(normal, lightDir);
-
-        // ライティング係数
-        float lightTerm = 1.0f;
-
-        if (gMaterial.lightingType == 1)
-        {
-            // Lambert
-            lightTerm = saturate(NdotL); // 0～1
-        }
-        else if (gMaterial.lightingType == 2)
-        {
-            // Half Lambert
-            lightTerm = NdotL * 0.5f + 0.5f; // 0～1
-            // もう少し暗くしたければ:
-            // lightTerm = pow(lightTerm, 1.5f);
-        }
-
-        float3 lightColor = gDirectionalLight.color.rgb * gDirectionalLight.intensity;
-
-        finalColor = baseColor.rgb * lightColor * lightTerm;
+        // None: ライト計算しない
+        lighting = 1.0f;
     }
 
-    // 0～1に抑える
-    finalColor = saturate(finalColor);
+    float3 baseColor = gMaterial.color.rgb * textureColor.rgb;
 
-    output.color.rgb = finalColor;
-    output.color.a = baseColor.a; // 半透明にしたいなら *0.5f とか
+    float3 finalColor =
+        (gMaterial.lightingType == 0)
+        ? baseColor
+        : baseColor * gDirectionalLight.color.rgb * gDirectionalLight.intensity * lighting;
 
+    output.color = float4(finalColor, gMaterial.color.a * textureColor.a);
     return output;
 }
+
+
+
+
