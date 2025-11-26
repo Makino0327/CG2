@@ -6,6 +6,7 @@
 #include "Sprite.h"
 #include <fstream>
 #include <sstream>
+#include "Camera.h"
 
 class Object3dCommon;
 class Model;
@@ -67,6 +68,7 @@ public:
 	// セッター
 	void SetModel(Model* model) { model_ = model; }
 	void SetTexture(const std::string& filePath);
+	void SetCamera(Camera* camera) { camera_ = camera; }
 
 
 	// ----- setter -----
@@ -96,5 +98,7 @@ private:
 	Transform cameraTransform;
 
 	Model* model_ = nullptr;
+
+	Camera* camera_ = nullptr;
 };
 

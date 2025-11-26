@@ -37,6 +37,7 @@ using Microsoft::WRL::ComPtr;
 #include "Model.h"
 #include "ModelCommon.h"
 #include "ModelManager.h"
+#include "MapChipField.h" 
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -243,18 +244,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	modelCommon = new ModelCommon();
 	modelCommon->Initialize(dxCommon);
 
+	// ===== マップ読み込み =====
+	MapChipField* mapField=new MapChipField();
+	mapField->LoadFromCsv("Resources/map.csv");
+
+	const float kTileSize = 2.0f;
+
+	Camera* camera = new Camera();
+	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
+	camera->SetTranslate({ 0.0f, 4.0f, -10.0f });
+	object3dCommon->SetDefaultCamera(camera);
+
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
 
 	ModelManager::GetInstance()->LoadModel("plane.obj");
-	ModelManager::GetInstance()->LoadModel("bunny.obj");
-
+	ModelManager::GetInstance()->LoadModel("cube.obj");
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
 	texMan->LoadTexture("Resources/uvChecker.png");
 	texMan->LoadTexture("Resources/monsterBall.png");
 	texMan->LoadTexture("Resources/checkerBoard.png");
+	texMan->LoadTexture("Resources/cube.jpg");
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
@@ -312,16 +324,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	objA->SetModel("plane.obj");     // ← 1つめは plane
 	objA->SetTexture("Resources/monsterBall.png");
 
-	Object3d* objB = new Object3d();
-	objB->Initialize(object3dCommon);
-	objB->SetModel("bunny.obj");     // ← 2つめは bunny
-	objB->SetTexture("Resources/uvChecker.png");
-
 	// 位置変える
-	objA->SetTranslate({ -3, 0, 0 });
-	objB->SetTranslate({ 3, 0, 0 });
+	objA->SetTranslate({ 0, 0, 0 });
 
+	// マップのブロックを保持する配列
+	std::vector<Object3d*> mapBlocks;
 
+	for (int y = 0; y < mapField->GetHeight(); ++y) {
+		for (int x = 0; x < mapField->GetWidth(); ++x) {
+
+			MapChipType chip = mapField->GetChip(x, y);
+			if (chip == MapChipType::Empty) {
+				continue;
+			}
+
+			// 1マス = 1つの Object3d
+			Object3d* block = new Object3d();
+			block->Initialize(object3dCommon);
+
+			// 今は plane.obj、cube.obj ができたらここを差し替える
+			// block->SetModel("cube.obj");
+			block->SetModel("cube.obj");
+			block->SetTexture("Resources/cube.jpg");
+
+			// 左手座標系で XZ 平面に敷く
+			Vector3 pos;
+			int h = mapField->GetHeight();
+
+			pos.x = static_cast<float>(x) * kTileSize;
+			pos.y = static_cast<float>(h - 1 - y) * kTileSize;
+			pos.z = 0.0f;
+
+			block->SetTranslate(pos);
+
+			mapBlocks.push_back(block);
+		}
+	}
 
 	// --- メインループ ---
 	while (TRUE) {
@@ -341,8 +379,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-
-
 		// ===== スプライト =====
 		spriteCommon->CommonDrawSetting(); // Sprite PSO 設定
 
@@ -356,15 +392,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		// ======= Update =======
 		objA->Update();
-		objB->Update();
 
+
+		// ======= Update =======
+		for (Object3d* block : mapBlocks) {
+			block->Update();
+		}
+		camera->Update();
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
-		objA->Draw();
-		objB->Draw();
+		//objA->Draw();
 
-
+		for (Object3d* block : mapBlocks) {
+			block->Draw();
+		}
 
 		//描画
 
@@ -381,42 +423,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::Separator();
 
 
-		// ★ Sprite[0] だけ操作する UI ★
-		if (!sprites.empty()) {
-
-			// 0番目のスプライトを取る
-			Sprite* target = sprites[0];
-
-			// ---- Position ----
-			Vector2 pos = target->GetPosition();
-			if (ImGui::SliderFloat2(
-				"Sprite[0] Pos",
-				&pos.x,
-				0.0f,
-				(float)WinApp::kClientWidth))   // とりあえず画面幅を上限
-			{
-				target->SetPosition(pos);
+		// 回転
+		{
+			Vector3 rot = camera->GetRotate();
+			if (ImGui::DragFloat3("Rotate", &rot.x, 0.01f, -3.14f, 3.14f)) {
+				camera->SetRotate(rot);
 			}
+		}
 
-			// ---- Size ----
-			Vector2 size = target->GetSize();
-			if (ImGui::SliderFloat2(
-				"Sprite[0] Size",
-				&size.x,
-				0.0f,
-				800.0f))   // 適当に 800 くらい（必要なら変えてOK）
-			{
-				target->SetSize(size);
-			}
-
-			// ---- Rotation ----
-			float rot = target->GetRotation();
-			if (ImGui::SliderFloat(
-				"Sprite[0] Rot",
-				&rot,
-				-3.14f, 3.14f))
-			{
-				target->SetRotation(rot);
+		// 移動
+		{
+			Vector3 trans = camera->GetTranslate();
+			if (ImGui::DragFloat3("Translate", &trans.x, 0.1f, -100.0f, 100.0f)) {
+				camera->SetTranslate(trans);
 			}
 		}
 
@@ -481,9 +500,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	sprites.clear();
 	delete object3d;   object3d = nullptr;
 	delete object3dCommon; object3dCommon = nullptr;
-
+	delete modelCommon;    modelCommon = nullptr;
+	delete objA;          objA = nullptr;
+	for (Object3d* block : mapBlocks) {
+		delete block;
+	}
+	mapBlocks.clear();
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
+	delete mapField;    mapField = nullptr;
+	delete camera;      camera = nullptr;
 	delete dxCommon;   dxCommon = nullptr;
 	if (winApp) {
 		winApp->Finalize();
