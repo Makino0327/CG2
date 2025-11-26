@@ -51,6 +51,8 @@ public:
 
 	void Draw();
 
+	void DrawInstanced(UINT instanceCount);
+
 	static MaterialData  LoadMaterialTemplateFile(
 		const std::string& directoryPath,
 		const std::string& mtlFileName,
@@ -78,6 +80,7 @@ public:
 	const Vector3& GetScale()     const { return transform.scale; }
 	const Vector3& GetRotate()    const { return transform.rotate; }
 	const Vector3& GetTranslate() const { return transform.translate; }
+	Matrix4x4 GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
 
 	void SetColor(const Vector4& color);
 	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
@@ -103,5 +106,7 @@ private:
 	Material* materialData_ = nullptr;
 
 	void InitializeMaterial();
+
+	Matrix4x4 viewProjectionMatrix_;
 };
 

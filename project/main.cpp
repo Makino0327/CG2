@@ -37,6 +37,7 @@ using Microsoft::WRL::ComPtr;
 #include "Model.h"
 #include "ModelCommon.h"
 #include "ModelManager.h"
+#include "ParticleCommon.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -211,6 +212,14 @@ Object3d* object3d = nullptr;
 // 
 ModelCommon* modelCommon = nullptr;
 
+// どこでも使えるように（Drawで必要）
+const uint32_t kNumInstance = 10;
+Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
+TransformationMatrix* gInstancingData = nullptr;
+D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
+ParticleCommon* particleCommon = nullptr;
+
+
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
@@ -243,10 +252,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	modelCommon = new ModelCommon();
 	modelCommon->Initialize(dxCommon);
 
+	// ★ ParticleCommon 初期化
+	particleCommon = new ParticleCommon();
+	particleCommon->Initialize(dxCommon);
+
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
 
 	ModelManager::GetInstance()->LoadModel("fence.obj");
+	// 追加
+	ModelManager::GetInstance()->LoadModel("plane.obj");
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
@@ -254,6 +269,53 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	texMan->LoadTexture("Resources/monsterBall.png");
 	texMan->LoadTexture("Resources/checkerBoard.png");
 	texMan->LoadTexture("Resources/fence.png");
+
+	// ======================================
+// Instancing用 Resource を作る
+// ======================================
+	ID3D12Device* device = dxCommon->GetDevice();
+	ID3D12DescriptorHeap* srvHeap = dxCommon->GetSrvDescriptorHeap();
+	UINT srvSize = dxCommon->GetDescriptorSizeSRV();
+
+	// バッファリソース作成
+	gInstancingResource = dxCommon->CreateBufferResource(sizeof(TransformationMatrix) * kNumInstance);
+
+	// Map
+	gInstancingResource->Map(0, nullptr, reinterpret_cast<void**>(&gInstancingData));
+
+	// 初期値は単位行列
+	for (uint32_t i = 0; i < kNumInstance; ++i) {
+		gInstancingData[i].WVP = MakeIdentity4x4();
+		gInstancingData[i].World = MakeIdentity4x4();
+	}
+
+	// SRV 設定
+	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
+	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	instancingSrvDesc.Buffer.FirstElement = 0;
+	instancingSrvDesc.Buffer.NumElements = kNumInstance;
+	instancingSrvDesc.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+	// ★ TextureManager が使ってなさそうなインデックスを1つ決める
+	//   （ここでは例として 10 にしておく）
+	UINT instancingIndex = 10;
+
+	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU =
+		dxCommon->GetCPUDescriptorHandle(srvHeap, srvSize, instancingIndex);
+	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU =
+		dxCommon->GetGPUDescriptorHandle(srvHeap, srvSize, instancingIndex);
+
+	device->CreateShaderResourceView(
+		gInstancingResource.Get(),
+		&instancingSrvDesc,
+		handleCPU
+	);
+
+	gInstancingSrvHandleGPU = handleGPU;
+
 
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
@@ -348,10 +410,51 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// ======= Update =======
 		objA->Update();
 
+		// ======= インスタンス用行列更新 =======
+		Matrix4x4 viewProjectionMatrix = objA->GetViewProjectionMatrix();
+
+		for (uint32_t i = 0; i < kNumInstance; ++i) {
+			Transform t{};
+			t.scale = { 1.0f, 1.0f, 1.0f };
+			t.rotate = { 0.0f, 0.0f, 0.0f };
+			t.translate = { (float)i * 0.1f, (float)i * -0.1f, (float)i * 0.1f }; // X方向に 2.0 ずつ並べる
+
+			Matrix4x4 world = MakeAffineMatrix(t.scale, t.rotate, t.translate);
+			Matrix4x4 wvp = Multiply(world, viewProjectionMatrix);
+
+			gInstancingData[i].World = world;
+			gInstancingData[i].WVP = wvp;
+		}
+
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
-		objA->Draw();
+		//objA->Draw();
+
+		// ======= Draw =======
+
+// まずは普通の Object3d 表示
+		object3dCommon->CommonDrawSetting();
+		//objA->Draw();
+
+		// そのあとインスタンス描画（Particle用PSO）
+		particleCommon->CommonDrawSetting();
+
+		// RootParam[0] = 行列 StructuredBuffer(t0)
+		commandList->SetGraphicsRootDescriptorTable(0, gInstancingSrvHandleGPU);
+
+		// RootParam[1] = テクスチャ(t1) → fence.png
+		auto texMan = TextureManager::GetInstance();
+		uint32_t texIndex = texMan->GetTextureIndexByFilePath("Resources/uvChecker.png");
+		D3D12_GPU_DESCRIPTOR_HANDLE fenceTexHandle = texMan->GetSrvHandleGPU(texIndex);
+		commandList->SetGraphicsRootDescriptorTable(1, fenceTexHandle);
+
+		// fence モデルをインスタンス描画
+		Model* fenceModel = ModelManager::GetInstance()->FindModel("plane.obj");
+		if (fenceModel) {
+			fenceModel->DrawInstanced(kNumInstance);
+		}
+
 
 		//描画
 
@@ -458,6 +561,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	sprites.clear();
 	delete object3d;   object3d = nullptr;
 	delete object3dCommon; object3dCommon = nullptr;
+	delete modelCommon;    modelCommon = nullptr;
+	delete particleCommon; particleCommon = nullptr;
+
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）

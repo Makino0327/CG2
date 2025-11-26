@@ -8,7 +8,7 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
     object3dCommon_ = object3dCommon;
 
     transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,4.0f,-10.0f} };
+    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,3.0f,-10.0f} };
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
@@ -17,34 +17,37 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 
 void Object3d::Update()
 {
-    assert(transformationMatrixData_);   // 初期化済み前提
+    assert(transformationMatrixData_);
 
-    // ① Transform → WorldMatrix
+    // ① ワールド
     Matrix4x4 worldMatrix =
         MakeAffineMatrix(transform.scale,
             transform.rotate,
             transform.translate);
 
-    // ② cameraTransform → cameraMatrix
+    // ② カメラ行列
     Matrix4x4 cameraMatrix =
         MakeAffineMatrix(cameraTransform.scale,
             cameraTransform.rotate,
             cameraTransform.translate);
 
-    // ③ cameraMatrix → viewMatrix（逆行列）
+    // ③ View = cameraMatrix の逆
     Matrix4x4 viewMatrix = Inverse(cameraMatrix);
 
-    // ④ projectionMatrix（射影行列）
+    // ④ Projection
     Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
         0.45f,
         float(WinApp::kClientWidth) / float(WinApp::kClientHeight),
         0.1f, 100.0f);
 
-    // ⑤ WVP と World を定数バッファに書き込む
-    transformationMatrixData_->WVP =
-        Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+    // ⑤ ViewProjection をいったん作ってメンバーに保存
+    viewProjectionMatrix_ = Multiply(viewMatrix, projectionMatrix);
+
+    // ⑥ WVP と World を CB に書き込む
+    transformationMatrixData_->WVP = Multiply(worldMatrix, viewProjectionMatrix_);
     transformationMatrixData_->World = worldMatrix;
 }
+
 
 // Object3d.cpp
 
@@ -174,5 +177,32 @@ void Object3d::SetColor(const Vector4& color)
 {
     if (materialData_) {
         materialData_->color = color;
+    }
+}
+
+// Object3d.cpp
+
+void Object3d::DrawInstanced(UINT instanceCount)
+{
+    assert(object3dCommon_);
+    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
+    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
+
+    // ★Material CBuffer(b0)
+    commandList->SetGraphicsRootConstantBufferView(
+        0, materialResource_->GetGPUVirtualAddress());
+
+    // ★平行光源(b1)
+    commandList->SetGraphicsRootConstantBufferView(
+        1, directionalLightResource_->GetGPUVirtualAddress());
+
+    // ★行列(b2)
+    // ※「Object3d用のインスタンシング」をする場合は
+    //    ここも使う想定だから残す
+    commandList->SetGraphicsRootConstantBufferView(
+        2, transformationMatrixResource_->GetGPUVirtualAddress());
+
+    if (model_) {
+        model_->DrawInstanced(instanceCount); // ★ここだけ違う
     }
 }

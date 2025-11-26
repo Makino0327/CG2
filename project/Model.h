@@ -10,6 +10,9 @@ public:
 
 	void Draw();
 
+	// ★★ インスタンシング用 ★★
+	void DrawInstanced(UINT instanceCount);
+
 	static ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 
 	void SetTextureIndex(uint32_t index) { modelData_.material.textureIndex = index; }

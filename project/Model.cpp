@@ -226,3 +226,29 @@ void Model::InitializeMaterial()
     // UV 行列は単位行列
     materialData_->uvTransform = MakeIdentity4x4();
 }
+
+void Model::DrawInstanced(UINT instanceCount)
+{
+    assert(modelCommon_);
+    ID3D12GraphicsCommandList* commandList =
+        modelCommon_->GetDxCommon()->GetCommandList();
+
+    // Particle の場合：t1 が texture
+    TextureManager* texMan = TextureManager::GetInstance();
+    D3D12_GPU_DESCRIPTOR_HANDLE textureHandle =
+        texMan->GetSrvHandleGPU(modelData_.material.textureIndex);
+
+    // ★ Particle PSO 用 rootParam = 1
+    commandList->SetGraphicsRootDescriptorTable(1, textureHandle);
+
+    for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
+        commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        commandList->DrawInstanced(
+            static_cast<UINT>(modelData_.meshes[i].vertices.size()),
+            instanceCount,
+            0, 0);
+    }
+}
+
