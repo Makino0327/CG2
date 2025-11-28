@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <string>
 #include <fstream>
+#include <random>
 
 #define _USE_MATH_DEFINES
 #include <cmath>      // sinf, cosf, M_PI など
@@ -73,6 +74,35 @@ struct SoundData
 	BYTE* pBuffer;
 	unsigned int bufferSize;
 };
+
+struct Particle
+{
+	Transform transform;
+	Vector3 velocity;
+	Vector4 color;
+	float lifeTime;
+	float currentTime;
+};
+struct ParticleEmitterParam
+{
+	float positionRange;   // どのくらいの範囲にばらまくか
+	float velocityRange;   // どのくらいの速さで飛ばすか
+	float lifeTimeMin;     // 寿命の最小
+	float lifeTimeMax;     // 寿命の最大
+	Vector4 baseColor;     // 基本の色
+	bool   randomColor;    // ランダム色を使うか
+};
+
+// グローバルに1個だけ持っておく
+ParticleEmitterParam gEmitterParam = {
+	1.0f,    // positionRange
+	1.0f,    // velocityRange
+	1.0f,    // lifeTimeMin
+	3.0f,    // lifeTimeMax
+	{1.0f, 1.0f, 1.0f, 1.0f}, // baseColor
+	true     // randomColor
+};
+
 
 SoundData SoundLoadWave(const char* filename)
 {
@@ -185,6 +215,62 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
 	result = pSourceVoice->SubmitSourceBuffer(&buf);
 	result = pSourceVoice->Start();
 }
+Particle MakeNewParticle(std::mt19937& randomEngine)
+{
+	// 位置と速度の乱数は Editor の値を使う
+	std::uniform_real_distribution<float> distPos(
+		-gEmitterParam.positionRange, gEmitterParam.positionRange);
+	std::uniform_real_distribution<float> distVel(
+		-gEmitterParam.velocityRange, gEmitterParam.velocityRange);
+
+	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+	std::uniform_real_distribution<float> distTime(
+		gEmitterParam.lifeTimeMin, gEmitterParam.lifeTimeMax);
+
+	Particle particle;
+
+	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+
+	particle.transform.translate = {
+		distPos(randomEngine),
+		distPos(randomEngine),
+		distPos(randomEngine)
+	};
+
+	particle.velocity = {
+		distVel(randomEngine),
+		distVel(randomEngine),
+		distVel(randomEngine)
+	};
+
+	if (gEmitterParam.randomColor) {
+		// ランダム色
+		particle.color = {
+			distColor(randomEngine),
+			distColor(randomEngine),
+			distColor(randomEngine),
+			1.0f
+		};
+	} else {
+		// Editor で指定した色
+		particle.color = gEmitterParam.baseColor;
+	}
+
+	particle.lifeTime = distTime(randomEngine);
+	particle.currentTime = 0.0f;
+
+	return particle;
+}
+
+
+struct ParticleForGPU {
+	Matrix4x4 WVP;
+	Matrix4x4 World;
+	Vector4   color;
+};
+
+
 
 // グローバル変数（各種DirectXオブジェクト）
 ComPtr<IXAudio2> xAudio2;
@@ -215,7 +301,7 @@ ModelCommon* modelCommon = nullptr;
 // どこでも使えるように（Drawで必要）
 const uint32_t kNumInstance = 10;
 Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
-TransformationMatrix* gInstancingData = nullptr;
+ParticleForGPU* gInstancingData = nullptr;
 D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
 ParticleCommon* particleCommon = nullptr;
 
@@ -268,6 +354,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	texMan->LoadTexture("Resources/uvChecker.png");
 	texMan->LoadTexture("Resources/monsterBall.png");
 	texMan->LoadTexture("Resources/checkerBoard.png");
+	texMan->LoadTexture("Resources/circle.png");
 	texMan->LoadTexture("Resources/fence.png");
 
 	// ======================================
@@ -278,7 +365,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	UINT srvSize = dxCommon->GetDescriptorSizeSRV();
 
 	// バッファリソース作成
-	gInstancingResource = dxCommon->CreateBufferResource(sizeof(TransformationMatrix) * kNumInstance);
+	gInstancingResource = dxCommon->CreateBufferResource(
+		sizeof(ParticleForGPU) * kNumInstance);   // ★ 構造体名を変更
+
 
 	// Map
 	gInstancingResource->Map(0, nullptr, reinterpret_cast<void**>(&gInstancingData));
@@ -287,6 +376,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	for (uint32_t i = 0; i < kNumInstance; ++i) {
 		gInstancingData[i].WVP = MakeIdentity4x4();
 		gInstancingData[i].World = MakeIdentity4x4();
+		gInstancingData[i].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
 	// SRV 設定
@@ -296,7 +386,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 	instancingSrvDesc.Buffer.FirstElement = 0;
 	instancingSrvDesc.Buffer.NumElements = kNumInstance;
-	instancingSrvDesc.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU); // ★
 	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
 	// ★ TextureManager が使ってなさそうなインデックスを1つ決める
@@ -371,10 +461,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	Object3d* objA = new Object3d();
 	objA->Initialize(object3dCommon);
 	objA->SetModel("fence.obj");     // ← 1つめは plane
-	objA->SetTexture("Resources/fence.png");
+	objA->SetTexture("Resources/circle.png");
 
 	// 位置変える
 	objA->SetTranslate({ 0, 0, 0 });
+	Particle particles[kNumInstance];
+	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
+
+	std::random_device seedGenerator;
+	std::mt19937 randomEngine(seedGenerator());
+
+	for (uint32_t i = 0; i < kNumInstance; ++i) {
+		particles[i] = MakeNewParticle(randomEngine);
+	}
 
 	// --- メインループ ---
 	while (TRUE) {
@@ -414,17 +513,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewProjectionMatrix = objA->GetViewProjectionMatrix();
 
 		for (uint32_t i = 0; i < kNumInstance; ++i) {
-			Transform t{};
-			t.scale = { 1.0f, 1.0f, 1.0f };
-			t.rotate = { 0.0f, 0.0f, 0.0f };
-			t.translate = { (float)i * 0.1f, (float)i * -0.1f, (float)i * 0.1f }; // X方向に 2.0 ずつ並べる
+			Particle& p = particles[i];
 
-			Matrix4x4 world = MakeAffineMatrix(t.scale, t.rotate, t.translate);
+			// 時間を進める
+			p.currentTime += kDeltaTime;
+
+			// 寿命を過ぎたら再生成
+			if (p.currentTime > p.lifeTime) {
+				p = MakeNewParticle(randomEngine);
+			}
+
+			// 位置更新
+			p.transform.translate.x += p.velocity.x * kDeltaTime;
+			p.transform.translate.y += p.velocity.y * kDeltaTime;
+			p.transform.translate.z += p.velocity.z * kDeltaTime;
+
+			// 行列
+			Matrix4x4 world = MakeAffineMatrix(
+				p.transform.scale,
+				p.transform.rotate,
+				p.transform.translate
+			);
 			Matrix4x4 wvp = Multiply(world, viewProjectionMatrix);
 
 			gInstancingData[i].World = world;
 			gInstancingData[i].WVP = wvp;
+
+			// ===== ここが「徐々に消す」本体 =====
+			// 経過割合 t = currentTime / lifeTime
+			float t = p.currentTime / p.lifeTime;
+			if (t > 1.0f) { t = 1.0f; }   // 念のためクランプ
+
+			float alpha = 1.0f - t;       // 1 → 0 へ
+
+			// 元の色をコピーして、αだけ差し替え
+			gInstancingData[i].color = p.color;
+			gInstancingData[i].color.w = alpha;
 		}
+
 
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
@@ -445,7 +571,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		// RootParam[1] = テクスチャ(t1) → fence.png
 		auto texMan = TextureManager::GetInstance();
-		uint32_t texIndex = texMan->GetTextureIndexByFilePath("Resources/uvChecker.png");
+		uint32_t texIndex = texMan->GetTextureIndexByFilePath("Resources/circle.png");
 		D3D12_GPU_DESCRIPTOR_HANDLE fenceTexHandle = texMan->GetSrvHandleGPU(texIndex);
 		commandList->SetGraphicsRootDescriptorTable(1, fenceTexHandle);
 
@@ -462,68 +588,61 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// 自作ウィンドウだけ表示する
-		ImGui::Begin("Sprite Transform");
+		// ==========================
+//  Particle Editor ウィンドウ
+// ==========================
+		ImGui::Begin("Particle Editor");
 
-		// === モード別UI分岐 ===
-
-		ImGui::Text("Create");
+		ImGui::Text("Emitter Params");
 		ImGui::Separator();
 
-		if (objA) {
+		ImGui::SliderFloat("Position Range", &gEmitterParam.positionRange, 0.0f, 10.0f);
+		ImGui::SliderFloat("Velocity Range", &gEmitterParam.velocityRange, 0.0f, 10.0f);
 
-			// ====== Transform ======
+		ImGui::SliderFloat("Life Time Min", &gEmitterParam.lifeTimeMin, 0.1f, 5.0f);
 
-			Vector3 tr = objA->GetTranslate();
-			if (ImGui::SliderFloat3("Translate", &tr.x, -10.0f, 10.0f)) {
-				objA->SetTranslate(tr);
-			}
-
-			Vector3 rot = objA->GetRotate();
-			if (ImGui::SliderFloat3("Rotate", &rot.x, -3.14f, 3.14f)) {
-				objA->SetRotate(rot);
-			}
-
-			Vector3 sc = objA->GetScale();
-			if (ImGui::SliderFloat3("Scale", &sc.x, 0.1f, 5.0f)) {
-				objA->SetScale(sc);
-			}
-
-			// ====== Color ======
-
-			Material* mat = objA->GetMaterial();
-			Vector4 col = mat->color;
-			if (ImGui::ColorEdit4("Color", &col.x)) {
-				objA->SetColor(col);
-			}
+		// Min を上げた時、Max より大きくならないように clamp
+		if (gEmitterParam.lifeTimeMin > gEmitterParam.lifeTimeMax) {
+			gEmitterParam.lifeTimeMax = gEmitterParam.lifeTimeMin;
 		}
 
+		ImGui::SliderFloat("Life Time Max", &gEmitterParam.lifeTimeMax, 0.1f, 5.0f);
 
-
-		// 現在の選択中Lighting
-		static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
-
-		// コンボボックスの選択肢
-		const char* lightingItems[] = { "None", "Lambert", "HalfLambert" };
-
-		// 選択状態のintを取得してUIに渡す
-
-		int currentLightingIndex = static_cast<int>(currentLighting);
-
-		// Comboで選択が変わったら…
-		if (ImGui::Combo("Lighting", &currentLightingIndex, lightingItems, IM_ARRAYSIZE(lightingItems))) {
-			currentLighting = static_cast<LightingType>(currentLightingIndex);
+		// Max を下げた時、Min より小さくならないように clamp
+		if (gEmitterParam.lifeTimeMax < gEmitterParam.lifeTimeMin) {
+			gEmitterParam.lifeTimeMin = gEmitterParam.lifeTimeMax;
 		}
 
-		// ★こっちに入れる！！
-		objA->GetMaterial()->lightingType = static_cast<int>(currentLighting);
-
-
-		// フレームの一番最後で呼ぶ（描画後でも可）
-		ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-		ImGui::SetNextWindowBgAlpha(0.35f); // 半透明にする（好みで調整）
+		ImGui::Checkbox("Random Color", &gEmitterParam.randomColor);
+		ImGui::ColorEdit4("Base Color", &gEmitterParam.baseColor.x);
 
 		ImGui::End();
+
+
+
+
+		//// 現在の選択中Lighting
+		//static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
+
+		//// コンボボックスの選択肢
+		//const char* lightingItems[] = { "None", "Lambert", "HalfLambert" };
+
+		//// 選択状態のintを取得してUIに渡す
+
+		//int currentLightingIndex = static_cast<int>(currentLighting);
+
+		//// Comboで選択が変わったら…
+		//if (ImGui::Combo("Lighting", &currentLightingIndex, lightingItems, IM_ARRAYSIZE(lightingItems))) {
+		//	currentLighting = static_cast<LightingType>(currentLightingIndex);
+		//}
+
+		//// ★こっちに入れる！！
+		//objA->GetMaterial()->lightingType = static_cast<int>(currentLighting);
+
+
+		//// フレームの一番最後で呼ぶ（描画後でも可）
+		//ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		//ImGui::SetNextWindowBgAlpha(0.35f); // 半透明にする（好みで調整）
 
 
 

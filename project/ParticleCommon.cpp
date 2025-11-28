@@ -116,7 +116,7 @@ void ParticleCommon::CreateGraphicsPipelineState()
     blendDesc.RenderTarget[0].BlendEnable = TRUE;
     blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
     blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-    blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
     blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
     blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
@@ -127,8 +127,8 @@ void ParticleCommon::CreateGraphicsPipelineState()
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
     // --- シェーダをロード ---
-    auto vs = dxCommon_->CompileShader(L"Resources/shaders/Particle.VS.hlsl", L"vs_6_0");
-    auto ps = dxCommon_->CompileShader(L"Resources/shaders/Particle.PS.hlsl", L"ps_6_0");
+    auto vs = dxCommon_->CompileShader(L"Particle.VS.hlsl", L"vs_6_0");
+    auto ps = dxCommon_->CompileShader(L"Particle.PS.hlsl", L"ps_6_0");
 
     // --- PSO 設定 ---
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
@@ -145,7 +145,7 @@ void ParticleCommon::CreateGraphicsPipelineState()
     // --- Depth ---
     D3D12_DEPTH_STENCIL_DESC depthDesc{};
     depthDesc.DepthEnable = true;
-    depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     depthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     desc.DepthStencilState = depthDesc;
     desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;

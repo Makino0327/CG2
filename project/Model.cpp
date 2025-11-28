@@ -233,13 +233,7 @@ void Model::DrawInstanced(UINT instanceCount)
     ID3D12GraphicsCommandList* commandList =
         modelCommon_->GetDxCommon()->GetCommandList();
 
-    // Particle の場合：t1 が texture
-    TextureManager* texMan = TextureManager::GetInstance();
-    D3D12_GPU_DESCRIPTOR_HANDLE textureHandle =
-        texMan->GetSrvHandleGPU(modelData_.material.textureIndex);
-
-    // ★ Particle PSO 用 rootParam = 1
-    commandList->SetGraphicsRootDescriptorTable(1, textureHandle);
+    // ★★ テクスチャはここでは一切いじらない ★★
 
     for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
         commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
@@ -251,4 +245,5 @@ void Model::DrawInstanced(UINT instanceCount)
             0, 0);
     }
 }
+
 
