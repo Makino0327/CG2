@@ -8,7 +8,7 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
     object3dCommon_ = object3dCommon;
 
     transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,4.0f,-10.0f} };
+    camera_ = object3dCommon_->GetDefaultCamera();
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
@@ -16,7 +16,7 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 
 void Object3d::Update()
 {
-    assert(transformationMatrixData_);   // 初期化済み前提
+    assert(transformationMatrixData_);
 
     // ① Transform → WorldMatrix
     Matrix4x4 worldMatrix =
@@ -24,26 +24,19 @@ void Object3d::Update()
             transform.rotate,
             transform.translate);
 
-    // ② cameraTransform → cameraMatrix
-    Matrix4x4 cameraMatrix =
-        MakeAffineMatrix(cameraTransform.scale,
-            cameraTransform.rotate,
-            cameraTransform.translate);
+    // ② Camera の ViewProjection を使う
+    Matrix4x4 wvpMatrix = worldMatrix;
 
-    // ③ cameraMatrix → viewMatrix（逆行列）
-    Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+    if (camera_) {
+        const Matrix4x4& vp = camera_->GetViewProjectionMatrix();
+        wvpMatrix = Multiply(worldMatrix, vp);
+    }
 
-    // ④ projectionMatrix（射影行列）
-    Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
-        0.45f,
-        float(WinApp::kClientWidth) / float(WinApp::kClientHeight),
-        0.1f, 100.0f);
-
-    // ⑤ WVP と World を定数バッファに書き込む
-    transformationMatrixData_->WVP =
-        Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+    // ③ 定数バッファに書き込む
+    transformationMatrixData_->WVP = wvpMatrix;
     transformationMatrixData_->World = worldMatrix;
 }
+
 
 // Object3d.cpp
 
