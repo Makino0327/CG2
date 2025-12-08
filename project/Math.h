@@ -37,3 +37,6 @@ Matrix4x4 MakeRotateZMatrix(float angle);
 Matrix4x4 MakeTranslateMatrix(const Vector3& translate);
 Vector3 Add(const Vector3& a, const Vector3& b);
 Vector3 AddVector(const Vector3& v, float scalar);
+// Math.h
+
+Matrix4x4 MakeRotateYMatrix(float radian);   // ★追加

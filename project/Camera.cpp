@@ -20,6 +20,12 @@ void Camera::Update()
 
     // ④ ★ VP 合成（今回のスライド部分）
     viewProjectionMatrix_ = Multiply(viewMatrix_, projectionMatrix_);
+
+    // ⑤ ★ビルボード用：回転だけ取り出した行列
+    billboardMatrix_ = worldMatrix_;
+    billboardMatrix_.m[3][0] = 0.0f;
+    billboardMatrix_.m[3][1] = 0.0f;
+    billboardMatrix_.m[3][2] = 0.0f;
 }
 
 Camera::Camera()

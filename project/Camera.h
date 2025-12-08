@@ -15,6 +15,8 @@ private:
     float nearClip_;
     float farClip_;
 
+    Matrix4x4 billboardMatrix_;
+
 public:
     Camera();
 
@@ -75,5 +77,7 @@ public:
     Vector3 GetTranslate() const {
         return transform_.translate;
     }
+
+    const Matrix4x4& GetBillboardMatrix() const { return billboardMatrix_; }
 };
 

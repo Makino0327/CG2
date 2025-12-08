@@ -274,3 +274,19 @@ Vector3 AddVector(const Vector3& v, float scalar) {
 		v.z * scalar
 	};
 }
+
+Matrix4x4 MakeRotateYMatrix(float radian)
+{
+	Matrix4x4 result = MakeIdentity4x4();
+
+	float c = std::cos(radian);
+	float s = std::sin(radian);
+
+	// 左手座標系用のY回転
+	result.m[0][0] = c;
+	result.m[0][2] = s;
+	result.m[2][0] = -s;
+	result.m[2][2] = c;
+
+	return result;
+}

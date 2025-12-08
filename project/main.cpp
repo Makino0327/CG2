@@ -40,6 +40,7 @@ using Microsoft::WRL::ComPtr;
 #include "ModelManager.h"
 #include "ParticleCommon.h"
 #include "Camera.h"   
+#include "Particle.h" 
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -76,33 +77,33 @@ struct SoundData
 	unsigned int bufferSize;
 };
 
-struct Particle
-{
-	Transform transform;
-	Vector3 velocity;
-	Vector4 color;
-	float lifeTime;
-	float currentTime;
-};
-struct ParticleEmitterParam
-{
-	float positionRange;   // どのくらいの範囲にばらまくか
-	float velocityRange;   // どのくらいの速さで飛ばすか
-	float lifeTimeMin;     // 寿命の最小
-	float lifeTimeMax;     // 寿命の最大
-	Vector4 baseColor;     // 基本の色
-	bool   randomColor;    // ランダム色を使うか
-};
-
-// グローバルに1個だけ持っておく
-ParticleEmitterParam gEmitterParam = {
-	1.0f,    // positionRange
-	1.0f,    // velocityRange
-	1.0f,    // lifeTimeMin
-	3.0f,    // lifeTimeMax
-	{1.0f, 1.0f, 1.0f, 1.0f}, // baseColor
-	true     // randomColor
-};
+//struct Particle
+//{
+//	Transform transform;
+//	Vector3 velocity;
+//	Vector4 color;
+//	float lifeTime;
+//	float currentTime;
+//};
+//struct ParticleEmitterParam
+//{
+//	float positionRange;   // どのくらいの範囲にばらまくか
+//	float velocityRange;   // どのくらいの速さで飛ばすか
+//	float lifeTimeMin;     // 寿命の最小
+//	float lifeTimeMax;     // 寿命の最大
+//	Vector4 baseColor;     // 基本の色
+//	bool   randomColor;    // ランダム色を使うか
+//};
+//
+//// グローバルに1個だけ持っておく
+//ParticleEmitterParam gEmitterParam = {
+//	1.0f,    // positionRange
+//	1.0f,    // velocityRange
+//	1.0f,    // lifeTimeMin
+//	3.0f,    // lifeTimeMax
+//	{1.0f, 1.0f, 1.0f, 1.0f}, // baseColor
+//	true     // randomColor
+//};
 
 
 SoundData SoundLoadWave(const char* filename)
@@ -216,60 +217,60 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
 	result = pSourceVoice->SubmitSourceBuffer(&buf);
 	result = pSourceVoice->Start();
 }
-Particle MakeNewParticle(std::mt19937& randomEngine)
-{
-	// 位置と速度の乱数は Editor の値を使う
-	std::uniform_real_distribution<float> distPos(
-		-gEmitterParam.positionRange, gEmitterParam.positionRange);
-	std::uniform_real_distribution<float> distVel(
-		-gEmitterParam.velocityRange, gEmitterParam.velocityRange);
-
-	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
-	std::uniform_real_distribution<float> distTime(
-		gEmitterParam.lifeTimeMin, gEmitterParam.lifeTimeMax);
-
-	Particle particle;
-
-	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
-
-	particle.transform.translate = {
-		distPos(randomEngine),
-		distPos(randomEngine),
-		distPos(randomEngine)
-	};
-
-	particle.velocity = {
-		distVel(randomEngine),
-		distVel(randomEngine),
-		distVel(randomEngine)
-	};
-
-	if (gEmitterParam.randomColor) {
-		// ランダム色
-		particle.color = {
-			distColor(randomEngine),
-			distColor(randomEngine),
-			distColor(randomEngine),
-			1.0f
-		};
-	} else {
-		// Editor で指定した色
-		particle.color = gEmitterParam.baseColor;
-	}
-
-	particle.lifeTime = distTime(randomEngine);
-	particle.currentTime = 0.0f;
-
-	return particle;
-}
-
-
-struct ParticleForGPU {
-	Matrix4x4 WVP;
-	Matrix4x4 World;
-	Vector4   color;
-};
+//Particle MakeNewParticle(std::mt19937& randomEngine)
+//{
+//	// 位置と速度の乱数は Editor の値を使う
+//	std::uniform_real_distribution<float> distPos(
+//		-gEmitterParam.positionRange, gEmitterParam.positionRange);
+//	std::uniform_real_distribution<float> distVel(
+//		-gEmitterParam.velocityRange, gEmitterParam.velocityRange);
+//
+//	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+//	std::uniform_real_distribution<float> distTime(
+//		gEmitterParam.lifeTimeMin, gEmitterParam.lifeTimeMax);
+//
+//	Particle particle;
+//
+//	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+//	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+//
+//	particle.transform.translate = {
+//		distPos(randomEngine),
+//		distPos(randomEngine),
+//		distPos(randomEngine)
+//	};
+//
+//	particle.velocity = {
+//		distVel(randomEngine),
+//		distVel(randomEngine),
+//		distVel(randomEngine)
+//	};
+//
+//	if (gEmitterParam.randomColor) {
+//		// ランダム色
+//		particle.color = {
+//			distColor(randomEngine),
+//			distColor(randomEngine),
+//			distColor(randomEngine),
+//			1.0f
+//		};
+//	} else {
+//		// Editor で指定した色
+//		particle.color = gEmitterParam.baseColor;
+//	}
+//
+//	particle.lifeTime = distTime(randomEngine);
+//	particle.currentTime = 0.0f;
+//
+//	return particle;
+//}
+//
+//
+//struct ParticleForGPU {
+//	Matrix4x4 WVP;
+//	Matrix4x4 World;
+//	Vector4   color;
+//};
 
 
 
@@ -305,7 +306,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
 ParticleForGPU* gInstancingData = nullptr;
 D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
 ParticleCommon* particleCommon = nullptr;
-
+ParticleSystem* particleSystem = nullptr;
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
@@ -364,56 +365,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	texMan->LoadTexture("Resources/circle.png");
 	texMan->LoadTexture("Resources/fence.png");
 
-	// ======================================
-// Instancing用 Resource を作る
-// ======================================
-	ID3D12Device* device = dxCommon->GetDevice();
-	ID3D12DescriptorHeap* srvHeap = dxCommon->GetSrvDescriptorHeap();
-	UINT srvSize = dxCommon->GetDescriptorSizeSRV();
+	particleSystem = new ParticleSystem();
+	particleSystem->Initialize(dxCommon, particleCommon, camera, ParticleType::CircleBurst);
+	particleSystem->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
 
-	// バッファリソース作成
-	gInstancingResource = dxCommon->CreateBufferResource(
-		sizeof(ParticleForGPU) * kNumInstance);   // ★ 構造体名を変更
-
-
-	// Map
-	gInstancingResource->Map(0, nullptr, reinterpret_cast<void**>(&gInstancingData));
-
-	// 初期値は単位行列
-	for (uint32_t i = 0; i < kNumInstance; ++i) {
-		gInstancingData[i].WVP = MakeIdentity4x4();
-		gInstancingData[i].World = MakeIdentity4x4();
-		gInstancingData[i].color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-	}
-
-	// SRV 設定
-	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
-	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	instancingSrvDesc.Buffer.FirstElement = 0;
-	instancingSrvDesc.Buffer.NumElements = kNumInstance;
-	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU); // ★
-	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-
-	// ★ TextureManager が使ってなさそうなインデックスを1つ決める
-	//   （ここでは例として 10 にしておく）
-	UINT instancingIndex = 10;
-
-	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU =
-		dxCommon->GetCPUDescriptorHandle(srvHeap, srvSize, instancingIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU =
-		dxCommon->GetGPUDescriptorHandle(srvHeap, srvSize, instancingIndex);
-
-	device->CreateShaderResourceView(
-		gInstancingResource.Get(),
-		&instancingSrvDesc,
-		handleCPU
-	);
-
-	gInstancingSrvHandleGPU = handleGPU;
-
-
+	
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
 
@@ -470,17 +426,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	objA->SetModel("fence.obj");     // ← 1つめは plane
 	objA->SetTexture("Resources/circle.png");
 
-	// 位置変える
-	objA->SetTranslate({ 0, 0, 0 });
-	Particle particles[kNumInstance];
+	//// 位置変える
+	//objA->SetTranslate({ 0, 0, 0 });
+	//Particle particles[kNumInstance];
 	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
 
-	std::random_device seedGenerator;
-	std::mt19937 randomEngine(seedGenerator());
+	//std::random_device seedGenerator;
+	//std::mt19937 randomEngine(seedGenerator());
 
-	for (uint32_t i = 0; i < kNumInstance; ++i) {
-		particles[i] = MakeNewParticle(randomEngine);
-	}
+	//for (uint32_t i = 0; i < kNumInstance; ++i) {
+	//	particles[i] = MakeNewParticle(randomEngine);
+	//}
 
 	// --- メインループ ---
 	while (TRUE) {
@@ -518,47 +474,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		camera->Update();
 
-		// ======= インスタンス用行列更新 =======
-		Matrix4x4 viewProjectionMatrix = objA->GetViewProjectionMatrix();
-
-		for (uint32_t i = 0; i < kNumInstance; ++i) {
-			Particle& p = particles[i];
-
-			// 時間を進める
-			p.currentTime += kDeltaTime;
-
-			// 寿命を過ぎたら再生成
-			if (p.currentTime > p.lifeTime) {
-				p = MakeNewParticle(randomEngine);
-			}
-
-			// 位置更新
-			p.transform.translate.x += p.velocity.x * kDeltaTime;
-			p.transform.translate.y += p.velocity.y * kDeltaTime;
-			p.transform.translate.z += p.velocity.z * kDeltaTime;
-
-			// 行列
-			Matrix4x4 world = MakeAffineMatrix(
-				p.transform.scale,
-				p.transform.rotate,
-				p.transform.translate
-			);
-			Matrix4x4 wvp = Multiply(world, viewProjectionMatrix);
-
-			gInstancingData[i].World = world;
-			gInstancingData[i].WVP = wvp;
-
-			// ===== ここが「徐々に消す」本体 =====
-			// 経過割合 t = currentTime / lifeTime
-			float t = p.currentTime / p.lifeTime;
-			if (t > 1.0f) { t = 1.0f; }   // 念のためクランプ
-
-			float alpha = 1.0f - t;       // 1 → 0 へ
-
-			// 元の色をコピーして、αだけ差し替え
-			gInstancingData[i].color = p.color;
-			gInstancingData[i].color.w = alpha;
-		}
+		particleSystem->Update(kDeltaTime);
 
 
 		// ======= Draw =======
@@ -575,20 +491,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// そのあとインスタンス描画（Particle用PSO）
 		particleCommon->CommonDrawSetting();
 
-		// RootParam[0] = 行列 StructuredBuffer(t0)
-		commandList->SetGraphicsRootDescriptorTable(0, gInstancingSrvHandleGPU);
-
-		// RootParam[1] = テクスチャ(t1) → fence.png
-		auto texMan = TextureManager::GetInstance();
-		uint32_t texIndex = texMan->GetTextureIndexByFilePath("Resources/circle.png");
-		D3D12_GPU_DESCRIPTOR_HANDLE fenceTexHandle = texMan->GetSrvHandleGPU(texIndex);
-		commandList->SetGraphicsRootDescriptorTable(1, fenceTexHandle);
-
-		// fence モデルをインスタンス描画
-		Model* fenceModel = ModelManager::GetInstance()->FindModel("plane.obj");
-		if (fenceModel) {
-			fenceModel->DrawInstanced(kNumInstance);
-		}
+		particleSystem->Draw();
 
 
 		//描画
@@ -598,34 +501,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::NewFrame();
 
 		// ==========================
-//  Particle Editor ウィンドウ
+//  Particle Editor
 // ==========================
-		ImGui::Begin("Particle Editor");
-
-		ImGui::Text("Emitter Params");
-		ImGui::Separator();
-
-		ImGui::SliderFloat("Position Range", &gEmitterParam.positionRange, 0.0f, 10.0f);
-		ImGui::SliderFloat("Velocity Range", &gEmitterParam.velocityRange, 0.0f, 10.0f);
-
-		ImGui::SliderFloat("Life Time Min", &gEmitterParam.lifeTimeMin, 0.1f, 5.0f);
-
-		// Min を上げた時、Max より大きくならないように clamp
-		if (gEmitterParam.lifeTimeMin > gEmitterParam.lifeTimeMax) {
-			gEmitterParam.lifeTimeMax = gEmitterParam.lifeTimeMin;
-		}
-
-		ImGui::SliderFloat("Life Time Max", &gEmitterParam.lifeTimeMax, 0.1f, 5.0f);
-
-		// Max を下げた時、Min より小さくならないように clamp
-		if (gEmitterParam.lifeTimeMax < gEmitterParam.lifeTimeMin) {
-			gEmitterParam.lifeTimeMin = gEmitterParam.lifeTimeMax;
-		}
-
-		ImGui::Checkbox("Random Color", &gEmitterParam.randomColor);
-		ImGui::ColorEdit4("Base Color", &gEmitterParam.baseColor.x);
-
-		ImGui::End();
+		particleSystem->ShowImGui();
 
 
 		{
@@ -644,32 +522,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			ImGui::End();
 		}
-
-
-		//// 現在の選択中Lighting
-		//static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
-
-		//// コンボボックスの選択肢
-		//const char* lightingItems[] = { "None", "Lambert", "HalfLambert" };
-
-		//// 選択状態のintを取得してUIに渡す
-
-		//int currentLightingIndex = static_cast<int>(currentLighting);
-
-		//// Comboで選択が変わったら…
-		//if (ImGui::Combo("Lighting", &currentLightingIndex, lightingItems, IM_ARRAYSIZE(lightingItems))) {
-		//	currentLighting = static_cast<LightingType>(currentLightingIndex);
-		//}
-
-		//// ★こっちに入れる！！
-		//objA->GetMaterial()->lightingType = static_cast<int>(currentLighting);
-
-
-		//// フレームの一番最後で呼ぶ（描画後でも可）
-		//ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-		//ImGui::SetNextWindowBgAlpha(0.35f); // 半透明にする（好みで調整）
-
-
 
 		ImGui::Render();
 		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -708,6 +560,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete modelCommon;    modelCommon = nullptr;
 	delete particleCommon; particleCommon = nullptr;
 	delete camera; camera = nullptr;
+	delete particleSystem;  particleSystem = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
