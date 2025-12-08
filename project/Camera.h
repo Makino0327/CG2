@@ -48,6 +48,8 @@ public:
         farClip_ = farClip;
     }
 
+    Transform& GetTransform() { return transform_; }
+
     // === 行列の getter ===
     const Matrix4x4& GetWorldMatrix() const {
         return worldMatrix_;

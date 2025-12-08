@@ -7,6 +7,8 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
     object3dCommon_ = object3dCommon;
 
+	camera_ = object3dCommon_->GetDefaultCamera();
+
     transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
     cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,3.0f,-10.0f} };
 
@@ -14,37 +16,30 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
     InitializeDirectionalLight();
     InitializeMaterial();
 }
-
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
 
-    // ① ワールド
     Matrix4x4 worldMatrix =
         MakeAffineMatrix(transform.scale,
             transform.rotate,
             transform.translate);
 
-    // ② カメラ行列
-    Matrix4x4 cameraMatrix =
-        MakeAffineMatrix(cameraTransform.scale,
-            cameraTransform.rotate,
-            cameraTransform.translate);
+    Matrix4x4 worldViewProjectionMatrix;
 
-    // ③ View = cameraMatrix の逆
-    Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+    if (camera_) {
+        const Matrix4x4& vp = camera_->GetViewProjectionMatrix();
 
-    // ④ Projection
-    Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
-        0.45f,
-        float(WinApp::kClientWidth) / float(WinApp::kClientHeight),
-        0.1f, 100.0f);
+        // ★ camera の VP を保持
+        viewProjectionMatrix_ = vp;
 
-    // ⑤ ViewProjection をいったん作ってメンバーに保存
-    viewProjectionMatrix_ = Multiply(viewMatrix, projectionMatrix);
+        worldViewProjectionMatrix = Multiply(worldMatrix, vp);
+    } else {
+        worldViewProjectionMatrix = worldMatrix;
+        viewProjectionMatrix_ = MakeIdentity4x4(); // なくてもいいけど一応
+    }
 
-    // ⑥ WVP と World を CB に書き込む
-    transformationMatrixData_->WVP = Multiply(worldMatrix, viewProjectionMatrix_);
+    transformationMatrixData_->WVP = worldViewProjectionMatrix;
     transformationMatrixData_->World = worldMatrix;
 }
 

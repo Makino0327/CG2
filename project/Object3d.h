@@ -6,9 +6,11 @@
 #include "Sprite.h"
 #include <fstream>
 #include <sstream>
+#include "Camera.h"
 
 class Object3dCommon;
 class Model;
+class Camera;
 
 struct MaterialData
 {
@@ -70,11 +72,14 @@ public:
 	void SetModel(Model* model) { model_ = model; }
 	void SetTexture(const std::string& filePath);
 
+	void InitializeMaterial();
+
 
 	// ----- setter -----
 	void SetScale(const Vector3& scale) { transform.scale = scale; }
 	void SetRotate(const Vector3& rotate) { transform.rotate = rotate; }
 	void SetTranslate(const Vector3& translate) { transform.translate = translate; }
+	void SetCamera(Camera* camera) { camera_ = camera; }	
 
 	// ----- getter -----
 	const Vector3& GetScale()     const { return transform.scale; }
@@ -104,9 +109,8 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 	Material* materialData_ = nullptr;
+	Camera* camera_ = nullptr;
 
-	void InitializeMaterial();
-
-	Matrix4x4 viewProjectionMatrix_;
+	Matrix4x4 viewProjectionMatrix_{};
 };
 

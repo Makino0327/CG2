@@ -39,6 +39,7 @@ using Microsoft::WRL::ComPtr;
 #include "ModelCommon.h"
 #include "ModelManager.h"
 #include "ParticleCommon.h"
+#include "Camera.h"   
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -330,6 +331,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	object3dCommon = new Object3dCommon();
 	object3dCommon->Initialize(dxCommon);
 
+	// ★ カメラ生成 & デフォルトカメラに設定
+	Camera* camera = new Camera();
+	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
+	camera->SetTranslate({ 0.0f, 3.0f, -10.0f });
+	object3dCommon->SetDefaultCamera(camera);
+
 	// 3D オブジェクト
 	object3d = new Object3d();
 	object3d->Initialize(object3dCommon);
@@ -509,6 +516,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// ======= Update =======
 		objA->Update();
 
+		camera->Update();
+
 		// ======= インスタンス用行列更新 =======
 		Matrix4x4 viewProjectionMatrix = objA->GetViewProjectionMatrix();
 
@@ -619,6 +628,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::End();
 
 
+		{
+			// ★ Camera の Transform を直接触る
+			Transform& camTrans = camera->GetTransform();
+
+			ImGui::Begin("Camera");
+
+			// 左手座標系：x=右, y=上, z=奥 という意識でOK
+			ImGui::DragFloat3("Position", &camTrans.translate.x, 0.1f);
+
+			// 回転はラジアン。-π〜π くらいでスライダーにしておく
+			ImGui::SliderFloat("Rot X", &camTrans.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat("Rot Y", &camTrans.rotate.y, -3.14f, 3.14f);
+			ImGui::SliderFloat("Rot Z", &camTrans.rotate.z, -3.14f, 3.14f);
+
+			ImGui::End();
+		}
 
 
 		//// 現在の選択中Lighting
@@ -682,7 +707,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete object3dCommon; object3dCommon = nullptr;
 	delete modelCommon;    modelCommon = nullptr;
 	delete particleCommon; particleCommon = nullptr;
-
+	delete camera; camera = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
