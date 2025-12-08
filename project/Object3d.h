@@ -6,7 +6,6 @@
 #include "Sprite.h"
 #include <fstream>
 #include <sstream>
-#include "Camera.h"
 
 class Object3dCommon;
 class Model;
@@ -70,7 +69,6 @@ public:
 	// セッター
 	void SetModel(Model* model) { model_ = model; }
 	void SetTexture(const std::string& filePath);
-	void SetCamera(Camera* camera) { camera_ = camera; }
 
 
 	// ----- setter -----
@@ -104,6 +102,11 @@ private:
 
 	Model* model_ = nullptr;
 
-	Camera* camera_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
+	Material* materialData_ = nullptr;
+
+	void InitializeMaterial();
+
+	Matrix4x4 viewProjectionMatrix_;
 };
 

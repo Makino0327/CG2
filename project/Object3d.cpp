@@ -8,7 +8,7 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
     object3dCommon_ = object3dCommon;
 
     transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-    camera_ = object3dCommon_->GetDefaultCamera();
+    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,3.0f,-10.0f} };
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
@@ -25,16 +25,26 @@ void Object3d::Update()
             transform.rotate,
             transform.translate);
 
-    // ② Camera の ViewProjection を使う
-    Matrix4x4 wvpMatrix = worldMatrix;
+    // ② カメラ行列
+    Matrix4x4 cameraMatrix =
+        MakeAffineMatrix(cameraTransform.scale,
+            cameraTransform.rotate,
+            cameraTransform.translate);
 
-    if (camera_) {
-        const Matrix4x4& vp = camera_->GetViewProjectionMatrix();
-        wvpMatrix = Multiply(worldMatrix, vp);
-    }
+    // ③ View = cameraMatrix の逆
+    Matrix4x4 viewMatrix = Inverse(cameraMatrix);
 
-    // ③ 定数バッファに書き込む
-    transformationMatrixData_->WVP = wvpMatrix;
+    // ④ Projection
+    Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
+        0.45f,
+        float(WinApp::kClientWidth) / float(WinApp::kClientHeight),
+        0.1f, 100.0f);
+
+    // ⑤ ViewProjection をいったん作ってメンバーに保存
+    viewProjectionMatrix_ = Multiply(viewMatrix, projectionMatrix);
+
+    // ⑥ WVP と World を CB に書き込む
+    transformationMatrixData_->WVP = Multiply(worldMatrix, viewProjectionMatrix_);
     transformationMatrixData_->World = worldMatrix;
 }
 

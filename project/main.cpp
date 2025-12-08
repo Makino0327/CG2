@@ -39,10 +39,6 @@ using Microsoft::WRL::ComPtr;
 #include "ModelCommon.h"
 #include "ModelManager.h"
 #include "ParticleCommon.h"
-#include "MapChipField.h" 
-
-#include "Player.h"
-
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -310,9 +306,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
 ParticleCommon* particleCommon = nullptr;
 
 
-Player* player = nullptr;
-
-
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
@@ -349,34 +342,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	particleCommon = new ParticleCommon();
 	particleCommon->Initialize(dxCommon);
 
-	// ===== マップ読み込み =====
-	MapChipField* mapField=new MapChipField();
-	mapField->LoadFromCsv("Resources/map.csv");
-
-	const float kTileSize = 2.0f;
-
-	Camera* camera = new Camera();
-	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
-	camera->SetTranslate({ 8.0f,13.0f, -31.0f });
-	object3dCommon->SetDefaultCamera(camera);
-	// 入力の初期化
-	input = new Input();
-	input->Initialize(winApp);
-
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
 
 	ModelManager::GetInstance()->LoadModel("fence.obj");
 	// 追加
 	ModelManager::GetInstance()->LoadModel("plane.obj");
-	ModelManager::GetInstance()->LoadModel("cube.obj");
 
 	// （必要なら）テクスチャを事前ロード
 	auto texMan = TextureManager::GetInstance();
 	texMan->LoadTexture("Resources/uvChecker.png");
 	texMan->LoadTexture("Resources/monsterBall.png");
 	texMan->LoadTexture("Resources/checkerBoard.png");
-	texMan->LoadTexture("Resources/cube.jpg");
 	texMan->LoadTexture("Resources/circle.png");
 	texMan->LoadTexture("Resources/fence.png");
 
@@ -455,48 +432,45 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f); // 正規化されてること
 	directionalLightData->intensity = 4.0f;
 
+	// 入力の初期化
+	input = new Input();
+	input->Initialize(winApp);
 
-	// プレイヤー生成後
-	player = new Player();
-	player->Initialize(object3dCommon, input);
-	player->SetMap(mapField, kTileSize);
+	// Spriteの初期化
 
+	for (uint32_t i = 0; i < 5; ++i) {
+		Sprite* sprite = new Sprite();
 
-	// マップのブロックを保持する配列
-	std::vector<Object3d*> mapBlocks;
+		// 交互にテクスチャファイルを切り替え
+		std::string texPath;
+		if (i % 2 == 0) {
+			texPath = "Resources/uvChecker.png";
+		} else {
+			texPath = "Resources/monsterBall.png";
+		}
 
-	for (int y = 0; y < mapField->GetHeight(); ++y) {
-		for (int x = 0; x < mapField->GetWidth(); ++x) {
+		sprite->Initialize(spriteCommon, directionalLightResource.Get(), texPath);
 
-			MapChipType chip = mapField->GetChip(x, y);
-			if (chip == MapChipType::Empty) {
-				continue;
-			}
+		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
+		sprite->SetPosition(pos);
 
-			// 1マス = 1つの Object3d
-			Object3d* block = new Object3d();
-			block->Initialize(object3dCommon);
+		sprites.push_back(sprite);
+	}
 
-			// 今は plane.obj、cube.obj ができたらここを差し替える
-			// block->SetModel("cube.obj");
-			block->SetModel("cube.obj");
-			block->SetTexture("Resources/cube.jpg");
+	// Object3d を２つ作る
+	Object3d* objA = new Object3d();
+	objA->Initialize(object3dCommon);
+	objA->SetModel("fence.obj");     // ← 1つめは plane
+	objA->SetTexture("Resources/circle.png");
 
-			// 左手座標系で XZ 平面に敷く
-			Vector3 pos;
-			int h = mapField->GetHeight();
+	// 位置変える
+	objA->SetTranslate({ 0, 0, 0 });
+	Particle particles[kNumInstance];
+	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
 
-			pos.x = static_cast<float>(x) * kTileSize;
-			pos.y = static_cast<float>(h - 1 - y) * kTileSize;
-			pos.z = 0.0f;
-
-			block->SetTranslate(pos);
 	std::random_device seedGenerator;
 	std::mt19937 randomEngine(seedGenerator());
 
-			mapBlocks.push_back(block);
-		}
-	}
 	for (uint32_t i = 0; i < kNumInstance; ++i) {
 		particles[i] = MakeNewParticle(randomEngine);
 	}
@@ -519,12 +493,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
+
+
 		// ===== スプライト =====
 		spriteCommon->CommonDrawSetting(); // Sprite PSO 設定
 
-		// ======= Update =======
-		for (Object3d* block : mapBlocks) {
-			block->Update();
+		/*for (Sprite* sprite : sprites) {
+			sprite->Update();
 		}
 
 		for (Sprite* sprite : sprites) {
@@ -581,9 +556,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		object3dCommon->CommonDrawSetting();
 
 		//objA->Draw();
-		player->Update();
 
-		camera->Update();
 		// ======= Draw =======
 
 // まずは普通の Object3d 表示
@@ -601,7 +574,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		uint32_t texIndex = texMan->GetTextureIndexByFilePath("Resources/circle.png");
 		D3D12_GPU_DESCRIPTOR_HANDLE fenceTexHandle = texMan->GetSrvHandleGPU(texIndex);
 		commandList->SetGraphicsRootDescriptorTable(1, fenceTexHandle);
-		player->Draw();
 
 		// fence モデルをインスタンス描画
 		Model* fenceModel = ModelManager::GetInstance()->FindModel("plane.obj");
@@ -609,9 +581,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			fenceModel->DrawInstanced(kNumInstance);
 		}
 
-		for (Object3d* block : mapBlocks) {
-			block->Draw();
-		}
 
 		//描画
 
@@ -639,13 +608,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		ImGui::SliderFloat("Life Time Max", &gEmitterParam.lifeTimeMax, 0.1f, 5.0f);
 
-		// 回転
-		{
-			Vector3 rot = camera->GetRotate();
-			if (ImGui::DragFloat3("Rotate", &rot.x, 0.01f, -3.14f, 3.14f)) {
-				camera->SetRotate(rot);
-			}
-		}
 		// Max を下げた時、Min より小さくならないように clamp
 		if (gEmitterParam.lifeTimeMax < gEmitterParam.lifeTimeMin) {
 			gEmitterParam.lifeTimeMin = gEmitterParam.lifeTimeMax;
@@ -659,13 +621,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 
-		// 移動
-		{
-			Vector3 trans = camera->GetTranslate();
-			if (ImGui::DragFloat3("Translate", &trans.x, 0.1f, -100.0f, 100.0f)) {
-				camera->SetTranslate(trans);
-			}
-		}
 		//// 現在の選択中Lighting
 		//static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
 
@@ -725,22 +680,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	sprites.clear();
 	delete object3d;   object3d = nullptr;
 	delete object3dCommon; object3dCommon = nullptr;
+	delete modelCommon;    modelCommon = nullptr;
 	delete particleCommon; particleCommon = nullptr;
 
-	delete modelCommon;    modelCommon = nullptr;
-	
-	for (Object3d* block : mapBlocks) {
-		delete block;
-	}
 
-	delete player;
-	player = nullptr;
-
-	mapBlocks.clear();
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
-	delete mapField;    mapField = nullptr;
-	delete camera;      camera = nullptr;
 	delete dxCommon;   dxCommon = nullptr;
 	if (winApp) {
 		winApp->Finalize();
