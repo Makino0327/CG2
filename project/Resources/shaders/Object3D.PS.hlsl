@@ -36,46 +36,48 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
 
-    // UV & テクスチャ
-    float4 transformedUV = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
-    float4 textureColor = gTexture.Sample(gSampler, transformedUV.xy);
+    float4 uv = mul(float4(input.texcoord, 0, 1), gMaterial.uvTransform);
+    float4 textureColor = gTexture.Sample(gSampler, uv.xy);
 
-    // マテリアル × テクスチャ
-    float4 baseColor = gMaterial.color * textureColor;
+    if (textureColor.a <= 0.1f)
+    {
+        discard;
+    }
 
-    // 法線とライト方向
     float3 normal = normalize(input.normal);
     float3 lightDir = normalize(-gDirectionalLight.direction);
 
-    float NdotL = dot(normal, lightDir);
+    float ndotl = saturate(dot(normal, lightDir));
 
-    // ライティング係数
-    float lightTerm = 1.0f; // 0: Unlit 相当
+    float lighting = 1.0f; // None用
 
     if (gMaterial.lightingType == 1)
     {
         // Lambert
-        lightTerm = saturate(NdotL); // 0～1
+        lighting = ndotl;
     }
     else if (gMaterial.lightingType == 2)
     {
         // Half Lambert
-        lightTerm = NdotL * 0.5f + 0.5f; // 0～1
-        // もう少し暗くしたければ:
-        // lightTerm = pow(lightTerm, 1.5f);
+        lighting = pow(ndotl * 0.5f + 0.5f, 2.0f);
+    }
+    else
+    {
+        // None: ライト計算しない
+        lighting = 1.0f;
     }
 
-    float3 lightColor = gDirectionalLight.color.rgb * gDirectionalLight.intensity;
+    float3 baseColor = gMaterial.color.rgb * textureColor.rgb;
 
-    float3 finalColor = baseColor.rgb * lightColor * lightTerm;
+    float3 finalColor =
+        (gMaterial.lightingType == 0)
+        ? baseColor
+        : baseColor * gDirectionalLight.color.rgb * gDirectionalLight.intensity * lighting;
 
-    // 範囲を0～1に抑えたいなら saturate してもOK
-    finalColor = saturate(finalColor);
-
-    output.color.rgb = finalColor;
-    output.color.a = baseColor.a;
+    output.color = float4(finalColor, gMaterial.color.a * textureColor.a);
     return output;
 }
+
 
 
 

@@ -31,29 +31,27 @@ void Model::Draw()
     DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // ---------- VertexBufferView を設定 ----------
-    commandList->IASetVertexBuffers(0, 1, &vertexBufferView_);
-
-    // ---------- マテリアル用 CBuffer の場所を設定 ----------
-    commandList->SetGraphicsRootConstantBufferView(
-        0, materialResource_->GetGPUVirtualAddress());
-
-    // ---------- SRV の DescriptorTable の先頭を設定 ----------
+    // ★テクスチャだけModelがセット（全メッシュ共通マテリアル前提）
     TextureManager* texMan = TextureManager::GetInstance();
     D3D12_GPU_DESCRIPTOR_HANDLE textureHandle =
         texMan->GetSrvHandleGPU(modelData_.material.textureIndex);
-
     commandList->SetGraphicsRootDescriptorTable(3, textureHandle);
 
-    // ---------- 描画！（DrawCall） ----------
-    if (!modelData_.meshes.empty()) {
-        const MeshData& mesh = modelData_.meshes[0];   // ひとまず 0 番メッシュだけ
+    // ★メッシュごとに描く
+    for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
+        const auto& mesh = modelData_.meshes[i];
+
+        commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
         commandList->DrawInstanced(
-            static_cast<UINT>(mesh.vertices.size()), // 頂点数
-            1,                                        // インスタンス数
+            static_cast<UINT>(mesh.vertices.size()),
+            1,
             0, 0);
     }
 }
+
+
 
 ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string& filename)
 {
@@ -171,26 +169,36 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 
 void Model::InitializeVertexBuffer()
 {
-    // Object3dCommon 経由で DirectXCommon を取ってくる想定
-    DirectXCommon* dxCommon = modelCommon_->GetDxCommon(); // Ensure the method name matches the declaration in Object3dCommon
+    DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
 
-    // ここではとりあえず最初のメッシュだけを使う
-    const std::vector<VertexData>& vertices = modelData_.meshes[0].vertices;
+    vertexBuffers_.clear();
+    vertexBufferViews_.clear();
 
-    // リソース作成
-    size_t bufferSize = sizeof(VertexData) * vertices.size();
-    vertexBuffer_ = dxCommon->CreateBufferResource(bufferSize);
+    vertexBuffers_.resize(modelData_.meshes.size());
+    vertexBufferViews_.resize(modelData_.meshes.size());
 
-    // データを書き込む
-    vertexBuffer_->Map(0, nullptr, reinterpret_cast<void**>(&vertexData_));
-    std::memcpy(vertexData_, vertices.data(), bufferSize);
-    vertexBuffer_->Unmap(0, nullptr);
+    for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
+        const auto& mesh = modelData_.meshes[i];
+        const auto& vertices = mesh.vertices;
 
-    // ビューの設定
-    vertexBufferView_.BufferLocation = vertexBuffer_->GetGPUVirtualAddress();
-    vertexBufferView_.SizeInBytes = static_cast<UINT>(bufferSize);
-    vertexBufferView_.StrideInBytes = sizeof(VertexData);
+        size_t bufferSize = sizeof(VertexData) * vertices.size();
+
+        // メッシュi用のVB作成
+        vertexBuffers_[i] = dxCommon->CreateBufferResource(bufferSize);
+
+        // 書き込み
+        VertexData* mapped = nullptr;
+        vertexBuffers_[i]->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+        std::memcpy(mapped, vertices.data(), bufferSize);
+        vertexBuffers_[i]->Unmap(0, nullptr);
+
+        // View作成
+        vertexBufferViews_[i].BufferLocation = vertexBuffers_[i]->GetGPUVirtualAddress();
+        vertexBufferViews_[i].SizeInBytes = static_cast<UINT>(bufferSize);
+        vertexBufferViews_[i].StrideInBytes = sizeof(VertexData);
+    }
 }
+
 
 void Model::InitializeMaterial()
 {
@@ -218,3 +226,24 @@ void Model::InitializeMaterial()
     // UV 行列は単位行列
     materialData_->uvTransform = MakeIdentity4x4();
 }
+
+void Model::DrawInstanced(UINT instanceCount)
+{
+    assert(modelCommon_);
+    ID3D12GraphicsCommandList* commandList =
+        modelCommon_->GetDxCommon()->GetCommandList();
+
+    // ★★ テクスチャはここでは一切いじらない ★★
+
+    for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
+        commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        commandList->DrawInstanced(
+            static_cast<UINT>(modelData_.meshes[i].vertices.size()),
+            instanceCount,
+            0, 0);
+    }
+}
+
+

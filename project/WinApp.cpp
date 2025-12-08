@@ -20,7 +20,7 @@ void WinApp::Initialize()
 
 	hwnd = CreateWindow(
 		wc.lpszClassName,
-		L"My DirectX12 App",
+		L"LE2B_23_マキノ_ハルト",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT,
 		wrc.right - wrc.left,
