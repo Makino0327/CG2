@@ -39,6 +39,9 @@ using Microsoft::WRL::ComPtr;
 #include "ModelManager.h"
 #include "MapChipField.h" 
 
+#include "Player.h"
+
+
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -212,6 +215,9 @@ Object3d* object3d = nullptr;
 // 
 ModelCommon* modelCommon = nullptr;
 
+Player* player = nullptr;
+
+
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
@@ -252,8 +258,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	Camera* camera = new Camera();
 	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
-	camera->SetTranslate({ 0.0f, 4.0f, -10.0f });
+	camera->SetTranslate({ 8.0f,13.0f, -31.0f });
 	object3dCommon->SetDefaultCamera(camera);
+	// 入力の初期化
+	input = new Input();
+	input->Initialize(winApp);
 
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
@@ -293,39 +302,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f); // 正規化されてること
 	directionalLightData->intensity = 4.0f;
 
-	// 入力の初期化
-	input = new Input();
-	input->Initialize(winApp);
 
-	// Spriteの初期化
+	// プレイヤー生成後
+	player = new Player();
+	player->Initialize(object3dCommon, input);
+	player->SetMap(mapField, kTileSize);
 
-	for (uint32_t i = 0; i < 5; ++i) {
-		Sprite* sprite = new Sprite();
-
-		// 交互にテクスチャファイルを切り替え
-		std::string texPath;
-		if (i % 2 == 0) {
-			texPath = "Resources/uvChecker.png";
-		} else {
-			texPath = "Resources/monsterBall.png";
-		}
-
-		sprite->Initialize(spriteCommon, directionalLightResource.Get(), texPath);
-
-		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
-		sprite->SetPosition(pos);
-
-		sprites.push_back(sprite);
-	}
-
-	// Object3d を２つ作る
-	Object3d* objA = new Object3d();
-	objA->Initialize(object3dCommon);
-	objA->SetModel("plane.obj");     // ← 1つめは plane
-	objA->SetTexture("Resources/monsterBall.png");
-
-	// 位置変える
-	objA->SetTranslate({ 0, 0, 0 });
 
 	// マップのブロックを保持する配列
 	std::vector<Object3d*> mapBlocks;
@@ -382,27 +364,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// ===== スプライト =====
 		spriteCommon->CommonDrawSetting(); // Sprite PSO 設定
 
-		/*for (Sprite* sprite : sprites) {
-			sprite->Update();
-		}
-
-		for (Sprite* sprite : sprites) {
-			sprite->Draw();
-		}*/
-
-		// ======= Update =======
-		objA->Update();
-
-
 		// ======= Update =======
 		for (Object3d* block : mapBlocks) {
 			block->Update();
 		}
+
+		player->Update();
+
 		camera->Update();
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
-		//objA->Draw();
+		player->Draw();
+
 
 		for (Object3d* block : mapBlocks) {
 			block->Draw();
@@ -501,10 +475,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete object3d;   object3d = nullptr;
 	delete object3dCommon; object3dCommon = nullptr;
 	delete modelCommon;    modelCommon = nullptr;
-	delete objA;          objA = nullptr;
+	
 	for (Object3d* block : mapBlocks) {
 		delete block;
 	}
+
+	delete player;
+	player = nullptr;
+
 	mapBlocks.clear();
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
