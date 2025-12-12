@@ -371,6 +371,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		player->Update();
 
+		// === プレイヤー追従カメラ ===
+		{
+			const Vector3 kCameraOffset = { 0.0f, 9.0f, -31.0f }; // 好きに調整OK（左手座標系）
+
+			Vector3 playerPos = player->GetPosition();
+			Vector3 targetCamPos = {
+				playerPos.x + kCameraOffset.x,
+				playerPos.y + kCameraOffset.y,
+				playerPos.z + kCameraOffset.z
+			};
+
+			Vector3 currentCamPos = camera->GetTranslate();
+
+			const float followLerp = 0.1f; // 追従のなめらかさ
+
+			currentCamPos.x += (targetCamPos.x - currentCamPos.x) * followLerp;
+			currentCamPos.y += (targetCamPos.y - currentCamPos.y) * followLerp;
+			currentCamPos.z += (targetCamPos.z - currentCamPos.z) * followLerp;
+
+			camera->SetTranslate(currentCamPos);
+			// camera->SetRotate(...) は今のまま固定でOKなら触らなくていい
+		}
+
+
 		camera->Update();
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
@@ -388,50 +412,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// 自作ウィンドウだけ表示する
-		ImGui::Begin("Sprite Transform");
-
-		// === モード別UI分岐 ===
-
-		ImGui::Text("Create");
-		ImGui::Separator();
-
-
-		// 回転
-		{
-			Vector3 rot = camera->GetRotate();
-			if (ImGui::DragFloat3("Rotate", &rot.x, 0.01f, -3.14f, 3.14f)) {
-				camera->SetRotate(rot);
-			}
-		}
-
-		// 移動
-		{
-			Vector3 trans = camera->GetTranslate();
-			if (ImGui::DragFloat3("Translate", &trans.x, 0.1f, -100.0f, 100.0f)) {
-				camera->SetTranslate(trans);
-			}
-		}
-
-		// 現在の選択中Lighting
-		static LightingType currentLighting = LightingType::HalfLambert; // 初期はLambert
-
-		// コンボボックスの選択肢
-		const char* lightingItems[] = { "None", "Lambert", "HalfLambert" };
-
-		// 選択状態のintを取得してUIに渡す
-
-		int currentLightingIndex = static_cast<int>(currentLighting);
-
-		// Comboで選択
-		if (ImGui::Combo("Lighting", &currentLightingIndex, lightingItems, IM_ARRAYSIZE(lightingItems))) {
-			currentLighting = static_cast<LightingType>(currentLightingIndex); // 選択変更を反映
-		}
-		// Debug 表示
-		ImGui::Separator();
-		ImGui::Text("Play Sound");
-
-		materialData->lightingType = static_cast<int>(currentLighting);
 
 		// フレームの一番最後で呼ぶ（描画後でも可）
 		ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 10.0f, 10.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));

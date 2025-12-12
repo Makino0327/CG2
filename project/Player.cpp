@@ -1,5 +1,6 @@
 #include "Player.h"
 #include <cfloat>   // FLT_MAX
+#include <cmath>    // std::fabs, std::floor
 
 void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 {
@@ -16,6 +17,11 @@ void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 
     velocityY_ = 0.0f;
     onGround_ = false;
+
+    jumpCount_ = 0;
+    touchingLeftWall_ = false;
+    touchingRightWall_ = false;
+    extraVelX_ = 0.0f;
 }
 
 void Player::Update()
@@ -26,30 +32,72 @@ void Player::Update()
 
     prevPos_ = pos;
 
-    // ==== 左右移動 ====
+    // ========= 左右移動（入力） =========
     if (input_->PushKey(DIK_A)) { pos.x -= moveSpeed_; }
     if (input_->PushKey(DIK_D)) { pos.x += moveSpeed_; }
 
-    // ==== ジャンプ ====
-    if (onGround_ && input_->TriggerKey(DIK_SPACE)) {
-        velocityY_ = jumpPower_;
-        onGround_ = false;
-    }
+    // ========= ジャンプ入力読み取り =========
+    bool wantJump = input_->TriggerKey(DIK_SPACE);
 
-    // ==== 重力 ====
+    // ========= 重力 =========
     velocityY_ += gravity_;
 
-    // いったん速度をそのまま足す
+    // ========= 縦移動 =========
     pos.y += velocityY_;
 
-    // ==== マップとの下方向当たり判定 ====
+    // ========= 壁ジャンプ用の横速度を反映 =========
+    pos.x += extraVelX_;
+
+    // ========= マップ当たり判定 =========
     ResolveBottomCollisionWithMap(pos);
+    ResolveLeftCollisionWithMap(pos);
+    ResolveTopCollisionWithMap(pos);
+    ResolveRightCollisionWithMap(pos);
 
-	ResolveLeftCollisionWithMap(pos);
+    // ★ ここで onGround_ / touching◯Wall_ が確定した状態になっている
 
-	ResolveTopCollisionWithMap(pos);
+    // ========= ジャンプ処理（状態を見て決める） =========
+    if (wantJump) {
+        if (onGround_) {
+            // 地上ジャンプ
+            velocityY_ = jumpPower_;
+            onGround_ = false;
+            jumpCount_ = 1;
+        } else if (touchingLeftWall_ || touchingRightWall_) {
+            // 壁ジャンプ
+            velocityY_ = jumpPower_;
 
-	ResolveRightCollisionWithMap(pos);
+            if (touchingLeftWall_) {
+                extraVelX_ = +wallJumpPushX_;
+            } else if (touchingRightWall_) {
+                extraVelX_ = -wallJumpPushX_;
+            }
+
+            // ここが「二段ジャンプをまだ残している」原因
+            // jumpCount_ = 1;
+            // ↓ 壁ジャンプをした時点でジャンプ回数を使い切ったことにする
+            jumpCount_ = maxJumpCount_;
+
+            onGround_ = false;
+        
+
+        } else if (jumpCount_ < maxJumpCount_) {
+            // 空中二段ジャンプ
+            velocityY_ = jumpPower_;
+            jumpCount_++;
+        }
+    }
+
+    // ========= 横速度の減衰 =========
+    extraVelX_ *= wallJumpDamping_;
+    if (std::fabs(extraVelX_) < 0.001f) {
+        extraVelX_ = 0.0f;
+    }
+
+    // 地面についているときは滑りを完全に止めたいならここで0にしてもOK
+    if (onGround_) {
+        extraVelX_ = 0.0f;
+    }
 
     object_->SetTranslate(pos);
     object_->Update();
@@ -70,6 +118,7 @@ void Player::ResolveBottomCollisionWithMap(Vector3& pos)
         return;
     }
 
+    // 上向き速度なら足元判定不要
     if (velocityY_ > 0.0f) {
         onGround_ = false;
         return;
@@ -80,7 +129,7 @@ void Player::ResolveBottomCollisionWithMap(Vector3& pos)
     float feetY = pos.y - halfHeight;
     float prevFeetY = feetY - velocityY_;
 
-    // ★ 中心X → タイルX（＋0.5で補正）
+    // 中心X → タイルX（＋0.5で補正）
     int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
 
     int mapH = mapField_->GetHeight();
@@ -109,11 +158,13 @@ void Player::ResolveBottomCollisionWithMap(Vector3& pos)
         pos.y = feetAlignY + halfHeight;
         velocityY_ = 0.0f;
         onGround_ = true;
+
+        // 地面に着いたらジャンプ回数リセット
+        jumpCount_ = 0;
     } else {
         onGround_ = false;
     }
 }
-
 
 // 左方向（←）のマップ当たり判定
 void Player::ResolveLeftCollisionWithMap(Vector3& pos)
@@ -124,24 +175,24 @@ void Player::ResolveLeftCollisionWithMap(Vector3& pos)
 
     // 右に動いている / 静止中なら左判定はいらない
     if (pos.x >= prevPos_.x) {
+        touchingLeftWall_ = false;
         return;
     }
 
     int w = mapField_->GetWidth();
     int h = mapField_->GetHeight();
 
-    // プレイヤーの AABB
+    // プレイヤーAABB
     float playerLeft = pos.x - halfSize;
     float playerRight = pos.x + halfSize;
     float playerBottom = pos.y - halfSize;
     float playerTop = pos.y + halfSize;
 
-    // 前フレームの左端
     float prevLeft = prevPos_.x - halfSize;
 
-    // 「今フレームの左端が入っているタイル列」を見る
     int tileX = static_cast<int>(std::floor(playerLeft / tileSize_));
     if (tileX < 0 || tileX >= w) {
+        touchingLeftWall_ = false;
         return;
     }
 
@@ -153,26 +204,19 @@ void Player::ResolveLeftCollisionWithMap(Vector3& pos)
             continue;
         }
 
-        // ブロックのY範囲（描画と同じ式）
         float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
         float blockBottom = centerY - halfSize;
         float blockTop = centerY + halfSize;
 
-        // 縦方向にかすってなければスキップ
         if (blockTop <= playerBottom || blockBottom >= playerTop) {
             continue;
         }
 
-        // ブロックのX範囲
         float centerX = static_cast<float>(tileX) * tileSize_;
         float blockLeft = centerX - halfSize;
         float blockRight = centerX + halfSize;
 
-        // X方向で重なっている？
         if (playerLeft < blockRight && playerRight > blockLeft) {
-
-            // 前フレームはブロックの右側にいて、
-            // 今フレームで右端を跨いで左にめり込んだ場合だけ衝突とみなす
             if (prevLeft >= blockRight && playerLeft <= blockRight) {
                 if (blockRight > bestBlockRight) {
                     bestBlockRight = blockRight;
@@ -183,9 +227,15 @@ void Player::ResolveLeftCollisionWithMap(Vector3& pos)
     }
 
     if (hit) {
-        // 左端をブロックの右端に揃える
         pos.x = bestBlockRight + halfSize;
+
+        // 左向きの速度は0にしておく
+        if (extraVelX_ < 0.0f) {
+            extraVelX_ = 0.0f;
+        }
     }
+
+    touchingLeftWall_ = hit;
 }
 
 // 上方向（↑）のマップ当たり判定
@@ -193,19 +243,15 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
 {
     if (!mapField_) { return; }
 
-    // 下向き or 静止のときは上判定は不要
     if (velocityY_ <= 0.0f) {
         return;
     }
 
     const float halfSize = tileSize_ * 0.5f;
 
-    // 今フレームの「頭の高さ」
     float topY = pos.y + halfSize;
-    // 1フレーム前の頭の高さ
     float prevTopY = topY - velocityY_;
 
-    // プレイヤーの真上のタイル列（中心Xから）を調べる
     int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
     int w = mapField_->GetWidth();
     int h = mapField_->GetHeight();
@@ -218,16 +264,13 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
     bool  hit = false;
 
     for (int ty = 0; ty < h; ++ty) {
-
         if (mapField_->GetChip(tileX, ty) != MapChipType::Block) {
             continue;
         }
 
-        // このブロックの下端（マップ描画と同じ座標系）
         float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
         float blockBottom = centerY - halfSize;
 
-        // 「前フレームは下にいて、今フレームで下端をまたいだ」なら頭がぶつかった
         if (prevTopY <= blockBottom && topY >= blockBottom) {
             if (blockBottom < bestBottomY) {
                 bestBottomY = blockBottom;
@@ -237,10 +280,8 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
     }
 
     if (hit) {
-        // 頭をブロックの下端に揃える
         pos.y = bestBottomY - halfSize;
-        velocityY_ = 0.0f;   // ジャンプ速度を止める
-        // onGround_ は false のまま（天井にいるだけで地面ではない）
+        velocityY_ = 0.0f;   // 頭ぶつけたら上方向速度を止める
     }
 }
 
@@ -251,29 +292,25 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
 
     const float halfSize = tileSize_ * 0.5f;
 
-    // 左に動いている / 静止中なら右判定はいらない
     float moveX = pos.x - prevPos_.x;
     if (moveX <= 0.0f) {
+        touchingRightWall_ = false;
         return;
     }
 
     int w = mapField_->GetWidth();
     int h = mapField_->GetHeight();
 
-    // プレイヤーの AABB
     float playerLeft = pos.x - halfSize;
     float playerRight = pos.x + halfSize;
     float playerBottom = pos.y - halfSize;
     float playerTop = pos.y + halfSize;
 
-    // 1フレーム前の右端
     float prevRight = prevPos_.x + halfSize;
 
-    // ★「右端」が入っているタイル列
-    //   ブロックは [centerX - halfSize, centerX + halfSize] を占めるので
-    //   (x + halfSize) / tileSize で列を取るのが正解
     int tileX = static_cast<int>(std::floor((playerRight + halfSize) / tileSize_));
     if (tileX < 0 || tileX >= w) {
+        touchingRightWall_ = false;
         return;
     }
 
@@ -281,31 +318,23 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
     bool  hit = false;
 
     for (int ty = 0; ty < h; ++ty) {
-
         if (mapField_->GetChip(tileX, ty) != MapChipType::Block) {
             continue;
         }
 
-        // ブロックのY範囲（描画と同じ式）
         float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
         float blockBottom = centerY - halfSize;
         float blockTop = centerY + halfSize;
 
-        // 縦方向にかすってなければスキップ
         if (blockTop <= playerBottom || blockBottom >= playerTop) {
             continue;
         }
 
-        // ブロックのX範囲
         float centerX = static_cast<float>(tileX) * tileSize_;
         float blockLeft = centerX - halfSize;
         float blockRight = centerX + halfSize;
 
-        // X方向で少しでも重なっている？
         if (playerRight > blockLeft && playerLeft < blockRight) {
-
-            // ★ 前フレームはブロックの左側にいて、
-            //    今フレームで blockLeft を跨いで「中に入った」ときだけ衝突とみなす
             if (prevRight <= blockLeft && playerRight >= blockLeft) {
                 if (blockLeft < bestBlockLeft) {
                     bestBlockLeft = blockLeft;
@@ -316,7 +345,21 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
     }
 
     if (hit) {
-        // 右端をブロックの左端にぴったり揃える
         pos.x = bestBlockLeft - halfSize;
+
+        // 右向きの速度は0にする
+        if (extraVelX_ > 0.0f) {
+            extraVelX_ = 0.0f;
+        }
     }
+
+    touchingRightWall_ = hit;
+}
+
+Vector3 Player::GetPosition() const
+{
+    if (!object_) {
+        return { 0.0f, 0.0f, 0.0f };
+    }
+    return object_->GetTranslate();
 }
