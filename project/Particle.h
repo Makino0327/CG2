@@ -116,6 +116,19 @@ private:
 
     // エミッタのワールド位置
     Vector3 emitterPosition_{ 0.0f, 0.0f, 0.0f };
+    // ===== 追加：放出（Emit）制御 =====
+    bool  isEmitting_ = true;         // 出し続けるか
+    float emitRate_ = 30.0f;          // 1秒あたり何個出すか
+    float emitAccumulator_ = 0.0f;    // 端数の蓄積
+    uint32_t emitCursor_ = 0;         // 次に上書きする粒の番号（リング）
+
+
+    // ===== 風（CircleBurst用）=====
+    bool  windEnabled_ = true;
+    Vector3 windDirection_{ 1.0f, 0.0f, 0.0f }; // 右方向がデフォ（+X）
+    float windStrength_ = 20.0f;                // 風の強さ
+    bool  windAsAcceleration_ = true;          // true=加速度（自然） / false=速度に直接足す
+
 
     // 乱数
     std::mt19937 randomEngine_;

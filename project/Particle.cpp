@@ -220,6 +220,19 @@ void ParticleSystem::Update(float deltaTime)
 
     const Matrix4x4& vp = camera_->GetViewProjectionMatrix();
 
+    // ===== 追加：放出（出しながら移動）=====
+    if (isEmitting_) {
+        emitAccumulator_ += emitRate_ * deltaTime;
+
+        // 1.0 たまるごとに 1個生成
+        while (emitAccumulator_ >= 1.0f) {
+            particles_[emitCursor_] = MakeNewParticle(); // emitterPosition_基準で発生
+            emitCursor_ = (emitCursor_ + 1) % kNumInstance;
+            emitAccumulator_ -= 1.0f;
+        }
+    }
+
+
     for (uint32_t i = 0; i < kNumInstance; ++i) {
         ParticleData& p = particles_[i];
 
@@ -227,6 +240,29 @@ void ParticleSystem::Update(float deltaTime)
         if (p.currentTime > p.lifeTime) {
             p = MakeNewParticle();
         }
+
+        // ===== 風（CircleBurst のみ）=====
+        if (windEnabled_ && currentType_ == ParticleType::CircleBurst) {
+            // 風ベクトル（向き * 強さ）
+            Vector3 wind = {
+                windDirection_.x * windStrength_,
+                windDirection_.y * windStrength_,
+                windDirection_.z * windStrength_
+            };
+
+            if (windAsAcceleration_) {
+                // 加速度として効かせる（だんだん流される）
+                p.velocity.x += wind.x * deltaTime;
+                p.velocity.y += wind.y * deltaTime;
+                p.velocity.z += wind.z * deltaTime;
+            } else {
+                // 速度に直足し（一定で流す）
+                p.velocity.x += wind.x;
+                p.velocity.y += wind.y;
+                p.velocity.z += wind.z;
+            }
+        }
+
 
         p.transform.translate.x += p.velocity.x * deltaTime;
         p.transform.translate.y += p.velocity.y * deltaTime;
@@ -322,6 +358,9 @@ void ParticleSystem::ShowImGui()
 
     ImGui::Checkbox("Random Color", &emitterParam_.randomColor);
     ImGui::ColorEdit4("Base Color", &emitterParam_.baseColor.x);
+    ImGui::Checkbox("Wind Enabled", &windEnabled_);
+
+
 
     ImGui::End();
 }
