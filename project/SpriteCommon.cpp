@@ -1,9 +1,10 @@
 #include "SpriteCommon.h"
 
-void SpriteCommon::Initialize(DirectXCommon* dxCommon)
+void SpriteCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
 	// 引数を受け取る
 	dxCommon_ = dxCommon;
+    srvManager_ = srvManager;
     CreateRootSignature();
 	// グラフィックパイプラインの生成
 	CreateGraphicsPipelineState();
@@ -11,19 +12,19 @@ void SpriteCommon::Initialize(DirectXCommon* dxCommon)
 
 void SpriteCommon::CommonDrawSetting()
 {
-    // コマンドリスト取得
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-    // 1. ルートシグネチャをセット
     commandList->SetGraphicsRootSignature(rootSignature_);
-
-    // 2. グラフィックスパイプラインステート（PSO）をセット
     commandList->SetPipelineState(pipelineState_);
-
-    // 3. プリミティブトポロジー設定（三角形リスト）
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+    // ★★ これが無いのが原因 ★★
+    ID3D12DescriptorHeap* heaps[] = {
+        srvManager_->GetDescriptorHeap()
+    };
+    commandList->SetDescriptorHeaps(1, heaps);
 }
+
 
 void SpriteCommon::CreateRootSignature() {
 

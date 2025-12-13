@@ -5,6 +5,7 @@
 #include <wrl.h>
 
 #include "Math.h"
+#include "SrvManager.h"
 
 class DirectXCommon;
 class ParticleCommon;
@@ -74,6 +75,7 @@ public:
     void Initialize(DirectXCommon* dxCommon,
         ParticleCommon* particleCommon,
         Camera* camera,
+        SrvManager* srvManager,
         ParticleType type);
 
     // 毎フレーム更新
@@ -106,7 +108,7 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_{};
 
     // テクスチャ / モデル
-    uint32_t    textureIndex_ = 0;
+    std::string textureFilePath_;
     std::string modelFileName_;
 
     // CPU 側パーティクル
@@ -132,6 +134,9 @@ private:
 
     // 乱数
     std::mt19937 randomEngine_;
+
+    SrvManager* srvManager_ = nullptr;        // ★追加
+    uint32_t instancingSrvIndex_ = 0;
 
 private:
     ParticleData MakeNewParticle();

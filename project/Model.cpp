@@ -13,9 +13,9 @@ void Model::Initialize(ModelCommon* modelCommon,
     TextureManager::GetInstance()->LoadTexture(
         modelData_.material.textureFilePath);
 
-    modelData_.material.textureIndex =
+    /*modelData_.material.textureIndex =
         TextureManager::GetInstance()->GetTextureIndexByFilePath(
-            modelData_.material.textureFilePath);
+            modelData_.material.textureFilePath);*/
 
     // ▼ 頂点バッファ初期化
     InitializeVertexBuffer();
@@ -27,29 +27,30 @@ void Model::Initialize(ModelCommon* modelCommon,
 
 void Model::Draw()
 {
-    assert(modelCommon_);
-    DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
-    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
+    auto* dxCommon = modelCommon_->GetDxCommon();
+    auto* commandList = dxCommon->GetCommandList();
 
-    // ★テクスチャだけModelがセット（全メッシュ共通マテリアル前提）
-    TextureManager* texMan = TextureManager::GetInstance();
+    auto* srvManager = TextureManager::GetInstance()->GetSrvManager();
+
+    ID3D12DescriptorHeap* heaps[] = {
+        srvManager->GetDescriptorHeap()
+    };
+    commandList->SetDescriptorHeaps(1, heaps);
+
     D3D12_GPU_DESCRIPTOR_HANDLE textureHandle =
-        texMan->GetSrvHandleGPU(modelData_.material.textureIndex);
+        TextureManager::GetInstance()->GetSrvHandleGPU(
+            modelData_.material.textureFilePath);
+
     commandList->SetGraphicsRootDescriptorTable(3, textureHandle);
 
-    // ★メッシュごとに描く
     for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
-        const auto& mesh = modelData_.meshes[i];
-
         commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
         commandList->DrawInstanced(
-            static_cast<UINT>(mesh.vertices.size()),
-            1,
-            0, 0);
+            (UINT)modelData_.meshes[i].vertices.size(), 1, 0, 0);
     }
 }
+
+
 
 
 

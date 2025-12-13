@@ -9,8 +9,11 @@ void Sprite::Initialize(SpriteCommon* spriteCommon, ID3D12Resource* directionalL
 	spriteCommon_ = spriteCommon;
 	// ライト情報リソースをセット
 	directionalLightResource_ = directionalLightResource;
-	// テクスチャ番号取得
-	textureIndex_ = TextureManager::GetInstance()->GetTextureIndexByFilePath(textureFilePath);
+	// ★追加：ファイルパスを保持（資料のstring運用）
+	textureFilePath_ = textureFilePath;
+
+	// ★追加：ここで読み込み（読み込み済みなら中で弾かれる）
+	TextureManager::GetInstance()->LoadTexture(textureFilePath_);
 
 	// 頂点データ作成
 	CreateVertexData();
@@ -71,7 +74,7 @@ void Sprite::Update()
 
 // メタデータ取得（width / height）
 	const DirectX::TexMetadata& metadata =
-		TextureManager::GetInstance()->GetMetaData(textureIndex_);
+		TextureManager::GetInstance()->GetMetaData(textureFilePath_);
 
 	// UV計算（左上・右下）
 	float tex_left = textureLeftTop_.x / metadata.width;
@@ -156,7 +159,7 @@ void Sprite::Draw()
 	// ===== SRV の DescriptorTable を設定 =====
 	// ★ ここで TextureManager から GPU ハンドルを取得する
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrv =
-		TextureManager::GetInstance()->GetSrvHandleGPU(textureIndex_);
+		TextureManager::GetInstance()->GetSrvHandleGPU(textureFilePath_);
 
 	// t0 を束ねているテーブルの 3 番目の RootParameter に設定
 	// （ここはあなたのルートシグネチャに合わせて 2/3 どちらかに）
@@ -244,7 +247,7 @@ void Sprite::CreateTransformationMatrixData()
 void Sprite::AdjustTextureSize()
 {
 	const DirectX::TexMetadata& metadata =
-		TextureManager::GetInstance()->GetMetaData(textureIndex_);
+		TextureManager::GetInstance()->GetMetaData(textureFilePath_);
 
 	textureSize_.x = static_cast<float>(metadata.width);
 	textureSize_.y = static_cast<float>(metadata.height);
