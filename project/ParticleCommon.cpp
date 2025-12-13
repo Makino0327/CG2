@@ -1,8 +1,9 @@
 #include "ParticleCommon.h"
 
-void ParticleCommon::Initialize(DirectXCommon* dxCommon)
+void ParticleCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
     dxCommon_ = dxCommon;
+    srvManager_ = srvManager;
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
@@ -10,16 +11,17 @@ void ParticleCommon::Initialize(DirectXCommon* dxCommon)
 
 void ParticleCommon::CommonDrawSetting()
 {
-    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+    auto* commandList = dxCommon_->GetCommandList();
 
     commandList->SetGraphicsRootSignature(rootSignature_);
     commandList->SetPipelineState(pipelineState_);
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // ★ 共有SRVヒープをセット
-    ID3D12DescriptorHeap* heaps[] = { dxCommon_->GetSrvDescriptorHeap() };
+    // ★ SrvManager のヒープをセット
+    ID3D12DescriptorHeap* heaps[] = { srvManager_->GetDescriptorHeap() };
     commandList->SetDescriptorHeaps(1, heaps);
 }
+
 
 
 void ParticleCommon::CreateRootSignature()

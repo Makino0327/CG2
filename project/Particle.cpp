@@ -52,11 +52,13 @@ void ParticleSystem::Initialize(
     DirectXCommon* dxCommon,
     ParticleCommon* particleCommon,
     Camera* camera,
+    SrvManager* srvManager,
     ParticleType type)
 {
     dxCommon_ = dxCommon;
     particleCommon_ = particleCommon;
     camera_ = camera;
+    srvManager_ = srvManager;
 
     std::random_device seed;
     randomEngine_ = std::mt19937(seed());
@@ -66,9 +68,7 @@ void ParticleSystem::Initialize(
 
     // ========= Instancing バッファ作成 =========
     ID3D12Device* device = dxCommon_->GetDevice();
-    ID3D12DescriptorHeap* heap = dxCommon_->GetSrvDescriptorHeap();
-    UINT srvSize = dxCommon_->GetDescriptorSizeSRV();
-
+    
     instancingResource_ =
         dxCommon_->CreateBufferResource(sizeof(ParticleForGPU) * kNumInstance);
 
@@ -92,10 +92,14 @@ void ParticleSystem::Initialize(
     srvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
     srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
+    assert(srvManager_->CanAllocate());
+    instancingSrvIndex_ = srvManager_->Allocate();
+
     D3D12_CPU_DESCRIPTOR_HANDLE handleCPU =
-        dxCommon_->GetCPUDescriptorHandle(heap, srvSize, kInstancingSrvIndex);
+        srvManager_->GetCPUDescriptorHandle(instancingSrvIndex_);
     D3D12_GPU_DESCRIPTOR_HANDLE handleGPU =
-        dxCommon_->GetGPUDescriptorHandle(heap, srvSize, kInstancingSrvIndex);
+        srvManager_->GetGPUDescriptorHandle(instancingSrvIndex_);
+
 
     device->CreateShaderResourceView(
         instancingResource_.Get(), &srvDesc, handleCPU);
@@ -119,7 +123,7 @@ void ParticleSystem::ApplyPreset(ParticleType type)
     // テクスチャ設定
     TextureManager* texMan = TextureManager::GetInstance();
     texMan->LoadTexture(preset.texturePath);
-    textureIndex_ = texMan->GetTextureIndexByFilePath(preset.texturePath);
+    textureFilePath_ = preset.texturePath;
 
     // 既存パーティクルがあれば作り直す
     for (uint32_t i = 0; i < kNumInstance; ++i) {
@@ -318,7 +322,7 @@ void ParticleSystem::Draw()
     // t1 = テクスチャ
     TextureManager* texMan = TextureManager::GetInstance();
     D3D12_GPU_DESCRIPTOR_HANDLE texHandle =
-        texMan->GetSrvHandleGPU(textureIndex_);
+        texMan->GetSrvHandleGPU(textureFilePath_);
     cmd->SetGraphicsRootDescriptorTable(1, texHandle);
 
     // モデルをインスタンス描画

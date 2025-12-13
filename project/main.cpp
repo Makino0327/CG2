@@ -41,6 +41,7 @@ using Microsoft::WRL::ComPtr;
 #include "ParticleCommon.h"
 #include "Camera.h"   
 #include "Particle.h" 
+#include "SrvManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -76,34 +77,6 @@ struct SoundData
 	BYTE* pBuffer;
 	unsigned int bufferSize;
 };
-
-//struct Particle
-//{
-//	Transform transform;
-//	Vector3 velocity;
-//	Vector4 color;
-//	float lifeTime;
-//	float currentTime;
-//};
-//struct ParticleEmitterParam
-//{
-//	float positionRange;   // どのくらいの範囲にばらまくか
-//	float velocityRange;   // どのくらいの速さで飛ばすか
-//	float lifeTimeMin;     // 寿命の最小
-//	float lifeTimeMax;     // 寿命の最大
-//	Vector4 baseColor;     // 基本の色
-//	bool   randomColor;    // ランダム色を使うか
-//};
-//
-//// グローバルに1個だけ持っておく
-//ParticleEmitterParam gEmitterParam = {
-//	1.0f,    // positionRange
-//	1.0f,    // velocityRange
-//	1.0f,    // lifeTimeMin
-//	3.0f,    // lifeTimeMax
-//	{1.0f, 1.0f, 1.0f, 1.0f}, // baseColor
-//	true     // randomColor
-//};
 
 
 SoundData SoundLoadWave(const char* filename)
@@ -217,62 +190,6 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
 	result = pSourceVoice->SubmitSourceBuffer(&buf);
 	result = pSourceVoice->Start();
 }
-//Particle MakeNewParticle(std::mt19937& randomEngine)
-//{
-//	// 位置と速度の乱数は Editor の値を使う
-//	std::uniform_real_distribution<float> distPos(
-//		-gEmitterParam.positionRange, gEmitterParam.positionRange);
-//	std::uniform_real_distribution<float> distVel(
-//		-gEmitterParam.velocityRange, gEmitterParam.velocityRange);
-//
-//	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
-//	std::uniform_real_distribution<float> distTime(
-//		gEmitterParam.lifeTimeMin, gEmitterParam.lifeTimeMax);
-//
-//	Particle particle;
-//
-//	particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-//	particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
-//
-//	particle.transform.translate = {
-//		distPos(randomEngine),
-//		distPos(randomEngine),
-//		distPos(randomEngine)
-//	};
-//
-//	particle.velocity = {
-//		distVel(randomEngine),
-//		distVel(randomEngine),
-//		distVel(randomEngine)
-//	};
-//
-//	if (gEmitterParam.randomColor) {
-//		// ランダム色
-//		particle.color = {
-//			distColor(randomEngine),
-//			distColor(randomEngine),
-//			distColor(randomEngine),
-//			1.0f
-//		};
-//	} else {
-//		// Editor で指定した色
-//		particle.color = gEmitterParam.baseColor;
-//	}
-//
-//	particle.lifeTime = distTime(randomEngine);
-//	particle.currentTime = 0.0f;
-//
-//	return particle;
-//}
-//
-//
-//struct ParticleForGPU {
-//	Matrix4x4 WVP;
-//	Matrix4x4 World;
-//	Vector4   color;
-//};
-
-
 
 // グローバル変数（各種DirectXオブジェクト）
 ComPtr<IXAudio2> xAudio2;
@@ -299,8 +216,9 @@ Object3dCommon* object3dCommon = nullptr;
 Object3d* object3d = nullptr;
 // 
 ModelCommon* modelCommon = nullptr;
+SrvManager* srvManager = nullptr;
 
-// どこでも使えるように（Drawで必要）
+ //どこでも使えるように（Drawで必要）
 const uint32_t kNumInstance = 10;
 Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
 ParticleForGPU* gInstancingData = nullptr;
@@ -321,12 +239,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	dxCommon = new DirectXCommon();
 	dxCommon->Initialize(winApp);
 
+	// SrvManager 初期化
+	srvManager = new SrvManager();
+	srvManager->Initialize(dxCommon);
+
 	// ★ ここで先に TextureManager を初期化
-	TextureManager::GetInstance()->Initialize(dxCommon);
+	TextureManager::GetInstance()->Initialize(dxCommon, srvManager);
 
 	// SpriteCommon の初期化
 	spriteCommon = new SpriteCommon();
-	spriteCommon->Initialize(dxCommon);
+	spriteCommon->Initialize(dxCommon,srvManager);
 
 	// 3d オブジェクト共通処理
 	object3dCommon = new Object3dCommon();
@@ -348,7 +270,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// ★ ParticleCommon 初期化
 	particleCommon = new ParticleCommon();
-	particleCommon->Initialize(dxCommon);
+	particleCommon->Initialize(dxCommon,srvManager);
 
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
@@ -366,10 +288,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	texMan->LoadTexture("Resources/fence.png");
 
 	particleSystem = new ParticleSystem();
-	particleSystem->Initialize(dxCommon, particleCommon, camera, ParticleType::CircleBurst);
+	particleSystem->Initialize(dxCommon, particleCommon, camera, srvManager, ParticleType::CircleBurst);
 	particleSystem->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
 
-	
+
 	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 	assert(SUCCEEDED(result));
 
@@ -427,7 +349,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	objA->SetTexture("Resources/circle.png");
 
 	//// 位置変える
-	//objA->SetTranslate({ 0, 0, 0 });
+	objA->SetTranslate({ 0, 0, 0 });
 	//Particle particles[kNumInstance];
 	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
 
@@ -461,13 +383,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// ===== スプライト =====
 		spriteCommon->CommonDrawSetting(); // Sprite PSO 設定
 
-		/*for (Sprite* sprite : sprites) {
+		for (Sprite* sprite : sprites) {
 			sprite->Update();
 		}
 
 		for (Sprite* sprite : sprites) {
 			sprite->Draw();
-		}*/
+		}
 
 		// ======= Update =======
 		objA->Update();
@@ -480,7 +402,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// ======= Draw =======
 		object3dCommon->CommonDrawSetting();
 
-		//objA->Draw();
+		objA->Draw();
 
 		// ======= Draw =======
 
@@ -488,7 +410,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		object3dCommon->CommonDrawSetting();
 		//objA->Draw();
 
-		// そのあとインスタンス描画（Particle用PSO）
+		//// そのあとインスタンス描画（Particle用PSO）
 		particleCommon->CommonDrawSetting();
 
 		particleSystem->Draw();
@@ -496,45 +418,46 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		//描画
 
-		ImGui_ImplDX12_NewFrame();
-		ImGui_ImplWin32_NewFrame();
-		ImGui::NewFrame();
-
-		// ==========================
-//  Particle Editor
-// ==========================
-		particleSystem->ShowImGui();
-
-
-		{
-			// ★ Camera の Transform を直接触る
-			Transform& camTrans = camera->GetTransform();
-
-			ImGui::Begin("Camera");
-
-			// 左手座標系：x=右, y=上, z=奥 という意識でOK
-			ImGui::DragFloat3("Position", &camTrans.translate.x, 0.1f);
-
-			// 回転はラジアン。-π〜π くらいでスライダーにしておく
-			ImGui::SliderFloat("Rot X", &camTrans.rotate.x, -3.14f, 3.14f);
-			ImGui::SliderFloat("Rot Y", &camTrans.rotate.y, -3.14f, 3.14f);
-			ImGui::SliderFloat("Rot Z", &camTrans.rotate.z, -3.14f, 3.14f);
-
-			ImGui::End();
-		}
-
-		ImGui::Render();
-		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+//		ImGui_ImplDX12_NewFrame();
+//		ImGui_ImplWin32_NewFrame();
+//		ImGui::NewFrame();
+//
+//		// ==========================
+////  Particle Editor
+//// ==========================
+//		particleSystem->ShowImGui();
+//
+//
+//		{
+//			// ★ Camera の Transform を直接触る
+//			Transform& camTrans = camera->GetTransform();
+//
+//			ImGui::Begin("Camera");
+//
+//			// 左手座標系：x=右, y=上, z=奥 という意識でOK
+//			ImGui::DragFloat3("Position", &camTrans.translate.x, 0.1f);
+//
+//			// 回転はラジアン。-π〜π くらいでスライダーにしておく
+//			ImGui::SliderFloat("Rot X", &camTrans.rotate.x, -3.14f, 3.14f);
+//			ImGui::SliderFloat("Rot Y", &camTrans.rotate.y, -3.14f, 3.14f);
+//			ImGui::SliderFloat("Rot Z", &camTrans.rotate.z, -3.14f, 3.14f);
+//
+//			ImGui::End();
+//		}
+//
+//		ImGui::Render();
+//		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 		dxCommon->PostDraw();
+//	}
+//
+//	// --- 後片付け --- 
+//
+//// ImGuiは先に終了
+//	ImGui_ImplDX12_Shutdown();
+//	ImGui_ImplWin32_Shutdown();
+//	ImGui::DestroyContext();
 	}
-
-	// --- 後片付け --- 
-
-// ImGuiは先に終了
-	ImGui_ImplDX12_Shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
 
 	// XAudio2
 	if (masteringVoice) {
@@ -561,6 +484,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete particleCommon; particleCommon = nullptr;
 	delete camera; camera = nullptr;
 	delete particleSystem;  particleSystem = nullptr;
+	delete srvManager; srvManager = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
 	// （IDXGIDebug1* をここで触らない）
@@ -572,4 +496,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	}
 
 	return 0;
+
 }

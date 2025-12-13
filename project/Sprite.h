@@ -129,5 +129,8 @@ private:
 	Vector2 textureLeftTop_ = { 0.0f,0.0f };
 	// テクスチャ切り出しサイズ
 	Vector2 textureSize_ = { 512.0f,512.0f };
+
+	std::string textureFilePath_;
+
 };
 

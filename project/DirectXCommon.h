@@ -86,6 +86,12 @@ public:
     // 最大SRV数
     static const uint32_t kMaxSRVCount;
 
+    // ディスクリプタヒープ生成
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
+        D3D12_DESCRIPTOR_HEAP_TYPE heapType,
+        UINT numDescriptors,
+        bool shaderVisible);
+
 private:
     // DirectX12デバイス
     Microsoft::WRL::ComPtr<ID3D12Device> device;
@@ -131,12 +137,6 @@ private:
 
     // 各種ディスクリプタヒープ
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_ = nullptr; // SRV用
-
-    // ディスクリプタヒープ生成
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
-        D3D12_DESCRIPTOR_HEAP_TYPE heapType,
-        UINT numDescriptors,
-        bool shaderVisible);
 
 	// --- FPS制御関連 ---
 	std::chrono::steady_clock::time_point reference_;
