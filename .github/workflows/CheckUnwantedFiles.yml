@@ -21,30 +21,30 @@ jobs:
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
 
-      - name: 不要なファイルとディレクトリを検索 (bash)
-      run: |
-        DIR_CONDITIONS=()
-        for pattern in $UNWANTED_DIR_PATTERNS; do
-          DIR_CONDITIONS+=(-o -iname "$pattern")
-        done
-        unset DIR_CONDITIONS[0]
+            - name: 不要なファイルとディレクトリを検索 (bash)
+        run: |
+          DIR_CONDITIONS=()
+          for pattern in $UNWANTED_DIR_PATTERNS; do
+            DIR_CONDITIONS+=(-o -iname "$pattern")
+          done
+          unset DIR_CONDITIONS[0]
 
-        NAME_CONDITIONS=()
-        for pattern in $UNWANTED_NAME_PATTERNS; do
-          NAME_CONDITIONS+=(-o -iname "$pattern")
-        done
-        unset NAME_CONDITIONS[0]
+          NAME_CONDITIONS=()
+          for pattern in $UNWANTED_NAME_PATTERNS; do
+            NAME_CONDITIONS+=(-o -iname "$pattern")
+          done
+          unset NAME_CONDITIONS[0]
 
-        UNWANTED_LIST=$(find . \
+          UNWANTED_LIST=$(find . \
             -path "./.git" -prune -o \
             \( \( "${DIR_CONDITIONS[@]}" \) -a -type d -print -prune \) -o \
             \( \( "${NAME_CONDITIONS[@]}" \) -a -type f -print \) \
           )
-          
-        if [ -n "$UNWANTED_LIST" ]; then
-          echo "::error::不要ファイルまたはディレクトリがみつかりました!"
-          echo "$UNWANTED_LIST"
-          exit 1
-        fi
 
-        echo "リポジトリはクリーンです。"
+          if [ -n "$UNWANTED_LIST" ]; then
+            echo "::error::不要ファイルまたはディレクトリがみつかりました!"
+            echo "$UNWANTED_LIST"
+            exit 1
+          fi
+
+          echo "リポジトリはクリーンです。"
