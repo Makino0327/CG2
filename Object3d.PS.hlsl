@@ -43,47 +43,40 @@ struct PixelShaderOutput
 PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
-    float3 toEye = normalize(
-    gCamera.worldPosition - input.worldPosition
-);
 
-    float4 textureColor = gTexture.Sample(gSampler, input.texcoord);
-    // ★ 追加（資料の式そのまま）
-    float3 reflectLight = reflect(gDirectionalLight.direction, normalize(input.normal));
-    float RdotE = dot(reflectLight, toEye);
-    float specularPow = pow(saturate(RdotE), gMaterial.shininess);
+    float4 tex = gTexture.Sample(gSampler, input.texcoord);
 
-    if (gMaterial.enableLighting != 0)
+    if (gMaterial.enableLighting == 0)
     {
-        float3 lightDir = normalize(-gDirectionalLight.direction);
-        float3 normal = normalize(input.normal);
-        float NdotL = dot(normalize(input.normal), -gDirectionalLight.direction);
-        float cos = pow(NdotL * 0.5f + 0.5f, 2.0f);
-
-        float3 diffuse =
-    gMaterial.color.rgb *
-    textureColor.rgb *
-    gDirectionalLight.color.rgb *
-    cos *
-    gDirectionalLight.intensity;
-
-        float3 specular =
-    gDirectionalLight.color.rgb *
-    gDirectionalLight.intensity *
-    specularPow *
-    float3(1.0f, 1.0f, 1.0f);
-        
-        output.color.rgb = diffuse + specular;
-        output.color.a = gMaterial.color.a * textureColor.a;
-        
-        output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
+        output.color = gMaterial.color * tex;
+        return output;
     }
-    else
-    {
-        output.color = gMaterial.color * textureColor;
-    }
-    
 
+    float3 N = normalize(input.normal);
+
+    // あなたの既存の拡散計算に合わせる（Half-Lambert）
+    float3 L = normalize(-gDirectionalLight.direction); // 光が「当たってくる方向」
+    float NdotL = dot(N, L);
+    float cos = pow(NdotL * 0.5f + 0.5f, 2.0f);
+
+    // 視線
+    float3 V = normalize(gCamera.worldPosition - input.worldPosition);
+
+    // 反射（入射 = -L）
+    float3 R = reflect(-L, N);
+    float specularPow = pow(saturate(dot(R, V)), gMaterial.shininess);
+
+    float3 diffuse =
+        gMaterial.color.rgb * tex.rgb *
+        gDirectionalLight.color.rgb * cos * gDirectionalLight.intensity;
+
+    float3 specular =
+        gDirectionalLight.color.rgb * gDirectionalLight.intensity *
+        specularPow;
+
+    output.color.rgb = diffuse + specular;
+    output.color.a = gMaterial.color.a * tex.a;
     return output;
 }
+
 
