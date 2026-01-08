@@ -65,7 +65,9 @@ struct Material {
 struct TransformationMatrix {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
+	Matrix4x4 WorldInverseTranspose; // ★追加
 };
+
 
 struct DirectionalLight {
 	Vector4 color;        // ライトの色
@@ -79,6 +81,15 @@ struct CameraForGPU
 	float padding; // 16byte揃え（float3だけだとズレるので）
 };
 
+Matrix4x4 Transpose(const Matrix4x4& m) {
+	Matrix4x4 r{};
+	for (int row = 0; row < 4; ++row) {
+		for (int col = 0; col < 4; ++col) {
+			r.m[row][col] = m.m[col][row];
+		}
+	}
+	return r;
+}
 
 /// <summary>
 ///ディスクリプタヒープを作成
@@ -893,6 +904,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 			wvpData->WVP = worldViewProjectionMatrix;
 			wvpData->World = worldMatrix;
+
+			Matrix4x4 worldInverse = Inverse(worldMatrix);
+			wvpData->WorldInverseTranspose = Transpose(worldInverse);
+
 
 			cameraData->worldPosition = cameraTransform.translate;
 			cameraData->padding = 0.0f;
