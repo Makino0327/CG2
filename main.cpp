@@ -59,6 +59,7 @@ struct VertexData {
 struct Material {
 	Vector4 color;
 	int32_t enableLighting;
+	float shininess;
 };
 
 struct TransformationMatrix {
@@ -70,6 +71,12 @@ struct DirectionalLight {
 	Vector4 color;        // ライトの色
 	Vector3 direction;    // ライトの向き（単位ベクトル）
 	float intensity;      // 強度
+};
+
+struct CameraForGPU
+{
+	Vector3 worldPosition;
+	float padding; // 16byte揃え（float3だけだとズレるので）
 };
 
 
@@ -414,7 +421,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[4] = {};
+	D3D12_ROOT_PARAMETER rootParameters[5] = {};
 
 	// [0] Material（b0）→ PixelShader用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -436,6 +443,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
 	rootParameters[3].DescriptorTable.pDescriptorRanges = &descriptorRange;
+
+	// rootParameters[?] に追加
+	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[4].Descriptor.ShaderRegister = 3; // b3
+	rootParameters[4].Descriptor.RegisterSpace = 0;
+	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL; // or PIXEL
+
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
 	staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR; // バイリニアフィルタ
@@ -567,6 +581,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	size_t vertexBufferSize = sizeof(VertexData) * vertexDataSphere.size();
 	ID3D12Resource* vertexResource = CreateBufferResource(device, vertexBufferSize);
 
+	ID3D12Resource* cameraResource = CreateBufferResource(device, sizeof(CameraForGPU));
+	CameraForGPU* cameraData = nullptr;
+	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
+
 
 	// --- Sprite用のリソースとビューを作成 ---
 	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 4);
@@ -633,13 +651,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
 	// マテリアル用のリソースを作る
-	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Vector4));
+	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Material));
 
 	// マテリアルにデータを書き込む
 	Material* materialData = nullptr;
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	materialData->enableLighting = 1;
+	materialData->shininess = 32.0f;   // 例：スライド通り “光沢度”
+
 
 	// WVP + World用の定数バッファリソースを作る
 	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(TransformationMatrix));
@@ -854,7 +874,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			static Transform transform = {
 				  {1.0f, 1.0f, 1.0f},  // scale
 				  {0.0f, 0.0f, 0.0f},  // rotate
-				  {0.0f, 1280.0f, 0.0f}   // translate
+				  {0.0f, 0.0f, 0.0f}   // translate
 			};
 
 			static Transform cameraTransform = {
@@ -862,7 +882,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				  {0.0f, 0.0f, 0.0f},  // rotate
 				  {0.0f, 0.0f, -10.0f}   // translate
 			};
-			transform.rotate.y += 0.01f;
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
@@ -875,12 +894,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			wvpData->WVP = worldViewProjectionMatrix;
 			wvpData->World = worldMatrix;
 
+			cameraData->worldPosition = cameraTransform.translate;
+			cameraData->padding = 0.0f;
+
 
 			// Sprite用のTransform
 			static Transform transformSprite = {
 				{1.0f, 1.0f, 1.0f},  // scale
 				{0.0f, 0.0f, 0.0f},  // rotate
-				{0.0f, 0.0f, 0.0f}   // translate
+				{0.0f, 1280.0f, 0.0f}   // translate
 			};
 
 			// Sprite用のWVP行列を作成（正射影）
@@ -922,23 +944,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->RSSetViewports(1, &viewport);   // Viewportを設定
 			commandList->RSSetScissorRects(1, &scissorRect);   // Scissorを設定
 
-			// wvp用のCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(2, wvpResource->GetGPUVirtualAddress());
-			// RootSignatureを設定。PSOに設定してるけど別途設定が必要
-			commandList->SetPipelineState(graphicsPipelineState);   //PSOを設定
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);   // VBVを設定
-			// 形状を設定
-			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			commandList->SetGraphicsRootSignature(rootSignature);
 
-			// 描画用のDescriptorHeapの設定
+			// b0 material
+			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+			// b1 light
+			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
+			// b2 transform(WVP/World)
+			commandList->SetGraphicsRootConstantBufferView(2, wvpResource->GetGPUVirtualAddress());
+			// b3 camera ★これが抜けてた
+			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
+
+			// SRV heap + t0
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			// SRVのDescriptor Tableの先頭を設定。2はrootParameter[2]である。
 			commandList->SetGraphicsRootDescriptorTable(3, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
-			//描画
-			commandList->DrawInstanced(static_cast<UINT>(vertexDataSphere.size()), 1, 0, 0);
+			// draw
+			commandList->SetPipelineState(graphicsPipelineState);
+			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
+
 
 			// Spriteの描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
@@ -951,6 +978,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 
 			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
 			commandList -> DrawIndexedInstanced(6, 1, 0, 0, 0); // Spriteの描画
 
@@ -963,9 +991,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// 自作ウィンドウだけ表示する
 			ImGui::Begin("Sprite Transform");
-			ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
+			/*ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
 			ImGui::SliderFloat3("Scale", &transformSprite.scale.x, 0.0f, 5.0f);
-			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);*/
 
 			ImGui::SliderFloat3("Camera Position", &cameraTransform.translate.x, -10.0f, 10.0f);
 			ImGui::SliderFloat3("Camera Rotation", &cameraTransform.rotate.x, -3.14f, 3.14f);
@@ -977,7 +1005,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Sphere Rotate", &transform.rotate.x, -3.14f, 3.14f);
 			ImGui::SliderFloat3("Sphere Scale", &transform.scale.x, 0.0f, 5.0f);
 
-			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+			//ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
 			ImGui::ColorEdit3("Material Color", reinterpret_cast<float*>(&materialData->color));
 			ImGui::Checkbox("Enable Lighting", reinterpret_cast<bool*>(&materialData->enableLighting));
