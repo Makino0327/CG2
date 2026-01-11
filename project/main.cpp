@@ -268,7 +268,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	camera->SetRotate(camRotate);
 	camera->SetTranslate(camTranslate);
 
-
 	// 3D オブジェクト
 	object3d = new Object3d();
 	object3d->Initialize(object3dCommon);
@@ -356,6 +355,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		sprites.push_back(sprite);
 	}
+	// ImGuiで操作するスプライト座標
+	Vector2 spritePos = { 100.0f, 100.0f }; // 初期座標 (100,100)
 
 	// Object3d を２つ作る
 	Object3d* objA = new Object3d();
@@ -429,21 +430,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		particleCommon->CommonDrawSetting();
 
 		particleSystem->Draw();
-
+		// スプライトに反映
+		sprites[0]->SetPosition(spritePos);
 
 		imguiManager->Begin();
 
-		// ★ カメラ調整UI
-		ImGui::Begin("Camera");
-		ImGui::DragFloat3("Rotate", &camRotate.x, 0.01f);
-		ImGui::DragFloat3("Translate", &camTranslate.x, 0.10f);
+		// --------------------
+		// スプライト操作UI
+		// --------------------
+		ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_Once);
+		ImGui::Begin("Sprite Controller");
+
+		// スライダー（整数部4桁・小数1桁表示）
+		ImGui::SliderFloat("X", &spritePos.x, 0.0f, 1280.0f, "%7.1f");
+		ImGui::SliderFloat("Y", &spritePos.y, 0.0f, 720.0f, "%7.1f");
+
 		ImGui::End();
 
-		// ★ 反映
-		camera->SetRotate(camRotate);
-		camera->SetTranslate(camTranslate);
-
 		imguiManager->End();
+
 
 		imguiManager->Draw();
 
