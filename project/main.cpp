@@ -276,7 +276,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ImGuiManager* imguiManager = new ImGuiManager();
 
 	// 初期化
-	imguiManager->Initialize(winApp,dxCommon, srvManager);
+	imguiManager->Initialize(winApp,dxCommon, srvManager, srvManager->GetDescriptorHeap());
 
 
 	// 3Dモデルマネージャー
@@ -423,37 +423,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		particleSystem->Draw();
 
 
-		//描画
+		imguiManager->Begin();
 
-//		ImGui_ImplDX12_NewFrame();
-//		ImGui_ImplWin32_NewFrame();
-//		ImGui::NewFrame();
-//
-//		// ==========================
-////  Particle Editor
-//// ==========================
-//		particleSystem->ShowImGui();
-//
-//
-//		{
-//			// ★ Camera の Transform を直接触る
-//			Transform& camTrans = camera->GetTransform();
-//
-//			ImGui::Begin("Camera");
-//
-//			// 左手座標系：x=右, y=上, z=奥 という意識でOK
-//			ImGui::DragFloat3("Position", &camTrans.translate.x, 0.1f);
-//
-//			// 回転はラジアン。-π〜π くらいでスライダーにしておく
-//			ImGui::SliderFloat("Rot X", &camTrans.rotate.x, -3.14f, 3.14f);
-//			ImGui::SliderFloat("Rot Y", &camTrans.rotate.y, -3.14f, 3.14f);
-//			ImGui::SliderFloat("Rot Z", &camTrans.rotate.z, -3.14f, 3.14f);
-//
-//			ImGui::End();
-//		}
-//
-//		ImGui::Render();
-//		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+		imguiManager->End();
+
+		imguiManager->Draw();
 
 		dxCommon->PostDraw();
 //	}
@@ -492,6 +466,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete camera; camera = nullptr;
 	delete particleSystem;  particleSystem = nullptr;
 	// 解放
+	imguiManager->Finalize();
+    // 修正: ImGuiManager::Initialize メソッドの呼び出しに不足している引数を追加  
+    imguiManager->Initialize(winApp, dxCommon, srvManager, dxCommon->GetSrvDescriptorHeap());
 	delete imguiManager;
 	delete srvManager; srvManager = nullptr;
 

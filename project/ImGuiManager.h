@@ -7,8 +7,17 @@
 class ImGuiManager
 {
 public:
-	void Initialize(WinApp* winApp, DirectXCommon* dxCommon, SrvManager* srvManager);
+	void Initialize(WinApp* winApp, DirectXCommon* dxCommon, SrvManager* srvManager, ID3D12DescriptorHeap* srvHeap);
+
+	void Finalize();
+
+	void Begin();
+	void End();
+	void Draw();
 
 private:
 	uint32_t imguiSrvIndex_ = 0;
+	DirectXCommon* dxCommon_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap_;
+
 };

@@ -106,7 +106,7 @@ void DirectXCommon::Initialize(WinApp* winApp)
     InitializeFence();                // フェンスの初期化
     InitializeScissorRect();          // シザー矩形の初期化
     InitializeDXC();                  // DXCコンパイラの生成
-    InitializeImGui();                // ImGuiの初期化
+    //InitializeImGui();                // ImGuiの初期化
 }
 
 
@@ -409,32 +409,32 @@ void DirectXCommon::InitializeDXC()
     assert(SUCCEEDED(hr));
 }
 
-void DirectXCommon::InitializeImGui()
-{
-    // --- ImGui初期化（main のコードをそのままメンバに合わせただけ） ---
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-
-    // WinApp は Initialize() で渡して保持している前提
-    ImGui_ImplWin32_Init(winApp->GetHwnd());
-
-    // main では swapChainDesc.BufferCount を使っていたので、
-    // ここでは swapChain_ から同じ値を取ってくる
-    DXGI_SWAP_CHAIN_DESC swapDesc{};
-    swapChain_->GetDesc(&swapDesc);
-
-    ImGui_ImplDX12_Init(
-        device.Get(),                      // device
-        swapDesc.BufferCount,              // swapChainDesc.BufferCount 相当
-        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,   // main と同じフォーマット
-        srvDescriptorHeap_.Get(),          // srvDescriptorHeap
-        srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
-        srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
-
-    ImGui::GetIO().IniFilename = nullptr;
-
-}
+//void DirectXCommon::InitializeImGui()
+//{
+//    // --- ImGui初期化（main のコードをそのままメンバに合わせただけ） ---
+//    IMGUI_CHECKVERSION();
+//    ImGui::CreateContext();
+//    ImGui::StyleColorsDark();
+//
+//    // WinApp は Initialize() で渡して保持している前提
+//    //ImGui_ImplWin32_Init(winApp->GetHwnd());
+//
+//    // main では swapChainDesc.BufferCount を使っていたので、
+//    // ここでは swapChain_ から同じ値を取ってくる
+//    DXGI_SWAP_CHAIN_DESC swapDesc{};
+//    swapChain_->GetDesc(&swapDesc);
+//
+//    ImGui_ImplDX12_Init(
+//        device.Get(),                      // device
+//        swapDesc.BufferCount,              // swapChainDesc.BufferCount 相当
+//        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,   // main と同じフォーマット
+//        srvDescriptorHeap_.Get(),          // srvDescriptorHeap
+//        srvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart(),
+//        srvDescriptorHeap_->GetGPUDescriptorHandleForHeapStart());
+//
+//    ImGui::GetIO().IniFilename = nullptr;
+//
+//}
 
 void DirectXCommon::PreDraw()
 {
