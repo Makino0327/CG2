@@ -261,6 +261,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	camera->SetTranslate({ 0.0f, 3.0f, -10.0f });
 	object3dCommon->SetDefaultCamera(camera);
 
+	// ★ ImGui用にカメラ値を保持（初期値は今セットしてる値と同じにする）
+	Vector3 camRotate = { 0.3f, 0.0f, 0.0f };
+	Vector3 camTranslate = { 0.0f, 3.0f, -10.0f };
+
+	camera->SetRotate(camRotate);
+	camera->SetTranslate(camTranslate);
+
+
 	// 3D オブジェクト
 	object3d = new Object3d();
 	object3d->Initialize(object3dCommon);
@@ -425,9 +433,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		imguiManager->Begin();
 
+		// ★ カメラ調整UI
+		ImGui::Begin("Camera");
+		ImGui::DragFloat3("Rotate", &camRotate.x, 0.01f);
+		ImGui::DragFloat3("Translate", &camTranslate.x, 0.10f);
+		ImGui::End();
+
+		// ★ 反映
+		camera->SetRotate(camRotate);
+		camera->SetTranslate(camTranslate);
+
 		imguiManager->End();
 
 		imguiManager->Draw();
+
 
 		dxCommon->PostDraw();
 //	}
@@ -467,8 +486,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete particleSystem;  particleSystem = nullptr;
 	// 解放
 	imguiManager->Finalize();
-    // 修正: ImGuiManager::Initialize メソッドの呼び出しに不足している引数を追加  
-    imguiManager->Initialize(winApp, dxCommon, srvManager, dxCommon->GetSrvDescriptorHeap());
+
 	delete imguiManager;
 	delete srvManager; srvManager = nullptr;
 
