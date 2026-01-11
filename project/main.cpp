@@ -18,9 +18,9 @@
 using Microsoft::WRL::ComPtr;
 
 // ImGui
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_win32.h"
+#include "../imgui/imgui_impl_dx12.h"
 
 // 自作ヘッダー
 #include "Math.h"
@@ -42,6 +42,7 @@ using Microsoft::WRL::ComPtr;
 #include "Camera.h"   
 #include "Particle.h" 
 #include "SrvManager.h"
+#include "ImGuiManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -272,6 +273,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	particleCommon = new ParticleCommon();
 	particleCommon->Initialize(dxCommon,srvManager);
 
+	ImGuiManager* imguiManager = new ImGuiManager();
+
+	// 初期化
+	imguiManager->Initialize(winApp,dxCommon, srvManager);
+
+
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
 
@@ -484,6 +491,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete particleCommon; particleCommon = nullptr;
 	delete camera; camera = nullptr;
 	delete particleSystem;  particleSystem = nullptr;
+	// 解放
+	delete imguiManager;
 	delete srvManager; srvManager = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除

@@ -83,6 +83,35 @@ public:
 
     uint32_t GetDescriptorSizeSRV() const { return descriptorSizeSRV_; }
 
+    // バックバッファ数（swapChainResources_ は 2 要素の配列なので 2 を返せる）
+    uint32_t GetBackBufferCount() const {
+        return static_cast<uint32_t>(swapChainResources_.size());
+    }
+
+    // RTVフォーマット（※君のプロジェクトで使ってるものに合わせる）
+    // よくあるのは _SRGB か _UNORM。どっちを使ってるかに合わせて1つに固定する。
+    DXGI_FORMAT GetRTVFormat() const {
+        return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        // もし SRGB じゃないなら ↓ にする
+        // return DXGI_FORMAT_R8G8B8A8_UNORM;
+    }
+
+    // ImGui 用に渡す SRV のCPU/GPUハンドル（SRVヒープの「何番」を使うか固定）
+    // ここでは 0 番を使う形（君の SRV 管理が 0 番を空けてる前提）
+    D3D12_CPU_DESCRIPTOR_HANDLE GetSrvCpuHandle() {
+        return GetSRVCPUDescriptorHandle(0);
+    }
+    D3D12_GPU_DESCRIPTOR_HANDLE GetSrvGpuHandle() {
+        return GetSRVGPUDescriptorHandle(0);
+    }
+
+    // スワップチェーンリソースの数を取得
+    size_t GetSwapChainResourcesNum() const {
+        return swapChainResources_.size();
+    }
+
+
+
     // 最大SRV数
     static const uint32_t kMaxSRVCount;
 
