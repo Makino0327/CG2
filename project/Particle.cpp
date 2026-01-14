@@ -337,6 +337,7 @@ void ParticleSystem::Draw()
 
 void ParticleSystem::ShowImGui()
 {
+#ifdef USE_IMGUI
     ImGui::Begin("Particle Editor");
 
     // プリセット選択
@@ -370,4 +371,6 @@ void ParticleSystem::ShowImGui()
 
 
     ImGui::End();
+#endif
+   
 }

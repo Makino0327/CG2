@@ -1,8 +1,9 @@
 #include "WinApp.h"
 #pragma comment(lib, "winmm.lib")
-
+#ifdef USE_IMGUI
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(
 	HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
 
 void WinApp::Initialize()
@@ -49,11 +50,12 @@ void WinApp::Finalize()
 
 LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
+#ifdef USE_IMGUI
 	// ImGui用ウィンドウプロシージャ呼び出し
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
 		return true;
 	}
-
+#endif
 	switch (msg) {
 	case WM_DESTROY:
 		PostQuitMessage(0);

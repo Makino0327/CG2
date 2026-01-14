@@ -280,10 +280,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	particleCommon = new ParticleCommon();
 	particleCommon->Initialize(dxCommon,srvManager);
 
+#ifdef USE_IMGUI
 	ImGuiManager* imguiManager = new ImGuiManager();
-
 	// 初期化
-	imguiManager->Initialize(winApp,dxCommon, srvManager, srvManager->GetDescriptorHeap());
+	imguiManager->Initialize(winApp, dxCommon, srvManager, srvManager->GetDescriptorHeap());
+#endif
 
 
 	// 3Dモデルマネージャー
@@ -433,8 +434,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		// スプライトに反映
 		sprites[0]->SetPosition(spritePos);
 
-		imguiManager->Begin();
 #ifdef USE_IMGUI
+
+		imguiManager->Begin();
+
 		// --------------------
 		// スプライト操作UI
 		// --------------------
@@ -446,11 +449,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::SliderFloat("Y", &spritePos.y, 0.0f, 720.0f, "%7.1f");
 
 		ImGui::End();
-#endif
 		imguiManager->End();
 
 
 		imguiManager->Draw();
+
+#endif
 
 
 		dxCommon->PostDraw();
@@ -489,10 +493,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete particleCommon; particleCommon = nullptr;
 	delete camera; camera = nullptr;
 	delete particleSystem;  particleSystem = nullptr;
+
+#ifdef USE_IMGUI
 	// 解放
 	imguiManager->Finalize();
 
 	delete imguiManager;
+#endif
 	delete srvManager; srvManager = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
