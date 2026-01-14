@@ -18,9 +18,9 @@
 using Microsoft::WRL::ComPtr;
 
 // ImGui
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+#include "../imgui/imgui.h"
+#include "../imgui/imgui_impl_win32.h"
+#include "../imgui/imgui_impl_dx12.h"
 
 // 自作ヘッダー
 #include "Math.h"
@@ -42,6 +42,7 @@ using Microsoft::WRL::ComPtr;
 #include "Camera.h"   
 #include "Particle.h" 
 #include "SrvManager.h"
+#include "ImGuiManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -260,6 +261,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	camera->SetTranslate({ 0.0f, 3.0f, -10.0f });
 	object3dCommon->SetDefaultCamera(camera);
 
+	// ★ ImGui用にカメラ値を保持（初期値は今セットしてる値と同じにする）
+	Vector3 camRotate = { 0.3f, 0.0f, 0.0f };
+	Vector3 camTranslate = { 0.0f, 3.0f, -10.0f };
+
+	camera->SetRotate(camRotate);
+	camera->SetTranslate(camTranslate);
+
 	// 3D オブジェクト
 	object3d = new Object3d();
 	object3d->Initialize(object3dCommon);
@@ -271,6 +279,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// ★ ParticleCommon 初期化
 	particleCommon = new ParticleCommon();
 	particleCommon->Initialize(dxCommon,srvManager);
+
+	ImGuiManager* imguiManager = new ImGuiManager();
+
+	// 初期化
+	imguiManager->Initialize(winApp,dxCommon, srvManager, srvManager->GetDescriptorHeap());
+
 
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon);
@@ -341,6 +355,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 		sprites.push_back(sprite);
 	}
+	// ImGuiで操作するスプライト座標
+	Vector2 spritePos = { 100.0f, 100.0f }; // 初期座標 (100,100)
 
 	// Object3d を２つ作る
 	Object3d* objA = new Object3d();
@@ -414,39 +430,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		particleCommon->CommonDrawSetting();
 
 		particleSystem->Draw();
+		// スプライトに反映
+		sprites[0]->SetPosition(spritePos);
+
+		imguiManager->Begin();
+
+		// --------------------
+		// スプライト操作UI
+		// --------------------
+		ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_Once);
+		ImGui::Begin("Sprite Controller");
+
+		// スライダー（整数部4桁・小数1桁表示）
+		ImGui::SliderFloat("X", &spritePos.x, 0.0f, 1280.0f, "%7.1f");
+		ImGui::SliderFloat("Y", &spritePos.y, 0.0f, 720.0f, "%7.1f");
+
+		ImGui::End();
+
+		imguiManager->End();
 
 
-		//描画
+		imguiManager->Draw();
 
-//		ImGui_ImplDX12_NewFrame();
-//		ImGui_ImplWin32_NewFrame();
-//		ImGui::NewFrame();
-//
-//		// ==========================
-////  Particle Editor
-//// ==========================
-//		particleSystem->ShowImGui();
-//
-//
-//		{
-//			// ★ Camera の Transform を直接触る
-//			Transform& camTrans = camera->GetTransform();
-//
-//			ImGui::Begin("Camera");
-//
-//			// 左手座標系：x=右, y=上, z=奥 という意識でOK
-//			ImGui::DragFloat3("Position", &camTrans.translate.x, 0.1f);
-//
-//			// 回転はラジアン。-π〜π くらいでスライダーにしておく
-//			ImGui::SliderFloat("Rot X", &camTrans.rotate.x, -3.14f, 3.14f);
-//			ImGui::SliderFloat("Rot Y", &camTrans.rotate.y, -3.14f, 3.14f);
-//			ImGui::SliderFloat("Rot Z", &camTrans.rotate.z, -3.14f, 3.14f);
-//
-//			ImGui::End();
-//		}
-//
-//		ImGui::Render();
-//		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 		dxCommon->PostDraw();
 //	}
@@ -484,6 +489,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	delete particleCommon; particleCommon = nullptr;
 	delete camera; camera = nullptr;
 	delete particleSystem;  particleSystem = nullptr;
+	// 解放
+	imguiManager->Finalize();
+
+	delete imguiManager;
 	delete srvManager; srvManager = nullptr;
 
 	// LiveObjects の出力は D3DResourceLeakChecker に任せるのでここは削除
