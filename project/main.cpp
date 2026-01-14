@@ -434,7 +434,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		sprites[0]->SetPosition(spritePos);
 
 		imguiManager->Begin();
-
+#ifdef USE_IMGUI
 		// --------------------
 		// スプライト操作UI
 		// --------------------
@@ -446,7 +446,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		ImGui::SliderFloat("Y", &spritePos.y, 0.0f, 720.0f, "%7.1f");
 
 		ImGui::End();
-
+#endif
 		imguiManager->End();
 
 
