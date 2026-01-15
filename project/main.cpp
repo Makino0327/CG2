@@ -54,149 +54,6 @@ using Microsoft::WRL::ComPtr;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-struct ChunkHeader
-{
-	char id[4];
-	int32_t size;
-};
-
-struct RiffHeader
-{
-	ChunkHeader chunk;
-	char type[4];
-};
-
-struct FormatChunk
-{
-	ChunkHeader chunk;
-	WAVEFORMATEX fmt;
-};
-
-struct SoundData
-{
-	WAVEFORMATEX wfex;
-	BYTE* pBuffer;
-	unsigned int bufferSize;
-};
-
-
-SoundData SoundLoadWave(const char* filename)
-{
-	/// 1.ファイルオープン
-	// ファイル入力ストリームのインスタンス
-	std::ifstream file;
-	// .wavファイルをバイナリモードで開く
-	file.open(filename, std::ios::binary);
-	// ファイルオープン失敗を検出する
-	assert(file.is_open());
-
-	/// 2.wavデータ読み込み
-	// RIFFヘッダーの読み込み
-	RiffHeader riff;
-	file.read((char*)&riff, sizeof(riff));
-	// ファイルがRIFFかチェック
-	if (strncmp(riff.chunk.id, "RIFF", 4) != 0)
-	{
-		assert(0);
-	}
-	// タイプがWAVEかチェック
-	if (strncmp(riff.type, "WAVE", 4) != 0)
-	{
-		assert(0);
-	}
-	// Formatチャンクの読み込み
-	// Formatチャンクの読み込み（柔軟に探す）
-	FormatChunk format = {};
-	ChunkHeader chunk{};
-	while (true) {
-		file.read((char*)&chunk, sizeof(chunk));
-		if (file.eof()) {
-			assert(0 && "fmtチャンクが見つかりませんでした");
-		}
-
-		if (strncmp(chunk.id, "fmt ", 4) == 0) {
-			format.chunk = chunk;
-			assert(format.chunk.size <= sizeof(format.fmt));
-			file.read((char*)&format.fmt, format.chunk.size);
-			break;
-		}
-
-		// fmtじゃなかったらスキップ
-		file.seekg(chunk.size, std::ios_base::cur);
-	}
-
-	// Dataチャンクの読み込み
-	ChunkHeader data;
-	file.read((char*)&data, sizeof(data));
-	// JUNKチャンクを検出した場合
-	if (strncmp(data.id, "JUNK", 4) == 0)
-	{
-		// 読み取り位置をJUNKチャンクの終わりまで進める
-		file.seekg(data.size, std::ios_base::cur);
-		// 再読み込み
-		file.read((char*)&data, sizeof(data));
-	}
-
-	if (strncmp(data.id, "data", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// Dataチャンクのデータ部（波型データ）の読み込み
-	char* pBuffer = new char[data.size];
-	file.read(pBuffer, data.size);
-	/// 3.ファイルクローズ
-	// Waveファイルを閉じる
-	file.close();
-
-	/// 4.読み込んだ音声データをreturn
-	// returnするための音声データ
-	SoundData soundData = {};
-
-	soundData.wfex = format.fmt;
-	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
-	soundData.bufferSize = data.size;
-
-	return soundData;
-}
-
-// 音声データ解放
-void SoundUnload(SoundData* soundData)
-{
-	// バッファの解放
-	delete[] soundData->pBuffer;
-
-	soundData->pBuffer = 0;
-	soundData->bufferSize = 0;
-	soundData->wfex = {};
-}
-
-// 音声再生
-void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData)
-{
-	HRESULT result;
-
-	// 波形フォーマットをもとにSourceVoiceの生成
-	IXAudio2SourceVoice* pSourceVoice = nullptr;
-	result = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
-	assert(SUCCEEDED(result));
-
-	// 再生する波形データの設定
-	XAUDIO2_BUFFER buf{};
-	buf.pAudioData = soundData.pBuffer;
-	buf.AudioBytes = soundData.bufferSize;
-	buf.Flags = XAUDIO2_END_OF_STREAM;
-
-	// 波形データの再生
-	result = pSourceVoice->SubmitSourceBuffer(&buf);
-	result = pSourceVoice->Start();
-}
-
-// グローバル変数（各種DirectXオブジェクト）
-ComPtr<IXAudio2> xAudio2;
-IXAudio2MasteringVoice* masteringVoice;
-
-SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 
 /// ポインタ
 // WindowsAPI
@@ -305,13 +162,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	particleSystem = new ParticleSystem();
 	particleSystem->Initialize(dxCommon, particleCommon, camera, srvManager, ParticleType::CircleBurst);
 	particleSystem->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
-
-
-	HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-	assert(SUCCEEDED(result));
-
-	result = xAudio2->CreateMasteringVoice(&masteringVoice);
-	assert(SUCCEEDED(result));
 
 	// 通常モデル用のマテリアルリソースを作成
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = dxCommon->CreateBufferResource(sizeof(Material));
@@ -467,14 +317,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 //	ImGui_ImplWin32_Shutdown();
 //	ImGui::DestroyContext();
 	}
-
-	// XAudio2
-	if (masteringVoice) {
-		masteringVoice->DestroyVoice();
-		masteringVoice = nullptr;
-	}
-	xAudio2.Reset();
-	SoundUnload(&soundData1);
 
 	// 3Dモデルマネージャーの終了
 	ModelManager::GetInstance()->Finalize();

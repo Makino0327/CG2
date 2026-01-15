@@ -31,6 +31,7 @@
     <ClCompile Include="TextureManager.cpp" />
     <ClCompile Include="WinApp.cpp" />
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="SoundManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -56,6 +57,7 @@
     <ClInclude Include="TextureManager.h" />
     <ClInclude Include="WinApp.h" />
     <ClInclude Include="Game.h" />
+    <ClInclude Include="SoundManager.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Particle.hlsli" />
