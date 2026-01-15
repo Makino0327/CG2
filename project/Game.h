@@ -35,6 +35,7 @@ using Microsoft::WRL::ComPtr;
 #include "Camera.h"
 #include "SrvManager.h"
 #include "ImGuiManager.h"
+#include "Framework.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -44,21 +45,18 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "xinput.lib")
 
-class Game {
+class Game : public Framework
+{
 public:
 	Game() = default;
 	~Game() = default;
 
-	void Initialize();
-	void Update();
-	void Draw();
-	void Finalize();
-
-	bool IsEndRequest() const { return endRequest_; }
+	void Initialize()override;
+	void Update()override;
+	void Draw()override;
+	void Finalize()override;
 
 private:
-	// 終了要求
-	bool endRequest_ = false;
 
 	// Windows / Input / DX
 	WinApp* winApp_ = nullptr;

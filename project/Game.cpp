@@ -1,7 +1,7 @@
 #include "Game.h"
 
 void Game::Initialize() {
-
+	Framework::Initialize();
 	// WindowsAPI初期化
 	winApp_ = new WinApp();
 	winApp_->Initialize();
@@ -118,7 +118,7 @@ void Game::Initialize() {
 }
 
 void Game::Update() {
-
+	Framework::Update();
 	// メッセージ処理（元 while 内の先頭）
 	if (winApp_->ProcessMessage()) {
 		endRequest_ = true;
@@ -228,4 +228,6 @@ void Game::Finalize() {
 		delete winApp_;
 		winApp_ = nullptr;
 	}
+
+	Framework::Finalize();
 }

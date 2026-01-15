@@ -1,30 +1,16 @@
 #include "Game.h"
+#include "Framework.h"
 #include "D3DResourceLeakChecker.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
-	D3DResourceLeakChecker leakChecker;
+    D3DResourceLeakChecker leakChecker;
 
-	Game game;
+    Framework* game = new Game();
 
-	// ゲームの初期化
-	game.Initialize();
+    game->Run();
 
-	while (true) {
-		// 毎フレーム更新
-		game.Update();
+    delete game;
 
-		// 終了リクエストが来たら抜ける
-		if (game.IsEndRequest()) {
-			break;
-		}
-
-		// 描画
-		game.Draw();
-	}
-
-	// ゲームの終了
-	game.Finalize();
-
-	return 0;
+    return 0;
 }
