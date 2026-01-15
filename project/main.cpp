@@ -55,177 +55,177 @@ using Microsoft::WRL::ComPtr;
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
-/// ポインタ
-// WindowsAPI
-WinApp* winApp = nullptr;
-// 入力処理
-Input* input = nullptr;
-// DirectX共通処理
-DirectXCommon* dxCommon = nullptr;
-// スプライト共通処理
-SpriteCommon* spriteCommon = nullptr;
-// スプライト
-Sprite* sprite = nullptr;
-// スプライト群
-std::vector<Sprite*> sprites;
-// 3Dオブジェクト共通処理
-Object3dCommon* object3dCommon = nullptr;
-// 3Dオブジェクト
-Object3d* object3d = nullptr;
-// 
-ModelCommon* modelCommon = nullptr;
-SrvManager* srvManager = nullptr;
-
- //どこでも使えるように（Drawで必要）
-const uint32_t kNumInstance = 10;
-Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
-ParticleForGPU* gInstancingData = nullptr;
-D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
-ParticleCommon* particleCommon = nullptr;
-ParticleSystem* particleSystem = nullptr;
+///// ポインタ
+//// WindowsAPI
+//WinApp* winApp = nullptr;
+//// 入力処理
+//Input* input = nullptr;
+//// DirectX共通処理
+//DirectXCommon* dxCommon = nullptr;
+//// スプライト共通処理
+//SpriteCommon* spriteCommon = nullptr;
+//// スプライト
+//Sprite* sprite = nullptr;
+//// スプライト群
+//std::vector<Sprite*> sprites;
+//// 3Dオブジェクト共通処理
+//Object3dCommon* object3dCommon = nullptr;
+//// 3Dオブジェクト
+//Object3d* object3d = nullptr;
+//// 
+//ModelCommon* modelCommon = nullptr;
+//SrvManager* srvManager = nullptr;
+//
+// //どこでも使えるように（Drawで必要）
+//const uint32_t kNumInstance = 10;
+//Microsoft::WRL::ComPtr<ID3D12Resource> gInstancingResource;
+//ParticleForGPU* gInstancingData = nullptr;
+//D3D12_GPU_DESCRIPTOR_HANDLE gInstancingSrvHandleGPU{};
+//ParticleCommon* particleCommon = nullptr;
+//ParticleSystem* particleSystem = nullptr;
 
 // エントリーポイント
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
-	D3DResourceLeakChecker leakChecker;
-
-	// WindowsAPI初期化
-	winApp = new WinApp();
-	winApp->Initialize();
-
-	// DirectX初期化
-	dxCommon = new DirectXCommon();
-	dxCommon->Initialize(winApp);
-
-	// SrvManager 初期化
-	srvManager = new SrvManager();
-	srvManager->Initialize(dxCommon);
-
-	// ★ ここで先に TextureManager を初期化
-	TextureManager::GetInstance()->Initialize(dxCommon, srvManager);
-
-	// SpriteCommon の初期化
-	spriteCommon = new SpriteCommon();
-	spriteCommon->Initialize(dxCommon,srvManager);
-
-	// 3d オブジェクト共通処理
-	object3dCommon = new Object3dCommon();
-	object3dCommon->Initialize(dxCommon);
-
-	// ★ カメラ生成 & デフォルトカメラに設定
-	Camera* camera = new Camera();
-	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
-	camera->SetTranslate({ 0.0f, 3.0f, -10.0f });
-	object3dCommon->SetDefaultCamera(camera);
-
-	// ★ ImGui用にカメラ値を保持（初期値は今セットしてる値と同じにする）
-	Vector3 camRotate = { 0.3f, 0.0f, 0.0f };
-	Vector3 camTranslate = { 0.0f, 3.0f, -10.0f };
-
-	camera->SetRotate(camRotate);
-	camera->SetTranslate(camTranslate);
-
-	// 3D オブジェクト
-	object3d = new Object3d();
-	object3d->Initialize(object3dCommon);
-
-	// モデル共通処理
-	modelCommon = new ModelCommon();
-	modelCommon->Initialize(dxCommon);
-
-	// ★ ParticleCommon 初期化
-	particleCommon = new ParticleCommon();
-	particleCommon->Initialize(dxCommon,srvManager);
-
-#ifdef USE_IMGUI
-	ImGuiManager* imguiManager = new ImGuiManager();
-	// 初期化
-	imguiManager->Initialize(winApp, dxCommon, srvManager, srvManager->GetDescriptorHeap());
-#endif
-
-
-	// 3Dモデルマネージャー
-	ModelManager::GetInstance()->Initialize(dxCommon);
-
-	ModelManager::GetInstance()->LoadModel("fence.obj");
-	// 追加
-	ModelManager::GetInstance()->LoadModel("plane.obj");
-
-	// （必要なら）テクスチャを事前ロード
-	auto texMan = TextureManager::GetInstance();
-	texMan->LoadTexture("Resources/uvChecker.png");
-	texMan->LoadTexture("Resources/monsterBall.png");
-	texMan->LoadTexture("Resources/checkerBoard.png");
-	texMan->LoadTexture("Resources/circle.png");
-	texMan->LoadTexture("Resources/fence.png");
-
-	particleSystem = new ParticleSystem();
-	particleSystem->Initialize(dxCommon, particleCommon, camera, srvManager, ParticleType::CircleBurst);
-	particleSystem->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
-
-	// 通常モデル用のマテリアルリソースを作成
-	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = dxCommon->CreateBufferResource(sizeof(Material));
-	Material* materialData = nullptr;
-	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-
-	materialData->uvTransform = MakeIdentity4x4();
-
-	// ライト用の定数バッファリソースを作成
-	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource = dxCommon->CreateBufferResource(sizeof(DirectionalLight));
-	// 書き込み用ポインタの定義（これが必要）
-	DirectionalLight* directionalLightData = nullptr;
-	// マップしてアドレス取得
-	directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
-	// 初期化（単位ベクトルで）
-	directionalLightData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f); // 正規化されてること
-	directionalLightData->intensity = 4.0f;
-
-	// 入力の初期化
-	input = new Input();
-	input->Initialize(winApp);
-
-	// Spriteの初期化
-
-	for (uint32_t i = 0; i < 5; ++i) {
-		Sprite* sprite = new Sprite();
-
-		// 交互にテクスチャファイルを切り替え
-		std::string texPath;
-		if (i % 2 == 0) {
-			texPath = "Resources/uvChecker.png";
-		} else {
-			texPath = "Resources/monsterBall.png";
-		}
-
-		sprite->Initialize(spriteCommon, directionalLightResource.Get(), texPath);
-
-		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
-		sprite->SetPosition(pos);
-
-		sprites.push_back(sprite);
-	}
-	// ImGuiで操作するスプライト座標
-	Vector2 spritePos = { 100.0f, 100.0f }; // 初期座標 (100,100)
-
-	// Object3d を２つ作る
-	Object3d* objA = new Object3d();
-	objA->Initialize(object3dCommon);
-	objA->SetModel("fence.obj");     // ← 1つめは plane
-	objA->SetTexture("Resources/circle.png");
-
-	//// 位置変える
-	objA->SetTranslate({ 0, 0, 0 });
-	//Particle particles[kNumInstance];
-	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
-
-	//std::random_device seedGenerator;
-	//std::mt19937 randomEngine(seedGenerator());
-
-	//for (uint32_t i = 0; i < kNumInstance; ++i) {
-	//	particles[i] = MakeNewParticle(randomEngine);
-	//}
+//	D3DResourceLeakChecker leakChecker;
+//
+//	// WindowsAPI初期化
+//	winApp = new WinApp();
+//	winApp->Initialize();
+//
+//	// DirectX初期化
+//	dxCommon = new DirectXCommon();
+//	dxCommon->Initialize(winApp);
+//
+//	// SrvManager 初期化
+//	srvManager = new SrvManager();
+//	srvManager->Initialize(dxCommon);
+//
+//	// ★ ここで先に TextureManager を初期化
+//	TextureManager::GetInstance()->Initialize(dxCommon, srvManager);
+//
+//	// SpriteCommon の初期化
+//	spriteCommon = new SpriteCommon();
+//	spriteCommon->Initialize(dxCommon,srvManager);
+//
+//	// 3d オブジェクト共通処理
+//	object3dCommon = new Object3dCommon();
+//	object3dCommon->Initialize(dxCommon);
+//
+//	// ★ カメラ生成 & デフォルトカメラに設定
+//	Camera* camera = new Camera();
+//	camera->SetRotate({ 0.3f, 0.0f, 0.0f });
+//	camera->SetTranslate({ 0.0f, 3.0f, -10.0f });
+//	object3dCommon->SetDefaultCamera(camera);
+//
+//	// ★ ImGui用にカメラ値を保持（初期値は今セットしてる値と同じにする）
+//	Vector3 camRotate = { 0.3f, 0.0f, 0.0f };
+//	Vector3 camTranslate = { 0.0f, 3.0f, -10.0f };
+//
+//	camera->SetRotate(camRotate);
+//	camera->SetTranslate(camTranslate);
+//
+//	// 3D オブジェクト
+//	object3d = new Object3d();
+//	object3d->Initialize(object3dCommon);
+//
+//	// モデル共通処理
+//	modelCommon = new ModelCommon();
+//	modelCommon->Initialize(dxCommon);
+//
+//	// ★ ParticleCommon 初期化
+//	particleCommon = new ParticleCommon();
+//	particleCommon->Initialize(dxCommon,srvManager);
+//
+//#ifdef USE_IMGUI
+//	ImGuiManager* imguiManager = new ImGuiManager();
+//	// 初期化
+//	imguiManager->Initialize(winApp, dxCommon, srvManager, srvManager->GetDescriptorHeap());
+//#endif
+//
+//
+//	// 3Dモデルマネージャー
+//	ModelManager::GetInstance()->Initialize(dxCommon);
+//
+//	ModelManager::GetInstance()->LoadModel("fence.obj");
+//	// 追加
+//	ModelManager::GetInstance()->LoadModel("plane.obj");
+//
+//	// （必要なら）テクスチャを事前ロード
+//	auto texMan = TextureManager::GetInstance();
+//	texMan->LoadTexture("Resources/uvChecker.png");
+//	texMan->LoadTexture("Resources/monsterBall.png");
+//	texMan->LoadTexture("Resources/checkerBoard.png");
+//	texMan->LoadTexture("Resources/circle.png");
+//	texMan->LoadTexture("Resources/fence.png");
+//
+//	particleSystem = new ParticleSystem();
+//	particleSystem->Initialize(dxCommon, particleCommon, camera, srvManager, ParticleType::CircleBurst);
+//	particleSystem->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
+//
+//	// 通常モデル用のマテリアルリソースを作成
+//	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = dxCommon->CreateBufferResource(sizeof(Material));
+//	Material* materialData = nullptr;
+//	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+//	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+//
+//	materialData->uvTransform = MakeIdentity4x4();
+//
+//	// ライト用の定数バッファリソースを作成
+//	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource = dxCommon->CreateBufferResource(sizeof(DirectionalLight));
+//	// 書き込み用ポインタの定義（これが必要）
+//	DirectionalLight* directionalLightData = nullptr;
+//	// マップしてアドレス取得
+//	directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
+//	// 初期化（単位ベクトルで）
+//	directionalLightData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+//	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f); // 正規化されてること
+//	directionalLightData->intensity = 4.0f;
+//
+//	// 入力の初期化
+//	input = new Input();
+//	input->Initialize(winApp);
+//
+//	// Spriteの初期化
+//
+//	for (uint32_t i = 0; i < 5; ++i) {
+//		Sprite* sprite = new Sprite();
+//
+//		// 交互にテクスチャファイルを切り替え
+//		std::string texPath;
+//		if (i % 2 == 0) {
+//			texPath = "Resources/uvChecker.png";
+//		} else {
+//			texPath = "Resources/monsterBall.png";
+//		}
+//
+//		sprite->Initialize(spriteCommon, directionalLightResource.Get(), texPath);
+//
+//		Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
+//		sprite->SetPosition(pos);
+//
+//		sprites.push_back(sprite);
+//	}
+//	// ImGuiで操作するスプライト座標
+//	Vector2 spritePos = { 100.0f, 100.0f }; // 初期座標 (100,100)
+//
+//	// Object3d を２つ作る
+//	Object3d* objA = new Object3d();
+//	objA->Initialize(object3dCommon);
+//	objA->SetModel("fence.obj");     // ← 1つめは plane
+//	objA->SetTexture("Resources/circle.png");
+//
+//	//// 位置変える
+//	objA->SetTranslate({ 0, 0, 0 });
+//	//Particle particles[kNumInstance];
+//	const float kDeltaTime = 1.0f / 60.0f; // とりあえず60fps想定
+//
+//	//std::random_device seedGenerator;
+//	//std::mt19937 randomEngine(seedGenerator());
+//
+//	//for (uint32_t i = 0; i < kNumInstance; ++i) {
+//	//	particles[i] = MakeNewParticle(randomEngine);
+//	//}
 
 	// --- メインループ ---
 	while (TRUE) {
