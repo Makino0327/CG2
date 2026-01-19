@@ -6,16 +6,20 @@
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
     object3dCommon_ = object3dCommon;
+    camera_ = object3dCommon_->GetDefaultCamera();
 
-	camera_ = object3dCommon_->GetDefaultCamera();
-
-    transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,3.0f,-10.0f} };
+    transform = { {1,1,1},{0,0,0},{0,0,0} };
+    cameraTransform = { {1,1,1},{0.3f,0,0},{0,3,-10} };
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
-    InitializeMaterial();
+    InitializeMaterial();   // ★ materialData_ がここで有効になる
+    InitializeCamera();
+
+    // ★ここならOK
+    materialData_->shininess = 32.0f;
 }
+
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
@@ -39,6 +43,13 @@ void Object3d::Update()
         viewProjectionMatrix_ = MakeIdentity4x4(); // なくてもいいけど一応
     }
 
+    if (camera_ && cameraData_) {
+        // Cameraの実装に合わせて取得する
+        // 例：camera_->GetTranslate() があるならそれ
+        cameraData_->worldPosition = camera_->GetTranslate();
+    }
+
+
     transformationMatrixData_->WVP = worldViewProjectionMatrix;
     transformationMatrixData_->World = worldMatrix;
 }
@@ -48,27 +59,17 @@ void Object3d::Update()
 
 void Object3d::Draw()
 {
-    assert(object3dCommon_);
-    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
-    ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
+    auto* commandList = object3dCommon_->GetDxCommon()->GetCommandList();
 
-    // ★Material CBuffer(b0)
-    commandList->SetGraphicsRootConstantBufferView(
-        0, materialResource_->GetGPUVirtualAddress());
-
-    // 平行光源(b1)
-    commandList->SetGraphicsRootConstantBufferView(
-        1, directionalLightResource_->GetGPUVirtualAddress());
-
-    // 行列(b2)
-    commandList->SetGraphicsRootConstantBufferView(
-        2, transformationMatrixResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());          // b0
+    commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource_->GetGPUVirtualAddress()); // b1
+    commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResource_->GetGPUVirtualAddress()); // b2
+    commandList->SetGraphicsRootConstantBufferView(3, cameraResource_->GetGPUVirtualAddress());           // b3
 
     if (model_) {
-        model_->Draw();
+        model_->Draw(); // ★テクスチャSRVはModel側で [4] にセットする
     }
 }
-
 
 
 MaterialData Object3d::LoadMaterialTemplateFile(
@@ -196,8 +197,21 @@ void Object3d::DrawInstanced(UINT instanceCount)
     //    ここも使う想定だから残す
     commandList->SetGraphicsRootConstantBufferView(
         2, transformationMatrixResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(3, cameraResource_->GetGPUVirtualAddress());
+
 
     if (model_) {
         model_->DrawInstanced(instanceCount); // ★ここだけ違う
     }
+}
+
+void Object3d::InitializeCamera()
+{
+    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
+
+    cameraResource_ = dxCommon->CreateBufferResource(sizeof(CameraForGPU));
+    cameraResource_->Map(0, nullptr, reinterpret_cast<void**>(&cameraData_));
+
+    cameraData_->worldPosition = { 0.0f, 0.0f, 0.0f };
+    cameraData_->padding = 0.0f;
 }

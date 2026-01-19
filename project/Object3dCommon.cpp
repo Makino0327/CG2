@@ -26,36 +26,41 @@ void Object3dCommon::CreateRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
 
-    // --- SRVテーブル（t0） ---
+    // --- SRV テーブル（t0） ---
     D3D12_DESCRIPTOR_RANGE descriptorRange{};
-    descriptorRange.BaseShaderRegister = 0;
+    descriptorRange.BaseShaderRegister = 0; // t0
     descriptorRange.NumDescriptors = 1;
     descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    // --- RootParameter ---
-    D3D12_ROOT_PARAMETER rootParameters[4]{};
+    // --- RootParameter（5つ） ---
+    D3D12_ROOT_PARAMETER rootParameters[5]{};
 
-    // b0 : Material
+    // [0] b0 : Material
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].Descriptor.ShaderRegister = 0;
 
-    // b1 : Light
+    // [1] b1 : Light
     rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[1].Descriptor.ShaderRegister = 1;
 
-    // b2 : Transform (VS)
+    // [2] b2 : Transform
     rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     rootParameters[2].Descriptor.ShaderRegister = 2;
 
-    // t0 : Texture
-    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    // [3] b3 : Camera
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
-    rootParameters[3].DescriptorTable.pDescriptorRanges = &descriptorRange;
+    rootParameters[3].Descriptor.ShaderRegister = 3;
+
+    // [4] t0 : Texture (DescriptorTable)
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[4].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[4].DescriptorTable.pDescriptorRanges = &descriptorRange;
 
     // --- Sampler ---
     D3D12_STATIC_SAMPLER_DESC staticSampler{};
@@ -66,7 +71,7 @@ void Object3dCommon::CreateRootSignature()
     staticSampler.ShaderRegister = 0;
     staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    // --- RootSignature 記述 ---
+    // --- RootSignature ---
     D3D12_ROOT_SIGNATURE_DESC desc{};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     desc.pParameters = rootParameters;
@@ -77,25 +82,22 @@ void Object3dCommon::CreateRootSignature()
     Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
 
-    HRESULT hr = D3D12SerializeRootSignature(
-        &desc, D3D_ROOT_SIGNATURE_VERSION_1,
-        &signatureBlob,
-        &errorBlob);
+    HRESULT hr = D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1,
+        &signatureBlob, &errorBlob);
 
     if (FAILED(hr)) {
-        if (errorBlob) {
-            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-        }
+        if (errorBlob) { OutputDebugStringA((char*)errorBlob->GetBufferPointer()); }
         assert(false);
     }
 
-    hr = device->CreateRootSignature(
-        0,
+    hr = device->CreateRootSignature(0,
         signatureBlob->GetBufferPointer(),
         signatureBlob->GetBufferSize(),
         IID_PPV_ARGS(&rootSignature_));
     assert(SUCCEEDED(hr));
 }
+
+
 
 
 void Object3dCommon::CreateGraphicsPipelineState()

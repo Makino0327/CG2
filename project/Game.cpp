@@ -216,7 +216,7 @@ void Game::Draw() {
 		ImGui::Text("Directional Light");
 		ImGui::ColorEdit3("Light Color", &light->color.x);
 		ImGui::DragFloat3("Direction", &light->direction.x, 0.01f, -1.0f, 1.0f);
-		ImGui::SliderFloat("Intensity", &light->intensity, 0.0f, 10.0f);
+		ImGui::SliderFloat("Intensity", &light->intensity, 0.0f, 4.0f);
 
 		if (ImGui::Button("No Shadow (Intensity=0)")) {
 			light->intensity = 0.0f; // ★ここもobjA_側を変更

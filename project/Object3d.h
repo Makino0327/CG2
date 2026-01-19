@@ -55,6 +55,8 @@ public:
 
 	void DrawInstanced(UINT instanceCount);
 
+	void InitializeCamera();
+
 	static MaterialData  LoadMaterialTemplateFile(
 		const std::string& directoryPath,
 		const std::string& mtlFileName,
@@ -115,5 +117,15 @@ private:
 	Camera* camera_ = nullptr;
 
 	Matrix4x4 viewProjectionMatrix_{};
+
+	struct CameraForGPU
+	{
+		Vector3 worldPosition;
+		float padding;
+	};
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
+	CameraForGPU* cameraData_ = nullptr;
+
 };
 

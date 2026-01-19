@@ -17,13 +17,14 @@ struct VertexData {
 	float pad;
 };
 
-// マテリアルデータ構造体
 struct Material {
 	Vector4 color;
-	int32_t lightingType;     // ← ここをリネーム
-	float padding[3];         // ← 既にパディング済みなのでそのままOK
+	int32_t lightingType;
+	float shininess;   // ★追加
+	float padding[2];  // ★paddingを2にする（16byte合わせ）
 	Matrix4x4 uvTransform;
 };
+
 
 // 変換行列構造体
 struct TransformationMatrix {
