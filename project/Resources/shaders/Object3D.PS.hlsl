@@ -3,13 +3,13 @@ struct VertexShaderOutput
     float4 position : SV_POSITION;
     float2 texcoord : TEXCOORD0;
     float3 normal : NORMAL0;
-    float3 worldPosition : POSITION0; // ※安定させたいなら TEXCOORD1 推奨
+    float3 worldPosition : POSITION0; // 安定させたいなら TEXCOORD1 推奨
 };
 
 struct DirectionalLight
 {
     float4 color;
-    float3 direction; // ★ライト→物体（光が進む向き）を入れる前提
+    float3 direction; // ここは「ライトが向いている方向」想定
     float intensity;
 };
 
@@ -44,37 +44,52 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
 
-    // ===== Texture =====
+    // ===== Texture + UVTransform =====
     float4 uv = mul(float4(input.texcoord, 0.0f, 1.0f), gMaterial.uvTransform);
     float4 textureColor = gTexture.Sample(gSampler, uv.xy);
 
+    // 透明抜き
     if (textureColor.a <= 0.01f)
     {
         discard;
     }
 
+    // Lightingなし
+    if (gMaterial.lightingType == 0)
+    {
+        output.color = float4(gMaterial.color.rgb * textureColor.rgb,
+                              gMaterial.color.a * textureColor.a);
+        return output;
+    }
+
     // ===== ベクトル準備 =====
     float3 N = normalize(input.normal);
 
-    // 視線（物体→カメラ）
-    float3 V = normalize(gCamera.worldPosition - input.worldPosition);
-
-    // ★重要：directionは「ライト→物体」前提なので反転して「物体→ライト」にする
+    // 元コードに合わせて「当たってくる方向」を作る
+    // 影が反対なら、ここを L = normalize(gDirectionalLight.direction); に変える
     float3 L = normalize(-gDirectionalLight.direction);
 
+    // 視線（ピクセル→カメラ）
+    float3 V = normalize(gCamera.worldPosition - input.worldPosition);
+
+    // HalfVector（Blinn-Phong）
+    float3 H = normalize(L + V);
+
     // ===== Diffuse =====
-    float ndotl = saturate(dot(N, L));
+    float ndotl = dot(N, L);
 
     float diffuseFactor = 1.0f;
     if (gMaterial.lightingType == 1)
     {
         // Lambert
-        diffuseFactor = ndotl;
+        diffuseFactor = saturate(ndotl);
     }
     else if (gMaterial.lightingType == 2)
     {
-        // Half Lambert（安定版）
-        diffuseFactor = ndotl * 0.5f + 0.5f;
+        // Half-Lambert（元コードの形に寄せる）
+        // ※見た目を合わせたいなら pow を入れる（例: ^2）
+        diffuseFactor = saturate(ndotl * 0.5f + 0.5f);
+        // diffuseFactor = pow(diffuseFactor, 2.0f); // ←必要ならON
     }
 
     float3 diffuse =
@@ -84,12 +99,9 @@ PixelShaderOutput main(VertexShaderOutput input)
         diffuseFactor *
         gDirectionalLight.intensity;
 
-    // ===== Specular =====
-    // L は「物体→ライト」なので reflect(-L, N) が正しい
-    float3 R = reflect(-L, N);
-
-    float specAngle = saturate(dot(R, V));
-    float specularPow = pow(specAngle, gMaterial.shininess);
+    // ===== Specular（Blinn-Phong）=====
+    float ndoth = saturate(dot(N, H));
+    float specularPow = pow(ndoth, gMaterial.shininess);
 
     float3 specular =
         gDirectionalLight.color.rgb *
@@ -97,10 +109,7 @@ PixelShaderOutput main(VertexShaderOutput input)
         specularPow;
 
     // ===== 合成 =====
-    float3 finalColor =
-        (gMaterial.lightingType == 0)
-        ? (gMaterial.color.rgb * textureColor.rgb)
-        : (diffuse + specular);
+    float3 finalColor = diffuse + specular;
 
     output.color = float4(finalColor, gMaterial.color.a * textureColor.a);
     return output;
