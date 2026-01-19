@@ -93,4 +93,16 @@ private:
 
 	// ImGui
 	ImGuiManager* imguiManager_ = nullptr;
+
+	// Game.h の private: 付近に追加
+
+// Sphere(=objA_) のTransformをImGuiでいじる用
+	Vector3 sphereTranslate_ = { 0.0f, 0.0f, 0.0f };
+	Vector3 sphereRotate_ = { 0.0f, 0.0f, 0.0f };
+	Vector3 sphereScale_ = { 1.0f, 1.0f, 1.0f };
+
+	// 定数バッファをMapした先を保持（毎フレームMapしない）
+	Material* materialData_ = nullptr;
+	DirectionalLight* directionalLightData_ = nullptr;
+
 };

@@ -56,7 +56,7 @@ void Game::Initialize() {
 
 	// 3Dモデルマネージャー
 	ModelManager::GetInstance()->Initialize(dxCommon_);
-	ModelManager::GetInstance()->LoadModel("fence.obj");
+	ModelManager::GetInstance()->LoadModel("sphere.obj");
 	ModelManager::GetInstance()->LoadModel("plane.obj");
 
 	// （必要なら）テクスチャを事前ロード
@@ -73,18 +73,18 @@ void Game::Initialize() {
 
 	// 通常モデル用のマテリアルリソースを作成
 	materialResource_ = dxCommon_->CreateBufferResource(sizeof(Material));
-	Material* materialData = nullptr;
-	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-	materialData->uvTransform = MakeIdentity4x4();
+	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
+	materialData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+	materialData_->uvTransform = MakeIdentity4x4();
+	materialData_->lightingType = static_cast<int32_t>(LightingType::Lambert); // 追加してもOK
 
 	// ライト用の定数バッファリソースを作成
 	directionalLightResource_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
-	DirectionalLight* directionalLightData = nullptr;
-	directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
-	directionalLightData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f);
-	directionalLightData->intensity = 4.0f;
+	directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData_));
+	directionalLightData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+	directionalLightData_->direction = Vector3(0.0f, -1.0f, 0.0f);
+	directionalLightData_->intensity = 4.0f;
+
 
 	// 入力の初期化
 	input_ = new Input();
@@ -112,9 +112,8 @@ void Game::Initialize() {
 	// Object3d を作る（元コードの objA）
 	objA_ = new Object3d();
 	objA_->Initialize(object3dCommon_);
-	objA_->SetModel("fence.obj");
-	objA_->SetTexture("Resources/circle.png");
-	objA_->SetTranslate({ 0, 0, 0 });
+	objA_->SetModel("sphere.obj");
+	objA_->SetTexture("Resources/monsterBall.png");
 }
 
 void Game::Update() {
@@ -136,7 +135,16 @@ void Game::Update() {
 		sprite->Update();
 	}
 
-	// 3D Update（元コード通り）
+	// ライト方向を正規化（入れてOK）
+	auto* light = objA_->GetDirectionalLightData();
+	light->direction = Normalize(light->direction);
+
+
+	// ★ここが重要：反映してからUpdate
+	objA_->SetTranslate(sphereTranslate_);
+	objA_->SetRotate(sphereRotate_);
+	objA_->SetScale(sphereScale_);
+
 	objA_->Update();
 	camera_->Update();
 	particleSystem_->Update(deltaTime_);
@@ -157,26 +165,67 @@ void Game::Draw() {
 	// ===== スプライト =====
 	spriteCommon_->CommonDrawSetting();
 
-	for (Sprite* sprite : sprites_) {
+	/*for (Sprite* sprite : sprites_) {
 		sprite->Draw();
-	}
+	}*/
 
 	// ======= Draw =======
 	object3dCommon_->CommonDrawSetting();
 	objA_->Draw();
 
 	// そのあとインスタンス描画（Particle用PSO）
-	particleCommon_->CommonDrawSetting();
-	particleSystem_->Draw();
+	/*particleCommon_->CommonDrawSetting();
+	particleSystem_->Draw();*/
 
 #ifdef USE_IMGUI
 	imguiManager_->Begin();
 
-	// スプライト操作UI（元コードそのまま）
-	ImGui::SetNextWindowSize(ImVec2(500, 100), ImGuiCond_Once);
-	ImGui::Begin("Sprite Controller");
-	ImGui::SliderFloat("X", &spritePos_.x, 0.0f, 1280.0f, "%7.1f");
-	ImGui::SliderFloat("Y", &spritePos_.y, 0.0f, 720.0f, "%7.1f");
+	//==============================
+	// Sphere & Shadow(Light)
+	//==============================
+	ImGui::Begin("Sphere & Shadow(Light)");
+
+	// ---- Sphere Transform（Game側のパラメータ → UpdateでobjA_へ反映される）----
+	ImGui::Text("Sphere Transform");
+	ImGui::DragFloat3("Translate", &sphereTranslate_.x, 0.01f);
+	ImGui::DragFloat3("Rotate", &sphereRotate_.x, 0.01f); // rad想定
+	ImGui::DragFloat3("Scale", &sphereScale_.x, 0.01f, 0.0f, 100.0f);
+
+	ImGui::Separator();
+
+	// ---- 3DのMaterial/Lightは「objA_の中」を直接いじる ----
+	Material* mat = objA_ ? objA_->GetMaterialData() : nullptr;
+	DirectionalLight* light = objA_ ? objA_->GetDirectionalLightData() : nullptr;
+
+	if (mat && light) {
+
+		// ---- Material ----
+		ImGui::Text("Material");
+		ImGui::ColorEdit4("Mat Color", &mat->color.x,
+			ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf);
+
+		const char* lightingItems[] = { "None", "Lambert", "HalfLambert" };
+		int lighting = mat->lightingType;
+		if (ImGui::Combo("Lighting", &lighting, lightingItems, IM_ARRAYSIZE(lightingItems))) {
+			mat->lightingType = lighting;
+		}
+
+		ImGui::Separator();
+
+		// ---- Directional Light ----
+		ImGui::Text("Directional Light");
+		ImGui::ColorEdit3("Light Color", &light->color.x);
+		ImGui::DragFloat3("Direction", &light->direction.x, 0.01f, -1.0f, 1.0f);
+		ImGui::SliderFloat("Intensity", &light->intensity, 0.0f, 10.0f);
+
+		if (ImGui::Button("No Shadow (Intensity=0)")) {
+			light->intensity = 0.0f; // ★ここもobjA_側を変更
+		}
+
+	} else {
+		ImGui::Text("objA_ / material / light is null");
+	}
+
 	ImGui::End();
 
 	imguiManager_->End();

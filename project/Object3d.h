@@ -88,7 +88,10 @@ public:
 	Matrix4x4 GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
 
 	void SetColor(const Vector4& color);
-	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
+	// Object3d.h（publicに追加）
+	Material* GetMaterialData() { return materialData_; }
+	DirectionalLight* GetDirectionalLightData() { return directionalLightData_; }
+
 
 private:
 	// 3Dオブジェクト共通処理
