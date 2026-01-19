@@ -1,4 +1,3 @@
-
 struct VertexShaderOutput
 {
     float4 position : SV_POSITION;
@@ -26,14 +25,22 @@ struct Camera
     float3 worldPosition;
 };
 
-ConstantBuffer<Camera> gCamera : register(b3);
-
+struct PointLight
+{
+    float4 color; // ライトの色
+    float3 position; // ライトの位置
+    float intensity; // 強度
+    float radius; // 届く最大距離
+    float decay; // 減衰率（大きいほど急に減衰）
+};
 
 ConstantBuffer<Material> gMaterial : register(b0);
 ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
+ConstantBuffer<Camera> gCamera : register(b3);
+ConstantBuffer<PointLight> gPointLight : register(b4);
+
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
-
 
 struct PixelShaderOutput
 {
@@ -46,6 +53,9 @@ PixelShaderOutput main(VertexShaderOutput input)
 
     float4 textureColor = gTexture.Sample(gSampler, input.texcoord);
 
+    // ------------------------------
+    // ライティングなし
+    // ------------------------------
     if (gMaterial.enableLighting == 0)
     {
         output.color = gMaterial.color * textureColor;
@@ -55,16 +65,16 @@ PixelShaderOutput main(VertexShaderOutput input)
     // 法線
     float3 N = normalize(input.normal);
 
-    // 光が「当たってくる方向」（あなたの拡散の式に合わせる）
-    float3 L = normalize(-gDirectionalLight.direction);
-
-    // 視線方向（ピクセル→カメラ）
+    // 視線方向（surface -> camera）
     float3 toEye = normalize(gCamera.worldPosition - input.worldPosition);
 
-    // HalfVector（スライドの式そのまま）
+    // ==================================================
+    // DirectionalLight（元の処理そのまま）
+    // ==================================================
+    float3 L = normalize(-gDirectionalLight.direction);
+
     float3 halfVector = normalize(L + toEye);
 
-    // 拡散（Half-Lambertを使うなら今のままでOK）
     float NdotL = dot(N, L);
     float cos = pow(NdotL * 0.5f + 0.5f, 2.0f);
 
@@ -75,20 +85,63 @@ PixelShaderOutput main(VertexShaderOutput input)
         cos *
         gDirectionalLight.intensity;
 
-    // 鏡面（Blinn-Phong）
     float NdotH = dot(N, halfVector);
     float specularPow = pow(saturate(NdotH), gMaterial.shininess);
 
     float3 specular =
         gDirectionalLight.color.rgb *
         gDirectionalLight.intensity *
-        specularPow; // 必要なら * float3(1,1,1)
+        specularPow;
 
+    // ==================================================
+    // PointLight（減衰計算：資料どおり）
+    // ==================================================
+
+    // 距離（資料どおり）
+    float distance = length(gPointLight.position - input.worldPosition);
+
+    // factor（資料どおり）
+    float factor = pow(
+        saturate(-distance / gPointLight.radius + 1.0f),
+        gPointLight.decay
+    );
+
+    // 光が当たってくる方向（light -> surface）※スライドの形
+    float3 Lp = normalize(input.worldPosition - gPointLight.position);
+
+    float3 halfVectorP = normalize(Lp + toEye);
+
+    // 拡散（Half-Lambert）
+    float NdotLp = dot(N, Lp);
+    float cosP = pow(NdotLp * 0.5f + 0.5f, 2.0f);
+
+    float3 diffusePoint =
+        gMaterial.color.rgb *
+        textureColor.rgb *
+        gPointLight.color.rgb *
+        cosP *
+        gPointLight.intensity *
+        factor; // ★減衰
+
+    // 鏡面（Blinn-Phong）
+    float NdotHp = dot(N, halfVectorP);
+    float specularPowP = pow(saturate(NdotHp), gMaterial.shininess);
+
+    float3 specularPoint =
+        gPointLight.color.rgb *
+        gPointLight.intensity *
+        specularPowP *
+        factor; // ★減衰
+
+    // 足し算（Directional + Point）
+    diffuse += diffusePoint;
+    specular += specularPoint;
+
+    // ------------------------------
+    // 出力
+    // ------------------------------
     output.color.rgb = diffuse + specular;
     output.color.a = gMaterial.color.a * textureColor.a;
 
     return output;
 }
-
-
-

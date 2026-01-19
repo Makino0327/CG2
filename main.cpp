@@ -87,6 +87,8 @@ struct CameraForGPU
 	float padding; // 16byte揃え（float3だけだとズレるので）
 };
 
+
+
 Matrix4x4 Transpose(const Matrix4x4& m) {
 	Matrix4x4 r{};
 	for (int row = 0; row < 4; ++row) {
@@ -356,7 +358,14 @@ ObjModelData LoadObjFile(const std::string& filePath) {
 
 	return model;
 }
-
+struct PointLight {
+	Vector4 color;
+	Vector3 position;
+	float intensity;
+	float radius;
+	float decay;
+	float padding[2]; // 16byte合わせ
+};
 
 // 1. ConvertString関数
 std::wstring ConvertString(const std::string& str) {
@@ -584,7 +593,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[5] = {};
+	D3D12_ROOT_PARAMETER rootParameters[6] = {};
 
 	// [0] Material（b0）→ PixelShader用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -612,6 +621,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rootParameters[4].Descriptor.ShaderRegister = 3; // b3
 	rootParameters[4].Descriptor.RegisterSpace = 0;
 	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL; // or PIXEL
+
+	// [5] PointLight（b4）
+	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[5].Descriptor.ShaderRegister = 4;
+
 
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -847,6 +862,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	directionalLightData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f); // 正規化されてること
 	directionalLightData->intensity = 1.0f;
+
+	// ===== PointLight =====
+	ID3D12Resource* pointLightResource =
+		CreateBufferResource(device, sizeof(PointLight));
+
+	PointLight* pointLightData = nullptr;
+	pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData));
+
+	// 初期値（好みで）
+	pointLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	pointLightData->position = { 0.0f, -2.0f, 10.0f }; // オブジェクトの近く
+	pointLightData->radius = 6.0f;
+	pointLightData->decay = 2.0f;
+	pointLightData->intensity = 2.0f;
+
+	pointLightData->padding[0] = 0.0f;
+	pointLightData->padding[1] = 0.0f;
+
+
 
 
 	// インプットレイアウト
@@ -1147,6 +1181,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// b3 camera ★これが抜けてた
 			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
+			// b4 PointLight
+			commandList->SetGraphicsRootConstantBufferView(
+				5,
+				pointLightResource->GetGPUVirtualAddress()
+			);
+
+
 			// SRV heap + t0
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
@@ -1215,6 +1256,38 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 			ImGui::End();
+
+			ImGui::Begin("Light");
+
+			// -------- DirectionalLight (あるなら) --------
+			// ImGui::SliderFloat3(...)
+
+			// -------- PointLight --------
+			ImGui::SeparatorText("PointLight");
+
+			// 位置
+			ImGui::DragFloat3("PL Position", &pointLightData->position.x, 0.01f, -50.0f, 50.0f);
+
+			// 色（ColorEdit3はRGBだけ。alpha触りたいならColorEdit4）
+			ImGui::ColorEdit3("PL Color", &pointLightData->color.x);
+
+			// 強度
+			ImGui::DragFloat("PL Intensity", &pointLightData->intensity, 0.01f, 0.0f, 10.0f);
+
+			// 届く範囲
+			ImGui::DragFloat("PL Radius", &pointLightData->radius, 0.01f, 0.01f, 10.0f);
+
+			// 減衰率（大きいほど急激）
+			ImGui::DragFloat("PL Decay", &pointLightData->decay, 0.01f, 0.01f, 10.0f);
+
+			// 便利：球をライト位置に追従させたいなら（任意）
+			// if (ImGui::Button("Move Sphere To Light")) { sphereTransform.translate = pointLightData->position; }
+
+			ImGui::End();
+
+			if (ImGui::Button("Light -> Sphere")) {
+				transform.translate = pointLightData->position; // 球をライト位置へ
+			}
 
 
 			ImGui::Render();
