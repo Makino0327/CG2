@@ -17,6 +17,12 @@
 #include "externals/DirectXTex/DirectXTex.h" // DirectXTexヘッダーをインクルード
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+
 
 // 必要なライブラリリンク
 #pragma comment(lib, "d3d12.lib")
@@ -208,6 +214,150 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	return handleGPU;
 }
 
+struct ObjModelData {
+	std::vector<VertexData> vertices; // 三角形リスト（indexなし）
+};
+
+static int ResolveObjIndex(int idx, int count) {
+	// OBJ: 1-based。負数は末尾基準
+	if (idx > 0) return idx - 1;
+	if (idx < 0) return count + idx;
+	return -1; // 0は無効
+}
+
+ObjModelData LoadObjFile(const std::string& filePath) {
+	ObjModelData model{};
+
+	std::ifstream file(filePath);
+	assert(file.is_open());
+
+	std::vector<Vector3> positions; // v
+	std::vector<Vector2> texcoords; // vt
+	std::vector<Vector3> normals;   // vn
+
+	std::string line;
+	while (std::getline(file, line)) {
+		if (line.empty()) continue;
+		if (line[0] == '#') continue;
+
+		std::istringstream iss(line);
+		std::string id;
+		iss >> id;
+
+		if (id == "v") {
+			Vector3 p{};
+			iss >> p.x >> p.y >> p.z;
+
+			// ★右手OBJ → 左手へ（Z反転）
+			p.z *= -1.0f;
+
+			positions.push_back(p);
+		} else if (id == "vt") {
+			Vector2 uv{};
+			iss >> uv.x >> uv.y;
+
+			// ★DirectX系に合わせてV反転
+			uv.y = 1.0f - uv.y;
+
+			texcoords.push_back(uv);
+		} else if (id == "vn") {
+			Vector3 n{};
+			iss >> n.x >> n.y >> n.z;
+
+			// ★右手OBJ → 左手へ（Z反転）
+			n.z *= -1.0f;
+
+			normals.push_back(Normalize(n));
+		} else if (id == "f") {
+			// f は "v/vt/vn" or "v//vn" or "v/vt" or "v" が来る
+			// 面は3以上あり得るので、fan triangulationする
+			struct Idx { int v = -1, vt = -1, vn = -1; };
+			std::vector<Idx> face;
+
+			std::string token;
+			while (iss >> token) {
+				Idx idx{};
+
+				// token を / 区切りで分解
+				// 例: "12/3/9", "12//9", "12/3", "12"
+				int slash1 = (int)token.find('/');
+				if (slash1 == (int)std::string::npos) {
+					// v
+					idx.v = std::stoi(token);
+				} else {
+					std::string a = token.substr(0, slash1);
+					idx.v = a.empty() ? 0 : std::stoi(a);
+
+					int slash2 = (int)token.find('/', slash1 + 1);
+					if (slash2 == (int)std::string::npos) {
+						// v/vt
+						std::string b = token.substr(slash1 + 1);
+						idx.vt = b.empty() ? 0 : std::stoi(b);
+					} else {
+						// v/vt/vn or v//vn
+						std::string b = token.substr(slash1 + 1, slash2 - (slash1 + 1));
+						std::string c = token.substr(slash2 + 1);
+						idx.vt = b.empty() ? 0 : std::stoi(b);
+						idx.vn = c.empty() ? 0 : std::stoi(c);
+					}
+				}
+
+				face.push_back(idx);
+			}
+
+			if (face.size() < 3) continue;
+
+			auto makeVertex = [&](const Idx& fidx) -> VertexData {
+				VertexData out{};
+
+				int pi = ResolveObjIndex(fidx.v, (int)positions.size());
+				assert(pi >= 0 && pi < (int)positions.size());
+				Vector3 p = positions[pi];
+
+				Vector2 uv{ 0.0f, 0.0f };
+				if (!texcoords.empty() && fidx.vt != -1 && fidx.vt != 0) {
+					int ti = ResolveObjIndex(fidx.vt, (int)texcoords.size());
+					if (ti >= 0 && ti < (int)texcoords.size()) uv = texcoords[ti];
+				}
+
+				Vector3 n{ 0.0f, 1.0f, 0.0f };
+				if (!normals.empty() && fidx.vn != -1 && fidx.vn != 0) {
+					int ni = ResolveObjIndex(fidx.vn, (int)normals.size());
+					if (ni >= 0 && ni < (int)normals.size()) n = normals[ni];
+				} else {
+					// vnが無いOBJの場合：とりあえず上向き（必要なら面法線計算に変えてOK）
+					n = Normalize(n);
+				}
+
+				out.position = { p.x, p.y, p.z, 1.0f };
+				out.texcoord = uv;
+				out.normal = n;
+				out.pad = 0.0f;
+				return out;
+				};
+
+			// ★fan triangulation: (0, i, i+1)
+			for (size_t i = 1; i + 1 < face.size(); ++i) {
+				VertexData v0 = makeVertex(face[0]);
+				VertexData v1 = makeVertex(face[i]);
+				VertexData v2 = makeVertex(face[i + 1]);
+
+				// 右手→左手変換で面の向きが反転しやすいので、
+				// 必要なら v1 と v2 を入れ替えて winding を揃える
+				// （カリングが逆ならここをONに）
+				// std::swap(v1, v2);
+
+				model.vertices.push_back(v0);
+				model.vertices.push_back(v1);
+				model.vertices.push_back(v2);
+			}
+		}
+	}
+
+	return model;
+}
+
+
 // 1. ConvertString関数
 std::wstring ConvertString(const std::string& str) {
 	int len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, nullptr, 0);
@@ -223,6 +373,8 @@ void Log(const std::wstring& message) {
 	OutputDebugStringW(message.c_str());
 	OutputDebugStringW(L"\n"); // 改行も出す
 }
+
+
 
 // DXGI_DEBUG系のGUID定義
 EXTERN_C const GUID DECLSPEC_SELECTANY DXGI_DEBUG_ALL = { 0xe48ae283, 0xda80, 0x490b, { 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x08 } };
@@ -381,7 +533,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 
 	// Textureを読んで転送する
-	DirectX::ScratchImage mipImages = LoadTexture("Resources/uvChecker.png");
+	DirectX::ScratchImage mipImages = LoadTexture("Resources/grass.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
 	UploadTextureData(textureResource, mipImages);
@@ -609,6 +761,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	VertexData* vertexDataSprite = nullptr;
 	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
 
+	// ===== OBJ 用 =====
+	ID3D12Resource* vertexResourceObj = nullptr;
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewObj{};
+	UINT objVertexCount = 0;
+
+
 	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
 	// リソースの先頭のアドレスから使う
 	indexBufferViewSprite.BufferLocation = indexResourceSprite->GetGPUVirtualAddress();
@@ -731,7 +889,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// ラスタライザーステイト
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
 	// 裏面（時計回り）を表示しない
-	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+	rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE;
 	// 三角形の中を塗りつぶす
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
@@ -787,6 +945,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// 1つの頂点のサイズ
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
 
+	// ===== OBJ 読み込み → VB 作成 =====
+	ObjModelData obj = LoadObjFile("Resources/terrain.obj"); // ここ好きなOBJへ
+	objVertexCount = (UINT)obj.vertices.size();
+	assert(objVertexCount > 0);
+
+	// OBJ頂点バッファ
+	vertexResourceObj = CreateBufferResource(device, sizeof(VertexData) * objVertexCount);
+
+	// View
+	vertexBufferViewObj.BufferLocation = vertexResourceObj->GetGPUVirtualAddress();
+	vertexBufferViewObj.SizeInBytes = (UINT)(sizeof(VertexData) * objVertexCount);
+	vertexBufferViewObj.StrideInBytes = sizeof(VertexData);
+
+	// コピー
+	VertexData* mappedObj = nullptr;
+	HRESULT hr2 = vertexResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&mappedObj));
+	assert(SUCCEEDED(hr2));
+	memcpy(mappedObj, obj.vertices.data(), sizeof(VertexData)* objVertexCount);
+	vertexResourceObj->Unmap(0, nullptr);
 
 
 	VertexData* vertexData = nullptr;
@@ -885,13 +1062,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			static Transform transform = {
 				  {1.0f, 1.0f, 1.0f},  // scale
 				  {0.0f, 0.0f, 0.0f},  // rotate
-				  {0.0f, 0.0f, 0.0f}   // translate
+				  {0.0f, -2.0f, 10.0f}   // translate
 			};
 
 			static Transform cameraTransform = {
 				  {1.0f, 1.0f, 1.0f},  // scale
-				  {0.0f, 0.0f, 0.0f},  // rotate
-				  {0.0f, 0.0f, -10.0f}   // translate
+				  {0.1f, 0.0f, 0.0f},  // rotate
+				  {0.0f, 0.0f, -5.0f}   // translate
 			};
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
@@ -979,7 +1156,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetPipelineState(graphicsPipelineState);
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU2);
 			commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
+
+			// ===== OBJ描画（球の後） =====
+			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewObj);
+			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+			commandList->DrawInstanced(objVertexCount, 1, 0, 0);
 
 
 			// Spriteの描画
