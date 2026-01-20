@@ -358,13 +358,31 @@ ObjModelData LoadObjFile(const std::string& filePath) {
 
 	return model;
 }
+
+
 struct PointLight {
 	Vector4 color;
 	Vector3 position;
 	float intensity;
 	float radius;
 	float decay;
-	float padding[2]; // 16byte合わせ
+	int32_t enable;     // ★追加
+	float padding[1];   // ★16byte合わせ（合計で調整）
+};
+
+struct SpotLight {
+	Vector4 color;
+	Vector3 position;
+	float intensity;
+
+	Vector3 direction;
+	float distance;
+
+	float decay;
+	float cosAngle;
+	float cosFalloffStart; // ★追加（スライド通り）
+	int32_t enable;        // ★追加
+	float padding[1];      // ★16byte合わせ
 };
 
 // 1. ConvertString関数
@@ -593,7 +611,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[6] = {};
+	D3D12_ROOT_PARAMETER rootParameters[7] = {};
 
 	// [0] Material（b0）→ PixelShader用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -626,6 +644,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[5].Descriptor.ShaderRegister = 4;
+
+	// [6] SpotLight（b5）
+	rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[6].Descriptor.ShaderRegister = 5; // b5
+	rootParameters[6].Descriptor.RegisterSpace = 0;
+
 
 
 
@@ -882,6 +907,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 
+	// ===== SpotLight =====
+	ID3D12Resource* spotLightResource =
+		CreateBufferResource(device, sizeof(SpotLight));
+
+	SpotLight* spotLightData = nullptr;
+	spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData));
+
+	// 初期値（例）
+	spotLightData->color = { 1, 1, 1, 1 };
+	spotLightData->position = { 5.0f, 1.0f, 10.0f };
+	spotLightData->intensity = 4.0f;
+
+	// 方向（左手系なら「+Zが前」想定のままでOK）
+	spotLightData->direction = Normalize({ -1.0f, -1.0f, 0.0f }); // 斜め前下など
+	spotLightData->distance = 50.0f;
+	spotLightData->decay = 2.0f;
+
+	// cosAngle：例えば 30度なら cos(30°)
+	spotLightData->cosAngle = cosf(30.0f * float(M_PI) / 180.0f);
+
+	float outerDeg = 30.0f;
+	float innerDeg = 20.0f;
+
+	spotLightData->cosAngle = cosf(outerDeg * float(M_PI) / 180.0f);
+	spotLightData->cosFalloffStart = cosf(innerDeg * float(M_PI) / 180.0f);
+
+	
+	pointLightData->enable = 1;
+	spotLightData->enable = 1;
+
+
 
 	// インプットレイアウト
 	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
@@ -1078,6 +1134,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	bool useMonsterBall = true;
 
+	static bool drawSphere = true;
+	static bool drawObj = true;
+	static bool drawSprite = true;
+
+	static bool enableDirectional = true;
+	static bool enablePoint = true;
+	static bool enableSpot = true;
+
+
 	// --- メインループ ---
 	MSG msg{};
 	while (msg.message != WM_QUIT) {
@@ -1147,6 +1212,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
+			directionalLightData->intensity = enableDirectional ? directionalLightData->intensity : 0.0f; // これは雑なので下のPS方式推奨
+			pointLightData->enable = enablePoint ? 1 : 0;
+			spotLightData->enable = enableSpot ? 1 : 0;
+
+
 			// Present -> RenderTargetに遷移
 			D3D12_RESOURCE_BARRIER barrierBegin{};
 			barrierBegin.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1187,6 +1257,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				pointLightResource->GetGPUVirtualAddress()
 			);
 
+			// b5 SpotLight
+			commandList->SetGraphicsRootConstantBufferView(
+				6,
+				spotLightResource->GetGPUVirtualAddress()
+			);
+
+
 
 			// SRV heap + t0
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
@@ -1195,32 +1272,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// draw
 			commandList->SetPipelineState(graphicsPipelineState);
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU2);
-			commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
+			if (drawSphere) {
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU2);
+				commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
+			}
 
-			// ===== OBJ描画（球の後） =====
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewObj);
-			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
-			commandList->DrawInstanced(objVertexCount, 1, 0, 0);
+			// OBJ
+			if (drawObj) {
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewObj);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+				commandList->DrawInstanced(objVertexCount, 1, 0, 0);
+			}
+
 
 
 			// Spriteの描画
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-			commandList->IASetIndexBuffer(&indexBufferViewSprite);
+			//commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+			//commandList->IASetIndexBuffer(&indexBufferViewSprite);
 
-			// マテリアルをSprite用に切り替え
-			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-			// TransformationMatrixCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+			//// マテリアルをSprite用に切り替え
+			//commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+			//commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
+			//// TransformationMatrixCBufferの場所を設定
+			//commandList->SetGraphicsRootConstantBufferView(2, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 
-			commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
-			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
+			//commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+			//commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
-			commandList -> DrawIndexedInstanced(6, 1, 0, 0, 0); // Spriteの描画
+			//commandList -> DrawIndexedInstanced(6, 1, 0, 0, 0); // Spriteの描画
 
 			//描画
 			
@@ -1228,6 +1310,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
+
+			ImGui::Begin("Render Toggle");
+			ImGui::Checkbox("Draw Sphere", &drawSphere);
+			ImGui::Checkbox("Draw OBJ", &drawObj);
+			ImGui::Checkbox("Draw Sprite", &drawSprite);
+			ImGui::End();
+
+			ImGui::Begin("Light Toggle");
+			ImGui::Checkbox("Directional", &enableDirectional);
+			ImGui::Checkbox("Point", &enablePoint);
+			ImGui::Checkbox("Spot", &enableSpot);
+			ImGui::End();
+
 
 			// 自作ウィンドウだけ表示する
 			ImGui::Begin("Sprite Transform");
@@ -1285,9 +1380,47 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			ImGui::End();
 
-			if (ImGui::Button("Light -> Sphere")) {
-				transform.translate = pointLightData->position; // 球をライト位置へ
-			}
+			ImGui::Begin("Light");
+
+			ImGui::SeparatorText("PointLight");
+			// （あなたのPointLight UIはそのまま）
+
+			ImGui::SeparatorText("SpotLight");
+
+			// Position
+			ImGui::DragFloat3("SL Position", &spotLightData->position.x, 0.01f, -50.0f, 50.0f);
+
+			// Direction（正規化するのが大事）
+			ImGui::DragFloat3("SL Direction", &spotLightData->direction.x, 0.01f, -1.0f, 1.0f);
+			spotLightData->direction = Normalize(spotLightData->direction);
+
+			// Color
+			ImGui::ColorEdit3("SL Color", &spotLightData->color.x);
+
+			// Intensity / Distance / Decay
+			ImGui::DragFloat("SL Intensity", &spotLightData->intensity, 0.01f, 0.0f, 20.0f);
+			ImGui::DragFloat("SL Distance", &spotLightData->distance, 0.01f, 0.01f, 200.0f);
+			ImGui::DragFloat("SL Decay", &spotLightData->decay, 0.01f, 0.01f, 10.0f);
+
+			// Angle（度で触ってcosに変換すると扱いやすい）
+			static float slAngleDeg = 30.0f;
+			ImGui::SliderFloat("SL Angle(deg)", &slAngleDeg, 1.0f, 89.0f);
+			spotLightData->cosAngle = cosf(slAngleDeg * float(M_PI) / 180.0f);
+
+			static float slOuterDeg = 30.0f; // 外側
+			static float slInnerDeg = 20.0f; // 内側
+
+			ImGui::SliderFloat("SL Outer (deg)", &slOuterDeg, 1.0f, 89.0f);
+			ImGui::SliderFloat("SL Inner (deg)", &slInnerDeg, 0.0f, 88.0f);
+
+			// inner は outer より小さく（内側なので）
+			if (slInnerDeg >= slOuterDeg) slInnerDeg = slOuterDeg - 0.1f;
+
+			spotLightData->cosAngle = cosf(slOuterDeg * float(M_PI) / 180.0f);
+			spotLightData->cosFalloffStart = cosf(slInnerDeg * float(M_PI) / 180.0f);
+
+
+			ImGui::End();
 
 
 			ImGui::Render();
