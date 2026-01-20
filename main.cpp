@@ -30,12 +30,22 @@
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib,"dxcompiler.lib")
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <unordered_map>
+
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 
 // Vector4型を定義する
 struct Vector4 {
 	float x, y, z, w;
+	Vector4() = default;
+	Vector4(float X, float Y, float Z, float W) :x(X), y(Y), z(Z), w(W) {}
 };
+
 
 struct Vector3 {
 	float x, y, z;
@@ -87,7 +97,11 @@ struct CameraForGPU
 	float padding; // 16byte揃え（float3だけだとズレるので）
 };
 
-
+struct ObjModelData {
+	std::vector<VertexData> vertices; // 三角形リスト用（非indexed）
+	std::vector<uint32_t>   indices;    // indexed用
+	std::string diffuseTexturePath;     // 取得できたら入る
+};
 
 Matrix4x4 Transpose(const Matrix4x4& m) {
 	Matrix4x4 r{};
@@ -164,7 +178,7 @@ ID3D12DescriptorHeap* CreateDescriptorHeap(ID3D12Device* device, D3D12_DESCRIPTO
 	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
 	assert(SUCCEEDED(hr));
 	return descriptorHeap;
-}\
+}
 ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
 	// 生成するResourceの設定
@@ -216,9 +230,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	return handleGPU;
 }
 
-struct ObjModelData {
-	std::vector<VertexData> vertices; // 三角形リスト（indexなし）
-};
 
 static int ResolveObjIndex(int idx, int count) {
 	// OBJ: 1-based。負数は末尾基準
@@ -359,6 +370,128 @@ ObjModelData LoadObjFile(const std::string& filePath) {
 	return model;
 }
 
+ObjModelData LoadObjFileAssimp(
+	const std::string& directoryPath,
+	const std::string& filename,
+	bool useIndex // true: indexed / false: 三角形リスト
+) {
+	ObjModelData model{};
+
+	Assimp::Importer importer;
+
+	const unsigned int flags =
+		aiProcess_Triangulate |
+		aiProcess_FlipWindingOrder |
+		aiProcess_FlipUVs;
+
+	const std::string filePath = directoryPath + "/" + filename;
+	const aiScene* scene = importer.ReadFile(filePath.c_str(), flags);
+	assert(scene && scene->HasMeshes());
+
+	// -----------------------------
+	// material を解析（資料14）
+	// 簡易版：Diffuse 1枚だけ採用
+	// -----------------------------
+	for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; ++materialIndex) {
+		aiMaterial* material = scene->mMaterials[materialIndex];
+		assert(material);
+
+		if (material->GetTextureCount(aiTextureType_DIFFUSE) != 0) {
+			aiString textureFilePath;
+			material->GetTexture(aiTextureType_DIFFUSE, 0, &textureFilePath);
+			model.diffuseTexturePath = directoryPath + "/" + std::string(textureFilePath.C_Str());
+			break;
+		}
+	}
+
+	// -----------------------------
+	// mesh / face / vertex を解析（資料10〜13）
+	// -----------------------------
+	if (!useIndex) {
+		// ===== 非indexed：資料そのまま（三角形の頂点を3つpush）=====
+		for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex) {
+			aiMesh* mesh = scene->mMeshes[meshIndex];
+			assert(mesh);
+			assert(mesh->HasNormals());
+			assert(mesh->HasTextureCoords(0));
+
+			for (uint32_t faceIndex = 0; faceIndex < mesh->mNumFaces; ++faceIndex) {
+				aiFace& face = mesh->mFaces[faceIndex];
+				assert(face.mNumIndices == 3);
+
+				for (uint32_t element = 0; element < face.mNumIndices; ++element) {
+					uint32_t vertexIndex = face.mIndices[element];
+
+					aiVector3D p = mesh->mVertices[vertexIndex];
+					aiVector3D n = mesh->mNormals[vertexIndex];
+					aiVector3D uv = mesh->mTextureCoords[0][vertexIndex];
+
+					VertexData v{};
+					v.position = { p.x, p.y, p.z, 1.0f };
+					v.normal = { n.x, n.y, n.z };
+					v.texcoord = { uv.x, uv.y };
+					v.pad = 0.0f;
+
+					// 左手座標系寄せ：Z反転（資料の例）
+					v.position.z *= -1.0f;
+					v.normal.z *= -1.0f;
+
+					model.vertices.push_back(v);
+				}
+			}
+		}
+	} else {
+		// ===== indexed：index buffer を作る =====
+		// 方式：meshの “vertexIndex” をそのまま unique 化して VB を作り、FaceはIBで参照する
+		// これが一番簡単で、資料の次ステップとして自然。
+
+		// どの vertexIndex が、VBの何番になったか
+		std::unordered_map<uint32_t, uint32_t> remap;
+		remap.reserve(65536);
+
+		for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex) {
+			aiMesh* mesh = scene->mMeshes[meshIndex];
+			assert(mesh);
+			assert(mesh->HasNormals());
+			assert(mesh->HasTextureCoords(0));
+
+			for (uint32_t faceIndex = 0; faceIndex < mesh->mNumFaces; ++faceIndex) {
+				aiFace& face = mesh->mFaces[faceIndex];
+				assert(face.mNumIndices == 3);
+
+				for (uint32_t element = 0; element < 3; ++element) {
+					uint32_t srcIndex = face.mIndices[element];
+
+					auto it = remap.find(srcIndex);
+					if (it == remap.end()) {
+						aiVector3D p = mesh->mVertices[srcIndex];
+						aiVector3D n = mesh->mNormals[srcIndex];
+						aiVector3D uv = mesh->mTextureCoords[0][srcIndex];
+
+						VertexData v{};
+						v.position = { p.x, p.y, p.z, 1.0f };
+						v.normal = { n.x, n.y, n.z };
+						v.texcoord = { uv.x, uv.y };
+						v.pad = 0.0f;
+
+						// 左手座標系寄せ：Z反転（資料の例）
+						v.position.z *= -1.0f;
+						v.normal.z *= -1.0f;
+
+						uint32_t newIndex = static_cast<uint32_t>(model.vertices.size());
+						model.vertices.push_back(v);
+						remap[srcIndex] = newIndex;
+						model.indices.push_back(newIndex);
+					} else {
+						model.indices.push_back(it->second);
+					}
+				}
+			}
+		}
+	}
+
+	return model;
+}
 
 struct PointLight {
 	Vector4 color;
@@ -806,6 +939,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewObj{};
 	UINT objVertexCount = 0;
 
+	// ★追加
+	UINT objIndexCount = 0;
+	ID3D12Resource* indexResourceObj = nullptr;
+	D3D12_INDEX_BUFFER_VIEW indexBufferViewObj{};
+
+
 
 	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
 	// リソースの先頭のアドレスから使う
@@ -855,9 +994,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 	// Sprite用のTransformationMatrix用のリソースを作る
-	ID3D12Resource* transformationMatrixResourceSprite = CreateBufferResource(device, sizeof(Matrix4x4));
+	ID3D12Resource* transformationMatrixResourceSprite =
+		CreateBufferResource(device, sizeof(TransformationMatrix));
+
 	TransformationMatrix* transformationMatrixDataSprite = nullptr;
-	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
+	transformationMatrixResourceSprite->Map(0, nullptr,
+		reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
 	// マテリアル用のリソースを作る
 	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Material));
@@ -865,7 +1007,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// マテリアルにデータを書き込む
 	Material* materialData = nullptr;
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = 1;
 	materialData->shininess = 32.0f;   // 例：スライド通り “光沢度”
 
@@ -1036,9 +1178,65 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
 
 	// ===== OBJ 読み込み → VB 作成 =====
-	ObjModelData obj = LoadObjFile("Resources/terrain.obj"); // ここ好きなOBJへ
+	//ObjModelData obj = LoadObjFile("Resources/terrain.obj"); // ここ好きなOBJへ
+	/*objVertexCount = (UINT)obj.vertices.size();
+	assert(objVertexCount > 0);*/
+
+	// ===== OBJ 読み込み → VB/IB 作成 =====
+	bool useIndex = true; // indexedで描くならtrue
+
+	ObjModelData obj = LoadObjFileAssimp("Resources", "terrain.obj", useIndex);
+	Log(ConvertString("OBJ diffuseTexturePath: " + obj.diffuseTexturePath));
+
+	// ★ここが抜けてた：カウントを代入
 	objVertexCount = (UINT)obj.vertices.size();
 	assert(objVertexCount > 0);
+
+	if (useIndex) {
+		objIndexCount = (UINT)obj.indices.size();
+		assert(objIndexCount > 0);
+	}
+
+	// --- OBJ VertexBuffer ---
+	//vertexResourceObj = CreateBufferResource(device, sizeof(VertexData) * objVertexCount);
+
+	//vertexBufferViewObj.BufferLocation = vertexResourceObj->GetGPUVirtualAddress();
+	//vertexBufferViewObj.SizeInBytes = (UINT)(sizeof(VertexData) * objVertexCount);
+	//vertexBufferViewObj.StrideInBytes = sizeof(VertexData);
+
+	//// VBへコピー
+	//{
+	//	VertexData* mappedObj = nullptr;
+	//	HRESULT hr2 = vertexResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&mappedObj));
+	//	assert(SUCCEEDED(hr2));
+	//	memcpy(mappedObj, obj.vertices.data(), sizeof(VertexData) * objVertexCount);
+	//	vertexResourceObj->Unmap(0, nullptr);
+	//}
+
+	// --- OBJ IndexBuffer（indexedのときだけ）---
+	if (useIndex) {
+		indexResourceObj = CreateBufferResource(device, sizeof(uint32_t) * objIndexCount);
+
+		uint32_t* indexDataObj = nullptr;
+		HRESULT hr3 = indexResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&indexDataObj));
+		assert(SUCCEEDED(hr3));
+		memcpy(indexDataObj, obj.indices.data(), sizeof(uint32_t) * objIndexCount);
+		indexResourceObj->Unmap(0, nullptr);
+
+		indexBufferViewObj.BufferLocation = indexResourceObj->GetGPUVirtualAddress();
+		indexBufferViewObj.SizeInBytes = (UINT)(sizeof(uint32_t) * objIndexCount);
+		indexBufferViewObj.Format = DXGI_FORMAT_R32_UINT;
+	}
+
+	/*uint32_t* indexData = nullptr;
+	indexResource->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
+	memcpy(indexData, obj.indices.data(), sizeof(uint32_t) * obj.indices.size());
+	indexResource->Unmap(0, nullptr);*/
+
+	/*D3D12_INDEX_BUFFER_VIEW ibv{};
+	ibv.BufferLocation = indexResource->GetGPUVirtualAddress();
+	ibv.SizeInBytes = (UINT)(sizeof(uint32_t) * obj.indices.size());
+	ibv.Format = DXGI_FORMAT_R32_UINT;*/
 
 	// OBJ頂点バッファ
 	vertexResourceObj = CreateBufferResource(device, sizeof(VertexData) * objVertexCount);
@@ -1211,7 +1409,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
-
+			static float dirDefaultIntensity = 1.0f;
 			directionalLightData->intensity = enableDirectional ? directionalLightData->intensity : 0.0f; // これは雑なので下のPS方式推奨
 			pointLightData->enable = enablePoint ? 1 : 0;
 			spotLightData->enable = enableSpot ? 1 : 0;
@@ -1276,16 +1474,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU2);
+
 				commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
 			}
 
-			// OBJ
 			if (drawObj) {
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewObj);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
-				commandList->DrawInstanced(objVertexCount, 1, 0, 0);
+
+				if (useIndex) {
+					commandList->IASetIndexBuffer(&indexBufferViewObj);
+					commandList->DrawIndexedInstanced(objIndexCount, 1, 0, 0, 0);
+				} else {
+					commandList->DrawInstanced(objVertexCount, 1, 0, 0);
+				}
 			}
+
+
 
 
 
