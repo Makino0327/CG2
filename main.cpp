@@ -65,6 +65,12 @@ struct Transform {
 	Vector3 translate;
 };
 
+struct Node {
+	Matrix4x4 localMatrix;   // Nodeのローカル変換
+	std::string name;        // Node名
+	std::vector<Node> children; // 子Node
+};
+
 struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
@@ -100,7 +106,8 @@ struct CameraForGPU
 struct ObjModelData {
 	std::vector<VertexData> vertices; // 三角形リスト用（非indexed）
 	std::vector<uint32_t>   indices;    // indexed用
-	std::string diffuseTexturePath;     // 取得できたら入る
+	std::string diffuseTexturePath;  
+	Node rootNode;     // 取得できたら入る
 };
 
 Matrix4x4 Transpose(const Matrix4x4& m) {
@@ -237,6 +244,48 @@ static int ResolveObjIndex(int idx, int count) {
 	if (idx < 0) return count + idx;
 	return -1; // 0は無効
 }
+
+Node ReadNode(aiNode* node) {
+	Node result;
+
+	aiMatrix4x4 aiLocalMatrix = node->mTransformation;
+
+	// ★Assimpの並び → 自前行列の並びに合わせる
+	aiLocalMatrix.Transpose();
+
+	// localMatrix をコピー
+	result.localMatrix.m[0][0] = aiLocalMatrix.a1;
+	result.localMatrix.m[0][1] = aiLocalMatrix.a2;
+	result.localMatrix.m[0][2] = aiLocalMatrix.a3;
+	result.localMatrix.m[0][3] = aiLocalMatrix.a4;
+
+	result.localMatrix.m[1][0] = aiLocalMatrix.b1;
+	result.localMatrix.m[1][1] = aiLocalMatrix.b2;
+	result.localMatrix.m[1][2] = aiLocalMatrix.b3;
+	result.localMatrix.m[1][3] = aiLocalMatrix.b4;
+
+	result.localMatrix.m[2][0] = aiLocalMatrix.c1;
+	result.localMatrix.m[2][1] = aiLocalMatrix.c2;
+	result.localMatrix.m[2][2] = aiLocalMatrix.c3;
+	result.localMatrix.m[2][3] = aiLocalMatrix.c4;
+
+	result.localMatrix.m[3][0] = aiLocalMatrix.d1;
+	result.localMatrix.m[3][1] = aiLocalMatrix.d2;
+	result.localMatrix.m[3][2] = aiLocalMatrix.d3;
+	result.localMatrix.m[3][3] = aiLocalMatrix.d4;
+
+	// 名前
+	result.name = node->mName.C_Str();
+
+	// 子
+	result.children.resize(node->mNumChildren);
+	for (uint32_t childIndex = 0; childIndex < node->mNumChildren; ++childIndex) {
+		result.children[childIndex] = ReadNode(node->mChildren[childIndex]);
+	}
+
+	return result;
+}
+
 
 ObjModelData LoadObjFile(const std::string& filePath) {
 	ObjModelData model{};
@@ -490,6 +539,7 @@ ObjModelData LoadObjFileAssimp(
 		}
 	}
 
+	model.rootNode = ReadNode(scene->mRootNode);
 	return model;
 }
 
@@ -693,7 +743,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	assert(SUCCEEDED(hr));
 
 	// Textureを読んで転送する
-	DirectX::ScratchImage mipImages = LoadTexture("Resources/grass.png");
+	DirectX::ScratchImage mipImages = LoadTexture("Resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
 	UploadTextureData(textureResource, mipImages);
@@ -1012,12 +1062,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	materialData->shininess = 32.0f;   // 例：スライド通り “光沢度”
 
 
-	// WVP + World用の定数バッファリソースを作る
-	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(TransformationMatrix));
-	TransformationMatrix* wvpData = nullptr;
-	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
-	wvpData->WVP = MakeIdentity4x4();
-	wvpData->World = MakeIdentity4x4();
+	auto Align256 = [](size_t s) { return (s + 0xFF) & ~0xFF; };
+	const size_t kWvpSize = Align256(sizeof(TransformationMatrix));
+
+	// ★Sphere用
+	ID3D12Resource* wvpResourceSphere = CreateBufferResource(device, kWvpSize);
+	TransformationMatrix* wvpDataSphere = nullptr;
+	wvpResourceSphere->Map(0, nullptr, reinterpret_cast<void**>(&wvpDataSphere));
+
+	// ★OBJ用
+	ID3D12Resource* wvpResourceObj = CreateBufferResource(device, kWvpSize);
+	TransformationMatrix* wvpDataObj = nullptr;
+	wvpResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&wvpDataObj));
+
+	wvpDataSphere->WVP = MakeIdentity4x4();
+	wvpDataSphere->World = MakeIdentity4x4();
+	wvpDataSphere->WorldInverseTranspose = MakeIdentity4x4();
+
+	wvpDataObj->WVP = MakeIdentity4x4();
+	wvpDataObj->World = MakeIdentity4x4();
+	wvpDataObj->WorldInverseTranspose = MakeIdentity4x4();
+
 
 	// ライト用の定数バッファリソースを作成
 	ID3D12Resource* directionalLightResource = CreateBufferResource(device, sizeof(DirectionalLight));
@@ -1185,7 +1250,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	// ===== OBJ 読み込み → VB/IB 作成 =====
 	bool useIndex = true; // indexedで描くならtrue
 
-	ObjModelData obj = LoadObjFileAssimp("Resources", "terrain.obj", useIndex);
+	ObjModelData obj = LoadObjFileAssimp("Resources", "plane.gltf", useIndex);
 	Log(ConvertString("OBJ diffuseTexturePath: " + obj.diffuseTexturePath));
 
 	// ★ここが抜けてた：カウントを代入
@@ -1367,20 +1432,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				  {0.1f, 0.0f, 0.0f},  // rotate
 				  {0.0f, 0.0f, -5.0f}   // translate
 			};
+
+			// Sphere用
+			static Transform transformSphere = {
+			  {1.0f, 1.0f, 1.0f},
+			  {0.0f, 0.0f, 0.0f},
+			  {0.0f, -2.0f, 10.0f}
+			};
+
+			// ★OBJ用（別物）
+			static Transform transformObj = {
+			  {1.0f, 1.0f, 1.0f},
+			  {0.0f, 0.0f, 0.0f},
+			  {0.0f, -2.0f, 10.0f}
+			};
+
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
-			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);  // カメラをZ方向に引く
+			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
 			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
 				0.45f,
 				float(kClientWidth) / float(kClientHeight),
-				0.1f, 100.0f);
-			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			wvpData->WVP = worldViewProjectionMatrix;
-			wvpData->World = worldMatrix;
+				0.1f, 100.0f
+			);
 
-			Matrix4x4 worldInverse = Inverse(worldMatrix);
-			wvpData->WorldInverseTranspose = Transpose(worldInverse);
+			// Sphere用
+			Matrix4x4 worldSphere = MakeAffineMatrix(transformSphere.scale, transformSphere.rotate, transformSphere.translate);
+			wvpDataSphere->World = worldSphere;
+			wvpDataSphere->WVP = Multiply(worldSphere, Multiply(viewMatrix, projectionMatrix));
+			wvpDataSphere->WorldInverseTranspose = Transpose(Inverse(worldSphere));
+
+			// Obj用
+			Matrix4x4 worldObj = MakeAffineMatrix(transformObj.scale, transformObj.rotate, transformObj.translate);
+			Matrix4x4 worldObjWithRoot = Multiply(obj.rootNode.localMatrix, worldObj);
+
+			wvpDataObj->World = worldObj;
+			wvpDataObj->WVP = Multiply(worldObj, Multiply(viewMatrix, projectionMatrix));
+			wvpDataObj->WorldInverseTranspose = Transpose(Inverse(worldObj));
 
 
 			cameraData->worldPosition = cameraTransform.translate;
@@ -1435,8 +1524,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 			// DrawCall
-			commandList->RSSetViewports(1, &viewport);   // Viewportを設定
-			commandList->RSSetScissorRects(1, &scissorRect);   // Scissorを設定
+			commandList->RSSetViewports(1, &viewport);
+			commandList->RSSetScissorRects(1, &scissorRect);
 
 			commandList->SetGraphicsRootSignature(rootSignature);
 
@@ -1444,44 +1533,64 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			// b1 light
 			commandList->SetGraphicsRootConstantBufferView(1, directionalLightResource->GetGPUVirtualAddress());
-			// b2 transform(WVP/World)
-			commandList->SetGraphicsRootConstantBufferView(2, wvpResource->GetGPUVirtualAddress());
-			// b3 camera ★これが抜けてた
+
+			// b3 camera（rootIndexはあなたのRootSignatureに合わせて）
 			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
 			// b4 PointLight
-			commandList->SetGraphicsRootConstantBufferView(
-				5,
-				pointLightResource->GetGPUVirtualAddress()
-			);
+			commandList->SetGraphicsRootConstantBufferView(5, pointLightResource->GetGPUVirtualAddress());
 
 			// b5 SpotLight
-			commandList->SetGraphicsRootConstantBufferView(
-				6,
-				spotLightResource->GetGPUVirtualAddress()
-			);
-
-
+			commandList->SetGraphicsRootConstantBufferView(6, spotLightResource->GetGPUVirtualAddress());
 
 			// SRV heap + t0
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
-			commandList->SetGraphicsRootDescriptorTable(3, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
 			// draw
 			commandList->SetPipelineState(graphicsPipelineState);
+
 			if (drawSphere) {
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				Matrix4x4 worldSphere =
+					MakeAffineMatrix(transformSphere.scale, transformSphere.rotate, transformSphere.translate);
+
+				// Sphere は自前生成なので RootNode は掛けない
+				wvpDataSphere->World = worldSphere;
+				wvpDataSphere->WVP = Multiply(worldSphere, Multiply(viewMatrix, projectionMatrix));
+				wvpDataSphere->WorldInverseTranspose = Transpose(Inverse(worldSphere));
+
+				// b2 transform(WVP/World) を Sphere用に差し替え
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceSphere->GetGPUVirtualAddress());
+
+				// t0
 				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU2);
 
+				// draw
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				commandList->DrawInstanced((UINT)vertexDataSphere.size(), 1, 0, 0);
 			}
 
 			if (drawObj) {
+				Matrix4x4 worldObj =
+					MakeAffineMatrix(transformObj.scale, transformObj.rotate, transformObj.translate);
+
+				// ★ glTF/assimp の RootNode 行列を適用
+				Matrix4x4 worldObjWithRoot = Multiply(obj.rootNode.localMatrix, worldObj);
+
+				wvpDataObj->World = worldObjWithRoot;
+				wvpDataObj->WVP = Multiply(worldObjWithRoot, Multiply(viewMatrix, projectionMatrix));
+				wvpDataObj->WorldInverseTranspose = Transpose(Inverse(worldObjWithRoot));
+
+				// b2 transform(WVP/World) を Obj用に差し替え
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceObj->GetGPUVirtualAddress());
+
+				// t0
+				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+
+				// draw
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewObj);
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
 
 				if (useIndex) {
 					commandList->IASetIndexBuffer(&indexBufferViewObj);
@@ -1490,6 +1599,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 					commandList->DrawInstanced(objVertexCount, 1, 0, 0);
 				}
 			}
+
 
 
 
@@ -1542,9 +1652,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// ↓ 以下を追加
 			ImGui::Separator();
 			ImGui::Text("Sphere Controls");
-			ImGui::SliderFloat3("Sphere Translate", &transform.translate.x, -10.0f, 10.0f);
-			ImGui::SliderFloat3("Sphere Rotate", &transform.rotate.x, -3.14f, 3.14f);
-			ImGui::SliderFloat3("Sphere Scale", &transform.scale.x, 0.0f, 5.0f);
+			ImGui::SliderFloat3("Sphere Translate", &transformSphere.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("Sphere Rotate", &transformSphere.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Sphere Scale", &transformSphere.scale.x, 0.0f, 5.0f);
+
+			ImGui::Separator();
+			ImGui::Text("OBJ Controls");
+			ImGui::SliderFloat3("OBJ Translate", &transformObj.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("OBJ Rotate", &transformObj.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("OBJ Scale", &transformObj.scale.x, 0.0f, 5.0f);
 
 			//ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
