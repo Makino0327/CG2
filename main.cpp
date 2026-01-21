@@ -1144,7 +1144,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// 初期値（好みで）
 	pointLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	pointLightData->position = { 0.0f, -2.0f, 10.0f }; // オブジェクトの近く
+	pointLightData->position = { 0.0f, 1.0f, 10.0f }; // オブジェクトの近く
 	pointLightData->radius = 6.0f;
 	pointLightData->decay = 2.0f;
 	pointLightData->intensity = 2.0f;

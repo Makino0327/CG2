@@ -150,37 +150,40 @@ PixelShaderOutput main(VertexShaderOutput input)
     // ==================================================
     if (gPointLight.enable != 0)
     {
-        float3 lightToSurface = input.worldPosition - gPointLight.position; // light -> surface
-        float distance = length(lightToSurface);
+       // surface -> light にする
+        float3 surfaceToLight = gPointLight.position - input.worldPosition;
+        float distance = length(surfaceToLight);
 
-        // factor = pow(saturate(-d/r + 1), decay)
+// 距離減衰は距離だけ使うのでそのまま
         float factor = pow(
-            saturate(-distance / gPointLight.radius + 1.0f),
-            gPointLight.decay
-        );
+    saturate(-distance / gPointLight.radius + 1.0f),
+    gPointLight.decay
+);
 
-        float3 Lp = SafeNormalize(lightToSurface); // light -> surface の向き
+        float3 Lp = SafeNormalize(surfaceToLight); // ★surface -> light
         float NdotLp = dot(N, Lp);
 
         float halfLambertP = pow(NdotLp * 0.5f + 0.5f, 2.0f);
 
         float3 diffusePoint =
-            gMaterial.color.rgb *
-            textureColor.rgb *
-            gPointLight.color.rgb *
-            halfLambertP *
-            gPointLight.intensity *
-            factor;
+    gMaterial.color.rgb *
+    textureColor.rgb *
+    gPointLight.color.rgb *
+    halfLambertP *
+    gPointLight.intensity *
+    factor;
 
+// Blinn-Phong（L と V の向きを揃えたのでこれでOK）
         float3 Hp = SafeNormalize(Lp + V);
         float NdotHp = saturate(dot(N, Hp));
         float specPowP = pow(NdotHp, gMaterial.shininess);
 
         float3 specularPoint =
-            gPointLight.color.rgb *
-            gPointLight.intensity *
-            specPowP *
-            factor;
+    gPointLight.color.rgb *
+    gPointLight.intensity *
+    specPowP *
+    factor;
+
 
         diffuseAcc += diffusePoint;
         specularAcc += specularPoint;
@@ -191,67 +194,69 @@ PixelShaderOutput main(VertexShaderOutput input)
     // ==================================================
     if (gSpotLight.enable != 0)
     {
-        // ライト -> 表面
-        float3 lightToSurface = input.worldPosition - gSpotLight.position;
-        float distance = length(lightToSurface);
+    // surface -> light（★Pointと同じ思想で揃える）
+        float3 surfaceToLight = gSpotLight.position - input.worldPosition;
+        float distance = length(surfaceToLight);
 
-        // 距離で切る（届く範囲外）
         if (distance <= gSpotLight.distance)
         {
-            // 距離減衰（Pointと同型：-d/dist + 1 を decay）
+        // 距離減衰
             float distFactor = pow(
-                saturate(-distance / gSpotLight.distance + 1.0f),
-                gSpotLight.decay
-            );
+            saturate(-distance / gSpotLight.distance + 1.0f),
+            gSpotLight.decay
+        );
 
-            float3 Ls = SafeNormalize(lightToSurface); // light -> surface
+            float3 Ls = SafeNormalize(surfaceToLight); // ★surface -> light
 
-            // 角度（スポット方向と、ライトから表面への向きの一致度）
-            // spot.direction は「スポットが照らす方向」なので、
-            // light -> surface と同じ向きに揃える
+        // ===== 角度判定 =====
+        // spotDir は「ライトが照らす方向」(light -> forward) を想定
             float3 spotDir = SafeNormalize(gSpotLight.direction);
-            float cosTheta = dot(spotDir, Ls); // 1に近いほど中心
 
-            // 内側コーン外なら0
+        // light -> surface が欲しいので、surfaceToLight を反転
+            float3 lightToSurfaceDir = -Ls;
+
+        // 中心ほど 1 に近い
+            float cosTheta = dot(spotDir, lightToSurfaceDir);
+
+        // cosTheta が cosAngle 以上ならコーン内
             float angleOK = step(gSpotLight.cosAngle, cosTheta);
 
-            // Falloff（スライドの式）
-            // falloffStart と angle が同じだと0除算になるので、分母を最低値で守る
+        // Falloff（cosFalloffStart(内側) > cosAngle(外側) の並び前提）
             float denom = max(gSpotLight.cosFalloffStart - gSpotLight.cosAngle, 1e-5f);
             float falloff = saturate((cosTheta - gSpotLight.cosAngle) / denom);
 
-            // 最終角度係数
             float angleFactor = angleOK * falloff;
 
-            // 拡散（Half-Lambert）
-            float NdotLs = dot(N, Ls);
+        // ===== 拡散（Half-Lambert）=====
+            float NdotLs = dot(N, Ls); // Ls は surface->light
             float halfLambertS = pow(NdotLs * 0.5f + 0.5f, 2.0f);
 
             float3 diffuseSpot =
-                gMaterial.color.rgb *
-                textureColor.rgb *
-                gSpotLight.color.rgb *
-                halfLambertS *
-                gSpotLight.intensity *
-                distFactor *
-                angleFactor;
+            gMaterial.color.rgb *
+            textureColor.rgb *
+            gSpotLight.color.rgb *
+            halfLambertS *
+            gSpotLight.intensity *
+            distFactor *
+            angleFactor;
 
-            // 鏡面（Blinn-Phong）
-            float3 Hs = SafeNormalize(Ls + V);
+        // ===== 鏡面（Blinn-Phong）=====
+            float3 Hs = SafeNormalize(Ls + V); // ★向きが揃った
             float NdotHs = saturate(dot(N, Hs));
             float specPowS = pow(NdotHs, gMaterial.shininess);
 
             float3 specularSpot =
-                gSpotLight.color.rgb *
-                gSpotLight.intensity *
-                specPowS *
-                distFactor *
-                angleFactor;
+            gSpotLight.color.rgb *
+            gSpotLight.intensity *
+            specPowS *
+            distFactor *
+            angleFactor;
 
             diffuseAcc += diffuseSpot;
             specularAcc += specularSpot;
         }
     }
+
 
     // ------------------------------
     // 出力
