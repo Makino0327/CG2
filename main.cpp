@@ -754,6 +754,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12Resource* textureResource2 = CreateTextureResource(device, metadata2);
 	UploadTextureData(textureResource2, mipImages2);
 
+	DirectX::ScratchImage mipImages3 = LoadTexture("Resources/grass.png");
+	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
+	ID3D12Resource* textureResource3 = CreateTextureResource(device, metadata3);
+	UploadTextureData(textureResource3, mipImages3);
+
 	//metaDataを基にSRVの設定
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 	srvDesc.Format = metadata.format;
@@ -785,6 +790,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
 	// SRVを作成
 	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
+
+	// grass用 SRV desc
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{};
+	srvDesc3.Format = metadata3.format;
+	srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
+
+	// SRV heap の index=3 に置く
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 3);
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 3);
+
+	device->CreateShaderResourceView(textureResource3, &srvDesc3, textureSrvHandleCPU3);
+
 
 	// ディスクリプタヒープの設定
 	D3D12_DESCRIPTOR_RANGE descriptorRange{};
@@ -994,6 +1013,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12Resource* indexResourceObj = nullptr;
 	D3D12_INDEX_BUFFER_VIEW indexBufferViewObj{};
 
+	// ===== Terrain 用（★追加）=====
+	ID3D12Resource* vertexResourceTerrain = nullptr;
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewTerrain{};
+	UINT terrainVertexCount = 0;
+
+	UINT terrainIndexCount = 0;
+	ID3D12Resource* indexResourceTerrain = nullptr;
+	D3D12_INDEX_BUFFER_VIEW indexBufferViewTerrain{};
+
+	// ★Terrain用 TransformCB（b2差し替え用）
+	ID3D12Resource* wvpResourceTerrain = nullptr;
+	TransformationMatrix* wvpDataTerrain = nullptr;
 
 
 	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
@@ -1074,6 +1105,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12Resource* wvpResourceObj = CreateBufferResource(device, kWvpSize);
 	TransformationMatrix* wvpDataObj = nullptr;
 	wvpResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&wvpDataObj));
+
+	// ★Terrain用
+	wvpResourceTerrain = CreateBufferResource(device, kWvpSize);
+	wvpResourceTerrain->Map(0, nullptr, reinterpret_cast<void**>(&wvpDataTerrain));
+
+	wvpDataTerrain->WVP = MakeIdentity4x4();
+	wvpDataTerrain->World = MakeIdentity4x4();
+	wvpDataTerrain->WorldInverseTranspose = MakeIdentity4x4();
+
 
 	wvpDataSphere->WVP = MakeIdentity4x4();
 	wvpDataSphere->World = MakeIdentity4x4();
@@ -1262,6 +1302,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		assert(objIndexCount > 0);
 	}
 
+	// ===== Terrain 読み込み（★追加）=====
+	ObjModelData terrain = LoadObjFileAssimp("Resources", "terrain.obj", useIndex);
+	terrainVertexCount = (UINT)terrain.vertices.size();
+	assert(terrainVertexCount > 0);
+	if (useIndex) {
+		terrainIndexCount = (UINT)terrain.indices.size();
+		assert(terrainIndexCount > 0);
+	}
 	// --- OBJ VertexBuffer ---
 	//vertexResourceObj = CreateBufferResource(device, sizeof(VertexData) * objVertexCount);
 
@@ -1277,14 +1325,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	//	memcpy(mappedObj, obj.vertices.data(), sizeof(VertexData) * objVertexCount);
 	//	vertexResourceObj->Unmap(0, nullptr);
 	//}
-
-	// --- OBJ IndexBuffer（indexedのときだけ）---
 	if (useIndex) {
 		indexResourceObj = CreateBufferResource(device, sizeof(uint32_t) * objIndexCount);
 
 		uint32_t* indexDataObj = nullptr;
-		HRESULT hr3 = indexResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&indexDataObj));
-		assert(SUCCEEDED(hr3));
+		HRESULT hrOI = indexResourceObj->Map(0, nullptr, reinterpret_cast<void**>(&indexDataObj));
+		assert(SUCCEEDED(hrOI));
 		memcpy(indexDataObj, obj.indices.data(), sizeof(uint32_t) * objIndexCount);
 		indexResourceObj->Unmap(0, nullptr);
 
@@ -1293,6 +1339,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		indexBufferViewObj.Format = DXGI_FORMAT_R32_UINT;
 	}
 
+	// ===== Terrain Vertex/IndexBuffer（★追加）=====
+	vertexResourceTerrain = CreateBufferResource(device, sizeof(VertexData) * terrainVertexCount);
+	vertexBufferViewTerrain.BufferLocation = vertexResourceTerrain->GetGPUVirtualAddress();
+	vertexBufferViewTerrain.SizeInBytes = (UINT)(sizeof(VertexData) * terrainVertexCount);
+	vertexBufferViewTerrain.StrideInBytes = sizeof(VertexData);
+
+	{
+		VertexData* mappedTerrain = nullptr;
+		HRESULT hrT = vertexResourceTerrain->Map(0, nullptr, reinterpret_cast<void**>(&mappedTerrain));
+		assert(SUCCEEDED(hrT));
+		memcpy(mappedTerrain, terrain.vertices.data(), sizeof(VertexData) * terrainVertexCount);
+		vertexResourceTerrain->Unmap(0, nullptr);
+	}
+
+	// --- OBJ IndexBuffer（indexedのときだけ）---
+	if (useIndex) {
+		indexResourceTerrain = CreateBufferResource(device, sizeof(uint32_t) * terrainIndexCount);
+		uint32_t* indexDataTerrain = nullptr;
+		HRESULT hrTI = indexResourceTerrain->Map(0, nullptr, reinterpret_cast<void**>(&indexDataTerrain));
+		assert(SUCCEEDED(hrTI));
+		memcpy(indexDataTerrain, terrain.indices.data(), sizeof(uint32_t) * terrainIndexCount);
+		indexResourceTerrain->Unmap(0, nullptr);
+
+		indexBufferViewTerrain.BufferLocation = indexResourceTerrain->GetGPUVirtualAddress();
+		indexBufferViewTerrain.SizeInBytes = (UINT)(sizeof(uint32_t) * terrainIndexCount);
+		indexBufferViewTerrain.Format = DXGI_FORMAT_R32_UINT;
+	}
 	/*uint32_t* indexData = nullptr;
 	indexResource->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
 	memcpy(indexData, obj.indices.data(), sizeof(uint32_t) * obj.indices.size());
@@ -1400,6 +1473,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	static bool drawSphere = true;
 	static bool drawObj = true;
 	static bool drawSprite = true;
+	static bool drawTerrain = true;
 
 	static bool enableDirectional = true;
 	static bool enablePoint = true;
@@ -1442,6 +1516,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// ★OBJ用（別物）
 			static Transform transformObj = {
+			  {1.0f, 1.0f, 1.0f},
+			  {3.14f, 0.0f, 0.0f},
+			  {0.0f, -2.0f, 10.0f}
+			};
+
+			// ★Terrain用（別物）
+			static Transform transformTerrain = {
 			  {1.0f, 1.0f, 1.0f},
 			  {0.0f, 0.0f, 0.0f},
 			  {0.0f, -2.0f, 10.0f}
@@ -1602,6 +1683,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 
 
+			if (drawTerrain) {
+				Matrix4x4 worldTerrain =
+					MakeAffineMatrix(transformTerrain.scale, transformTerrain.rotate, transformTerrain.translate);
+
+				// assimp rootNode 行列も同じように適用（glTF/OBJどっちでも）
+				Matrix4x4 worldTerrainWithRoot = Multiply(terrain.rootNode.localMatrix, worldTerrain);
+
+				wvpDataTerrain->World = worldTerrainWithRoot;
+				wvpDataTerrain->WVP = Multiply(worldTerrainWithRoot, Multiply(viewMatrix, projectionMatrix));
+				wvpDataTerrain->WorldInverseTranspose = Transpose(Inverse(worldTerrainWithRoot));
+
+				// b2 を terrain用に差し替え
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourceTerrain->GetGPUVirtualAddress());
+
+				// とりあえず uvChecker を使う（専用テクスチャにしたいなら後述）
+				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU3);
+
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewTerrain);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				if (useIndex) {
+					commandList->IASetIndexBuffer(&indexBufferViewTerrain);
+					commandList->DrawIndexedInstanced(terrainIndexCount, 1, 0, 0, 0);
+				} else {
+					commandList->DrawInstanced(terrainVertexCount, 1, 0, 0);
+				}
+			}
 
 
 
@@ -1627,25 +1735,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			ImGui::Begin("Render Toggle");
-			ImGui::Checkbox("Draw Sphere", &drawSphere);
-			ImGui::Checkbox("Draw OBJ", &drawObj);
-			ImGui::Checkbox("Draw Sprite", &drawSprite);
-			ImGui::End();
-
-			ImGui::Begin("Light Toggle");
-			ImGui::Checkbox("Directional", &enableDirectional);
-			ImGui::Checkbox("Point", &enablePoint);
-			ImGui::Checkbox("Spot", &enableSpot);
-			ImGui::End();
-
-
 			// 自作ウィンドウだけ表示する
-			ImGui::Begin("Sprite Transform");
+			ImGui::Begin("Model");
+			ImGui::Separator();
+			ImGui::Text("Render Toggle");
+			ImGui::Checkbox("Draw Sphere", &drawSphere);
+			ImGui::Checkbox("Draw Terrain", &drawTerrain);
+			ImGui::Checkbox("Draw Plane.gltf", &drawObj);
 			/*ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
 			ImGui::SliderFloat3("Scale", &transformSprite.scale.x, 0.0f, 5.0f);
 			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);*/
-
+			ImGui::Separator();
+			ImGui::Text("Camera Controls");
 			ImGui::SliderFloat3("Camera Position", &cameraTransform.translate.x, -10.0f, 10.0f);
 			ImGui::SliderFloat3("Camera Rotation", &cameraTransform.rotate.x, -3.14f, 3.14f);
 
@@ -1657,27 +1758,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Sphere Scale", &transformSphere.scale.x, 0.0f, 5.0f);
 
 			ImGui::Separator();
-			ImGui::Text("OBJ Controls");
-			ImGui::SliderFloat3("OBJ Translate", &transformObj.translate.x, -10.0f, 10.0f);
-			ImGui::SliderFloat3("OBJ Rotate", &transformObj.rotate.x, -3.14f, 3.14f);
-			ImGui::SliderFloat3("OBJ Scale", &transformObj.scale.x, 0.0f, 5.0f);
+			ImGui::Text("Plane Controls");
+			ImGui::SliderFloat3("Plane Translate", &transformObj.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("Plane Rotate", &transformObj.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Plane Scale", &transformObj.scale.x, 0.0f, 5.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Terrain Controls");
+			ImGui::SliderFloat3("Terrain Translate", &transformTerrain.translate.x, -50.0f, 50.0f);
+			ImGui::SliderFloat3("Terrain Rotate", &transformTerrain.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Terrain Scale", &transformTerrain.scale.x, 0.0f, 20.0f);
+
 
 			//ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
+			ImGui::End();
+
+			ImGui::Begin("Light");
+			ImGui::Separator();
+			ImGui::Text("Light Toggle");
+			ImGui::Checkbox("Directional", &enableDirectional);
+			ImGui::Checkbox("Point", &enablePoint);
+			ImGui::Checkbox("Spot", &enableSpot);
+			// -------- DirectionalLight (あるなら) --------
+			// ImGui::SliderFloat3(...)
+			ImGui::SeparatorText("DirectionalLight");
 			ImGui::ColorEdit3("Material Color", reinterpret_cast<float*>(&materialData->color));
 			ImGui::Checkbox("Enable Lighting", reinterpret_cast<bool*>(&materialData->enableLighting));
 
 			ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&directionalLightData->color));
 			ImGui::SliderFloat3("Light Dir", reinterpret_cast<float*>(&directionalLightData->direction), -1.0f, 1.0f);
 			ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
-
-
-			ImGui::End();
-
-			ImGui::Begin("Light");
-
-			// -------- DirectionalLight (あるなら) --------
-			// ImGui::SliderFloat3(...)
 
 			// -------- PointLight --------
 			ImGui::SeparatorText("PointLight");
@@ -1703,9 +1814,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::End();
 
 			ImGui::Begin("Light");
-
-			ImGui::SeparatorText("PointLight");
-			// （あなたのPointLight UIはそのまま）
 
 			ImGui::SeparatorText("SpotLight");
 
