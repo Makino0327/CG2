@@ -1548,7 +1548,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			Matrix4x4 worldObj = MakeAffineMatrix(transformObj.scale, transformObj.rotate, transformObj.translate);
 			Matrix4x4 worldObjWithRoot = Multiply(obj.rootNode.localMatrix, worldObj);
 
-			wvpDataObj->World = worldObj;
+			wvpDataObj->World = worldObjWithRoot;
 			wvpDataObj->WVP = Multiply(worldObj, Multiply(viewMatrix, projectionMatrix));
 			wvpDataObj->WorldInverseTranspose = Transpose(Inverse(worldObj));
 
