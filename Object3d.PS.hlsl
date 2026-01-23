@@ -1,5 +1,5 @@
 // ==============================
-// Object3D.PS.hlsl（全文：RectLight追加版・整理済み）
+// Object3D.PS.hlsl（全文：RectLight追加版・白い反射(鏡面)も出る版）
 // ==============================
 
 struct VertexShaderOutput
@@ -113,18 +113,26 @@ static float3 SafeNormalize(float3 v)
     return v * rsqrt(len2);
 }
 
-// 4x4 の等間隔サンプル（16点）で疑似的に面光源っぽくする
-static float3 EvaluateRectLight(
+// --------------------------------------------------
+// RectLight（面光源）
+// diffuse と spec を分けて返す（specは白く出す）
+// --------------------------------------------------
+static void EvaluateRectLight(
     RectLight rect,
     float3 worldPos,
     float3 N,
     float3 V,
-    float shininess
+    float shininess,
+    out float3 outDiffuse,
+    out float3 outSpec
 )
 {
+    outDiffuse = 0;
+    outSpec = 0;
+
     if (rect.enable == 0)
     {
-        return 0;
+        return;
     }
 
     // ライト基底
@@ -136,17 +144,25 @@ static float3 EvaluateRectLight(
 
     float3 b = SafeNormalize(cross(nL, t));
 
-    // 片面発光（点がライトの表側にある時だけ）
-    // 「表側 = -normal側」にしたいならこの判定を逆にしてOK
-    
+    // 片面発光（表だけ）
+    // ※あなたの環境では「これを消したら出た」ので、ここでは判定を入れない
+    // 片面に戻したいなら、表側の定義に合わせて↓を有効化して調整する
+    //
+    // if (dot(nL, worldPos - rect.position) >= 0.0f)
+    // {
+    //     return;
+    // }
 
     const int S = 4; // 4x4 = 16
     const float invS = 1.0f / S;
 
-    float3 sum = 0;
+    float3 diffSum = 0;
+    float3 specSum = 0;
 
     // 面積（大きいほど明るくしたいなら使う）
     float area = (rect.halfWidth * 2.0f) * (rect.halfHeight * 2.0f);
+
+    float3 c = rect.color.rgb * rect.intensity;
 
     for (int y = 0; y < S; y++)
     {
@@ -178,16 +194,16 @@ static float3 EvaluateRectLight(
             float3 H = SafeNormalize(L + V);
             float spec = pow(saturate(dot(N, H)), shininess);
 
-            float3 c = rect.color.rgb * rect.intensity;
-
-            sum += c * (ndl + spec) * lFacing * att;
+            diffSum += c * ndl * lFacing * att;
+            specSum += c * spec * lFacing * att;
         }
     }
 
     // 平均 + 面積スケール
-    sum *= (1.0f / (S * S)) * area;
+    float k = (1.0f / (S * S)) * area;
 
-    return sum;
+    outDiffuse = diffSum * k;
+    outSpec = specSum * k; // ★白い反射（鏡面）
 }
 
 // ==================================================
@@ -325,28 +341,36 @@ PixelShaderOutput main(VertexShaderOutput input)
     }
 
     // ==================================================
-    // RectLight（Area）
+    // RectLight（Area）  ★diffuseとspecを分離
     // ==================================================
-    float3 rect = 0.0f;
+    float3 rectDiffuse = 0.0f;
+    float3 rectSpec = 0.0f;
+
     if (gRectLight.enable != 0)
     {
         RectLight rl = gRectLight; // ★ここがポイント（cbuffer直渡し回避）
-        rect = EvaluateRectLight(
-        rl,
-        input.worldPosition,
-        N,
-        V,
-        gMaterial.shininess
-    );
 
-        rect *= (gMaterial.color.rgb * textureColor.rgb);
+        EvaluateRectLight(
+            rl,
+            input.worldPosition,
+            N,
+            V,
+            gMaterial.shininess,
+            rectDiffuse,
+            rectSpec
+        );
+
+        // diffuseだけ色を乗せる（テクスチャ/マテリアル色）
+        rectDiffuse *= (gMaterial.color.rgb * textureColor.rgb);
+
+        // specは白い反射としてそのまま足す（必要なら倍率）
+        // rectSpec *= 1.0f;
     }
-
 
     // ------------------------------
     // 出力
     // ------------------------------
-    output.color.rgb = diffuseAcc + specularAcc + rect;
+    output.color.rgb = diffuseAcc + specularAcc + rectDiffuse + rectSpec;
     output.color.a = gMaterial.color.a * textureColor.a;
 
     return output;

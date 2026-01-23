@@ -1910,9 +1910,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			ImGui::ColorEdit3("RL Color", &rectLightData->color.x);
 			ImGui::DragFloat("RL Intensity", &rectLightData->intensity, 0.01f, 0.0f, 50.0f);
-			ImGui::DragFloat("RL HalfWidth", &rectLightData->halfWidth, 0.01f, 0.01f, 20.0f);
-			ImGui::DragFloat("RL HalfHeight", &rectLightData->halfHeight, 0.01f, 0.01f, 20.0f);
-
+			
 			ImGui::End();
 
 
