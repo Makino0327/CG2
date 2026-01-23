@@ -95,6 +95,8 @@ struct DirectionalLight {
 	Vector4 color;        // ライトの色
 	Vector3 direction;    // ライトの向き（単位ベクトル）
 	float intensity;      // 強度
+	int32_t enable;
+	float pad[3];
 };
 
 struct CameraForGPU
@@ -543,49 +545,57 @@ ObjModelData LoadObjFileAssimp(
 	return model;
 }
 
+// 修正後の PointLight (合計 48 byte に調整)
 struct PointLight {
-	Vector4 color;
-	Vector3 position;
-	float intensity;
-	float radius;
-	float decay;
-	int32_t enable;     // ★追加
-	float padding[1];   // ★16byte合わせ（合計で調整）
+	Vector4 color;      // 16
+	Vector3 position;   // 12
+	float intensity;    // 4
+	float radius;       // 4
+	float decay;        // 4
+	int32_t enable;     // 4
+	float padding[1];   // 4  <-- 修正: 44byte + 4byte = 48byte (16の倍数)
 };
 
+// 修正後の SpotLight (合計 64 byte に調整)
 struct SpotLight {
-	Vector4 color;
-	Vector3 position;
-	float intensity;
-
-	Vector3 direction;
-	float distance;
-
-	float decay;
-	float cosAngle;
-	float cosFalloffStart; // ★追加（スライド通り）
-	int32_t enable;        // ★追加
-	float padding[1];      // ★16byte合わせ
+	Vector4 color;        // 16
+	Vector3 position;     // 12
+	float intensity;      // 4
+	Vector3 direction;    // 12
+	float distance;       // 4
+	float decay;          // 4
+	float cosAngle;       // 4
+	float cosFalloffStart;// 4
+	int32_t enable;       // 4
+	// float padding[3];  <-- 削除: これでちょうど64byte (16の倍数) になります
 };
 
+// 修正後の RectLight (合計 80 byte に調整)
 struct RectLight {
-	Vector4 color;        // RGB
-	float intensity;      // 強度
-
-	Vector3 position;     // 矩形の中心
-	float  pad0;
-
-	Vector3 normal;       // 矩形の表面法線（単位ベクトル）
-	float  pad1;
-
-	Vector3 tangent;      // 矩形の横方向（単位ベクトル）
-	float  halfWidth;     // 半幅
-
-	float  halfHeight;    // 半高さ
-	int32_t enable;       // 0/1
-	float pad2[2];        // 16byte合わせ
+	Vector4 color;      // 16
+	float intensity;    // 4
+	Vector3 position;   // 12 (計16)
+	float pad0;         // 4
+	Vector3 normal;     // 12 (計16)
+	float pad1;         // 4
+	Vector3 tangent;    // 12 (計16)
+	float halfWidth;    // 4
+	float halfHeight;   // 4
+	int32_t enable;     // 4
+	float pad2;         // 4  <-- 修正: 配列[2]ではなく単体のfloatでパディング (計16)
+};
+// 16 + 16 + 16 + 16 + 16 = 80 byte (16の倍数)
+struct PointLights {
+	PointLight lights[2];
 };
 
+struct SpotLights {
+	SpotLight lights[2];
+};
+
+struct RectLights {
+	RectLight lights[2];
+};
 
 // 1. ConvertString関数
 std::wstring ConvertString(const std::string& str) {
@@ -1050,6 +1060,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	ID3D12Resource* wvpResourceTerrain = nullptr;
 	TransformationMatrix* wvpDataTerrain = nullptr;
 
+	ID3D12Resource* vertexResourcePlane = nullptr;
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewPlane{};
+	UINT planeVertexCount = 0;
+
+	UINT planeIndexCount = 0;
+	ID3D12Resource* indexResourcePlane = nullptr;
+	D3D12_INDEX_BUFFER_VIEW indexBufferViewPlane{};
+
+	ID3D12Resource* wvpResourcePlane = nullptr;
+	TransformationMatrix* wvpDataPlane = nullptr;
+
 
 	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
 	// リソースの先頭のアドレスから使う
@@ -1138,6 +1159,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	wvpDataTerrain->World = MakeIdentity4x4();
 	wvpDataTerrain->WorldInverseTranspose = MakeIdentity4x4();
 
+	// ★Plane用
+	wvpResourcePlane = CreateBufferResource(device, kWvpSize);
+	wvpResourcePlane->Map(0, nullptr, reinterpret_cast<void**>(&wvpDataPlane));
+
+	wvpDataPlane->WVP = MakeIdentity4x4();
+	wvpDataPlane->World = MakeIdentity4x4();
+	wvpDataPlane->WorldInverseTranspose = MakeIdentity4x4();
 
 	wvpDataSphere->WVP = MakeIdentity4x4();
 	wvpDataSphere->World = MakeIdentity4x4();
@@ -1161,75 +1189,67 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 	// ===== PointLight =====
 	ID3D12Resource* pointLightResource =
-		CreateBufferResource(device, sizeof(PointLight));
+		CreateBufferResource(device, Align256(sizeof(PointLights)));
 
-	PointLight* pointLightData = nullptr;
-	pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData));
+	PointLights* pointLightsData = nullptr;
+	pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightsData));
 
-	// 初期値（好みで）
-	pointLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	pointLightData->position = { 0.0f, 1.0f, 10.0f }; // オブジェクトの近く
-	pointLightData->radius = 6.0f;
-	pointLightData->decay = 2.0f;
-	pointLightData->intensity = 2.0f;
-
-	pointLightData->padding[0] = 0.0f;
-	pointLightData->padding[1] = 0.0f;
-
-
+	// 初期化（2個分）
+	for (int i = 0; i < 2; ++i) {
+		pointLightsData->lights[i].color = { 1,1,1,1 };
+		pointLightsData->lights[i].position = { 0.0f + i * 3.0f, 1.0f, 10.0f };
+		pointLightsData->lights[i].intensity = 2.0f;
+		pointLightsData->lights[i].radius = 6.0f;
+		pointLightsData->lights[i].decay = 2.0f;
+		pointLightsData->lights[i].enable = 1;
+	}
 
 	// ===== SpotLight =====
 	ID3D12Resource* spotLightResource =
-		CreateBufferResource(device, sizeof(SpotLight));
+		CreateBufferResource(device, Align256(sizeof(SpotLights)));
 
-	SpotLight* spotLightData = nullptr;
-	spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData));
+	SpotLights* spotLightsData = nullptr;
+	spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightsData));
 
-	// 初期値（例）
-	spotLightData->color = { 1, 1, 1, 1 };
-	spotLightData->position = { 5.0f, 1.0f, 10.0f };
-	spotLightData->intensity = 4.0f;
+	for (int i = 0; i < 2; ++i) {
+		spotLightsData->lights[i].color = { 1,1,1,1 };
+		spotLightsData->lights[i].position = { 5.0f + i * 4.0f, 1.0f, 10.0f };
+		spotLightsData->lights[i].intensity = 4.0f;
 
-	// 方向（左手系なら「+Zが前」想定のままでOK）
-	spotLightData->direction = Normalize({ -1.0f, -1.0f, 0.0f }); // 斜め前下など
-	spotLightData->distance = 50.0f;
-	spotLightData->decay = 2.0f;
+		// 左手座標系: +Zが前の想定
+		spotLightsData->lights[i].direction = Normalize({ -1.0f, -1.0f, 0.0f });
+		spotLightsData->lights[i].distance = 50.0f;
+		spotLightsData->lights[i].decay = 2.0f;
 
-	// cosAngle：例えば 30度なら cos(30°)
-	spotLightData->cosAngle = cosf(30.0f * float(M_PI) / 180.0f);
+		float outerDeg = 30.0f;
+		float innerDeg = 20.0f;
+		spotLightsData->lights[i].cosAngle = cosf(outerDeg * float(M_PI) / 180.0f);
+		spotLightsData->lights[i].cosFalloffStart = cosf(innerDeg * float(M_PI) / 180.0f);
 
-	float outerDeg = 30.0f;
-	float innerDeg = 20.0f;
-
-	spotLightData->cosAngle = cosf(outerDeg * float(M_PI) / 180.0f);
-	spotLightData->cosFalloffStart = cosf(innerDeg * float(M_PI) / 180.0f);
-
-	
-	pointLightData->enable = 1;
-	spotLightData->enable = 1;
+		spotLightsData->lights[i].enable = 1;
+	}
 
 	// ===== RectLight =====
 	ID3D12Resource* rectLightResource =
-		CreateBufferResource(device, sizeof(RectLight));
+		CreateBufferResource(device, Align256(sizeof(RectLights)));
 
-	RectLight* rectLightData = nullptr;
-	rectLightResource->Map(0, nullptr, reinterpret_cast<void**>(&rectLightData));
+	RectLights* rectLightsData = nullptr;
+	rectLightResource->Map(0, nullptr, reinterpret_cast<void**>(&rectLightsData));
 
-	// 初期値（例）
-	rectLightData->color = { 1,1,1,1 };
-	rectLightData->intensity = 6.0f;
-	rectLightData->position = { 0.0f, 3.0f, 8.0f };
+	for (int i = 0; i < 2; ++i) {
+		rectLightsData->lights[i].color = { 1,1,1,1 };
+		rectLightsData->lights[i].intensity = 6.0f;
+		rectLightsData->lights[i].position = { 0.0f + i * 4.0f, 3.0f, 8.0f };
 
-	// 左手座標系で +Z 前。例えば「下向きに照らす」なら normal は (0,-1,0)
-	rectLightData->normal = Normalize({ 0.0f, -1.0f, 0.0f });
+		rectLightsData->lights[i].normal = Normalize({ 0.0f, -1.0f, 0.0f });
+		rectLightsData->lights[i].tangent = Normalize({ 1.0f,  0.0f, 0.0f });
 
-	// tangent は normal と直交する方向（横方向）
-	rectLightData->tangent = Normalize({ 1.0f,  0.0f, 0.0f });
+		rectLightsData->lights[i].halfWidth = 2.0f;
+		rectLightsData->lights[i].halfHeight = 1.0f;
 
-	rectLightData->halfWidth = 2.0f;
-	rectLightData->halfHeight = 1.0f;
+		rectLightsData->lights[i].enable = 1;
+	}
 
-	rectLightData->enable = 1;
 
 
 	// インプットレイアウト
@@ -1356,6 +1376,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		terrainIndexCount = (UINT)terrain.indices.size();
 		assert(terrainIndexCount > 0);
 	}
+
+	// ===== Plane 読み込み（★追加）=====
+	ObjModelData plane = LoadObjFileAssimp("Resources", "plane.obj", useIndex);
+	planeVertexCount = (UINT)plane.vertices.size();
+	assert(planeVertexCount > 0);
+	if (useIndex) {
+		planeIndexCount = (UINT)plane.indices.size();
+		assert(planeIndexCount > 0);
+	}
+
+
 	// --- OBJ VertexBuffer ---
 	//vertexResourceObj = CreateBufferResource(device, sizeof(VertexData) * objVertexCount);
 
@@ -1411,6 +1442,34 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 		indexBufferViewTerrain.BufferLocation = indexResourceTerrain->GetGPUVirtualAddress();
 		indexBufferViewTerrain.SizeInBytes = (UINT)(sizeof(uint32_t) * terrainIndexCount);
 		indexBufferViewTerrain.Format = DXGI_FORMAT_R32_UINT;
+	}
+
+	// ===== Plane Vertex/IndexBuffer（★追加）=====
+	vertexResourcePlane = CreateBufferResource(device, sizeof(VertexData) * planeVertexCount);
+	vertexBufferViewPlane.BufferLocation = vertexResourcePlane->GetGPUVirtualAddress();
+	vertexBufferViewPlane.SizeInBytes = (UINT)(sizeof(VertexData) * planeVertexCount);
+	vertexBufferViewPlane.StrideInBytes = sizeof(VertexData);
+
+	{
+		VertexData* mappedPlane = nullptr;
+		HRESULT hrT = vertexResourcePlane->Map(0, nullptr, reinterpret_cast<void**>(&mappedPlane));
+		assert(SUCCEEDED(hrT));
+		memcpy(mappedPlane, plane.vertices.data(), sizeof(VertexData) * planeVertexCount);
+		vertexResourcePlane->Unmap(0, nullptr);
+	}
+
+	// --- OBJ IndexBuffer（indexedのときだけ）---
+	if (useIndex) {
+		indexResourcePlane = CreateBufferResource(device, sizeof(uint32_t) * planeIndexCount);
+		uint32_t* indexDataPlane = nullptr;
+		HRESULT hrTI = indexResourcePlane->Map(0, nullptr, reinterpret_cast<void**>(&indexDataPlane));
+		assert(SUCCEEDED(hrTI));
+		memcpy(indexDataPlane, plane.indices.data(), sizeof(uint32_t) * planeIndexCount);
+		indexResourcePlane->Unmap(0, nullptr);
+
+		indexBufferViewPlane.BufferLocation = indexResourcePlane->GetGPUVirtualAddress();
+		indexBufferViewPlane.SizeInBytes = (UINT)(sizeof(uint32_t) * planeIndexCount);
+		indexBufferViewPlane.Format = DXGI_FORMAT_R32_UINT;
 	}
 	/*uint32_t* indexData = nullptr;
 	indexResource->Map(0, nullptr, reinterpret_cast<void**>(&indexData));
@@ -1520,11 +1579,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	static bool drawObj = true;
 	static bool drawSprite = true;
 	static bool drawTerrain = true;
+	static bool drawPlane = true;
 
 	static bool enableDirectional = true;
-	static bool enablePoint = true;
-	static bool enableSpot = true;
 
+	//static bool enableDirectional = true;
+
+	static bool enablePoint[2] = { true, true };
+	static bool enableSpot[2] = { true, true };
+	static bool enableRect[2] = { true, true };
+
+	static bool enablePointBoth = false;
+	static bool enableSpotBoth = false;
+	static bool enableRectBoth = false;
+	static bool enableAll = false;
 
 	// --- メインループ ---
 	MSG msg{};
@@ -1569,6 +1637,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// ★Terrain用（別物）
 			static Transform transformTerrain = {
+			  {1.0f, 1.0f, 1.0f},
+			  {0.0f, 0.0f, 0.0f},
+			  {0.0f, -2.0f, 10.0f}
+			};
+			static Transform transformPlane = {
 			  {1.0f, 1.0f, 1.0f},
 			  {0.0f, 0.0f, 0.0f},
 			  {0.0f, -2.0f, 10.0f}
@@ -1627,8 +1700,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 			static float dirDefaultIntensity = 1.0f;
 			directionalLightData->intensity = enableDirectional ? directionalLightData->intensity : 0.0f; // これは雑なので下のPS方式推奨
-			pointLightData->enable = enablePoint ? 1 : 0;
-			spotLightData->enable = enableSpot ? 1 : 0;
 
 
 			// Present -> RenderTargetに遷移
@@ -1761,6 +1832,33 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 				}
 			}
 
+			if (drawPlane) {
+				Matrix4x4 worldPlane =
+					MakeAffineMatrix(transformPlane.scale, transformPlane.rotate, transformPlane.translate);
+
+				// assimp rootNode 行列も同じように適用（glTF/OBJどっちでも）
+				Matrix4x4 worldPlaneWithRoot = Multiply(plane.rootNode.localMatrix, worldPlane);
+
+				wvpDataPlane->World = worldPlaneWithRoot;
+				wvpDataPlane->WVP = Multiply(worldPlaneWithRoot, Multiply(viewMatrix, projectionMatrix));
+				wvpDataPlane->WorldInverseTranspose = Transpose(Inverse(worldPlaneWithRoot));
+
+				// b2 を terrain用に差し替え
+				commandList->SetGraphicsRootConstantBufferView(2, wvpResourcePlane->GetGPUVirtualAddress());
+
+				// とりあえず uvChecker を使う（専用テクスチャにしたいなら後述）
+				commandList->SetGraphicsRootDescriptorTable(3, textureSrvHandleGPU);
+
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewPlane);
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				if (useIndex) {
+					commandList->IASetIndexBuffer(&indexBufferViewPlane);
+					commandList->DrawIndexedInstanced(planeIndexCount, 1, 0, 0, 0);
+				} else {
+					commandList->DrawInstanced(planeVertexCount, 1, 0, 0);
+				}
+			}
 
 
 			// Spriteの描画
@@ -1792,6 +1890,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::Checkbox("Draw Sphere", &drawSphere);
 			ImGui::Checkbox("Draw Terrain", &drawTerrain);
 			ImGui::Checkbox("Draw Plane.gltf", &drawObj);
+			ImGui::Checkbox("Draw Plane.obj", &drawPlane);
 			/*ImGui::SliderFloat3("Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
 			ImGui::SliderFloat3("Scale", &transformSprite.scale.x, 0.0f, 5.0f);
 			ImGui::SliderFloat3("Rotate", &transformSprite.rotate.x, -3.14f, 3.14f);*/
@@ -1808,10 +1907,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Sphere Scale", &transformSphere.scale.x, 0.0f, 5.0f);
 
 			ImGui::Separator();
-			ImGui::Text("Plane Controls");
-			ImGui::SliderFloat3("Plane Translate", &transformObj.translate.x, -10.0f, 10.0f);
-			ImGui::SliderFloat3("Plane Rotate", &transformObj.rotate.x, -3.14f, 3.14f);
-			ImGui::SliderFloat3("Plane Scale", &transformObj.scale.x, 0.0f, 5.0f);
+			ImGui::Text("Plane.gltf Controls");
+			ImGui::SliderFloat3("Plane.gltf Translate", &transformObj.translate.x, -10.0f, 10.0f);
+			ImGui::SliderFloat3("Plane.gltf Rotate", &transformObj.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Plane.gltf Scale", &transformObj.scale.x, 0.0f, 5.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Plane.obj Controls");
+			ImGui::SliderFloat3("Plane.obj Translate", &transformPlane.translate.x, -50.0f, 50.0f);
+			ImGui::SliderFloat3("Plane.obj Rotate", &transformPlane.rotate.x, -3.14f, 3.14f);
+			ImGui::SliderFloat3("Plane.obj Scale", &transformPlane.scale.x, 0.0f, 20.0f);
 
 			ImGui::Separator();
 			ImGui::Text("Terrain Controls");
@@ -1819,19 +1924,71 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat3("Terrain Rotate", &transformTerrain.rotate.x, -3.14f, 3.14f);
 			ImGui::SliderFloat3("Terrain Scale", &transformTerrain.scale.x, 0.0f, 20.0f);
 
+		
+			for (int i = 0; i < 2; ++i) {
+				pointLightsData->lights[i].enable = enablePoint[i] ? 1 : 0;
+				spotLightsData->lights[i].enable = enableSpot[i] ? 1 : 0;
+				rectLightsData->lights[i].enable = enableRect[i] ? 1 : 0;
+			}
 
 			//ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
 			ImGui::End();
-			static bool enableRect = true;
-			rectLightData->enable = enableRect ? 1 : 0;
+			
 			ImGui::Begin("Light");
 			ImGui::Separator();
 			ImGui::Text("Light Toggle");
+
+	
+			enablePointBoth = (enablePoint[0] && enablePoint[1]);
+			enableSpotBoth = (enableSpot[0] && enableSpot[1]);
+			enableRectBoth = (enableRect[0] && enableRect[1]);
+			enableAll = (enableDirectional &&
+				enablePoint[0] && enablePoint[1] &&
+				enableSpot[0] && enableSpot[1] &&
+				enableRect[0] && enableRect[1]);
+
+			if (ImGui::Checkbox("All", &enableAll)) {
+				enableDirectional = enableAll;
+				enablePoint[0] = enableAll; enablePoint[1] = enableAll;
+				enableSpot[0] = enableAll; enableSpot[1] = enableAll;
+				enableRect[0] = enableAll; enableRect[1] = enableAll;
+			}
+
 			ImGui::Checkbox("Directional", &enableDirectional);
-			ImGui::Checkbox("Point", &enablePoint);
-			ImGui::Checkbox("Spot", &enableSpot);
-			ImGui::Checkbox("Rect Enable", &enableRect);
+
+			if (ImGui::Checkbox("Point (both)", &enablePointBoth)) {
+				enablePoint[0] = enablePointBoth;
+				enablePoint[1] = enablePointBoth;
+			}
+			ImGui::Checkbox("Point 0", &enablePoint[0]);
+			ImGui::Checkbox("Point 1", &enablePoint[1]);
+
+			if (ImGui::Checkbox("Spot (both)", &enableSpotBoth)) {
+				enableSpot[0] = enableSpotBoth;
+				enableSpot[1] = enableSpotBoth;
+			}
+			ImGui::Checkbox("Spot 0", &enableSpot[0]);
+			ImGui::Checkbox("Spot 1", &enableSpot[1]);
+
+			if (ImGui::Checkbox("Rect (both)", &enableRectBoth)) {
+				enableRect[0] = enableRectBoth;
+				enableRect[1] = enableRectBoth;
+			}
+			ImGui::Checkbox("Rect 0", &enableRect[0]);
+			ImGui::Checkbox("Rect 1", &enableRect[1]);
+
+			enablePointBoth = (enablePoint[0] && enablePoint[1]);
+			enableSpotBoth = (enableSpot[0] && enableSpot[1]);
+			enableRectBoth = (enableRect[0] && enableRect[1]);
+			enableAll = (enableDirectional &&
+				enablePoint[0] && enablePoint[1] &&
+				enableSpot[0] && enableSpot[1] &&
+				enableRect[0] && enableRect[1]);
+
+			ImGui::End();
+
+
 			// -------- DirectionalLight (あるなら) --------
 			// ImGui::SliderFloat3(...)
 			ImGui::SeparatorText("DirectionalLight");
@@ -1843,75 +2000,73 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
 
 			// -------- PointLight --------
-			ImGui::SeparatorText("PointLight");
+			ImGui::SeparatorText("PointLight x2");
+			for (int i = 0; i < 2; ++i) {
+				ImGui::PushID(i);
+				ImGui::Text("PointLight[%d]", i);
+				ImGui::Checkbox("Enable", &enablePoint[i]);
+				ImGui::DragFloat3("Position", &pointLightsData->lights[i].position.x, 0.01f, -50.0f, 50.0f);
+				ImGui::ColorEdit3("Color", &pointLightsData->lights[i].color.x);
+				ImGui::DragFloat("Intensity", &pointLightsData->lights[i].intensity, 0.01f, 0.0f, 20.0f);
+				ImGui::DragFloat("Radius", &pointLightsData->lights[i].radius, 0.01f, 0.01f, 50.0f);
+				ImGui::DragFloat("Decay", &pointLightsData->lights[i].decay, 0.01f, 0.01f, 10.0f);
+				ImGui::Separator();
+				ImGui::PopID();
+			}
 
-			// 位置
-			ImGui::DragFloat3("PL Position", &pointLightData->position.x, 0.01f, -50.0f, 50.0f);
+			ImGui::SeparatorText("SpotLight x2");
+			for (int i = 0; i < 2; ++i) {
+				ImGui::PushID(100 + i);
+				ImGui::Text("SpotLight[%d]", i);
+				ImGui::Checkbox("Enable", &enableSpot[i]);
+				ImGui::DragFloat3("Position", &spotLightsData->lights[i].position.x, 0.01f, -50.0f, 50.0f);
 
-			// 色（ColorEdit3はRGBだけ。alpha触りたいならColorEdit4）
-			ImGui::ColorEdit3("PL Color", &pointLightData->color.x);
+				ImGui::DragFloat3("Direction", &spotLightsData->lights[i].direction.x, 0.01f, -1.0f, 1.0f);
+				spotLightsData->lights[i].direction = Normalize(spotLightsData->lights[i].direction);
 
-			// 強度
-			ImGui::DragFloat("PL Intensity", &pointLightData->intensity, 0.01f, 0.0f, 10.0f);
+				ImGui::ColorEdit3("Color", &spotLightsData->lights[i].color.x);
+				ImGui::DragFloat("Intensity", &spotLightsData->lights[i].intensity, 0.01f, 0.0f, 50.0f);
+				ImGui::DragFloat("Distance", &spotLightsData->lights[i].distance, 0.01f, 0.01f, 200.0f);
+				ImGui::DragFloat("Decay", &spotLightsData->lights[i].decay, 0.01f, 0.01f, 10.0f);
 
-			// 届く範囲
-			ImGui::DragFloat("PL Radius", &pointLightData->radius, 0.01f, 0.01f, 10.0f);
+				static float outerDeg[2] = { 30.0f, 30.0f };
+				static float innerDeg[2] = { 20.0f, 20.0f };
+				ImGui::SliderFloat("Outer(deg)", &outerDeg[i], 1.0f, 89.0f);
+				ImGui::SliderFloat("Inner(deg)", &innerDeg[i], 0.0f, 88.0f);
+				if (innerDeg[i] >= outerDeg[i]) innerDeg[i] = outerDeg[i] - 0.1f;
 
-			// 減衰率（大きいほど急激）
-			ImGui::DragFloat("PL Decay", &pointLightData->decay, 0.01f, 0.01f, 10.0f);
+				spotLightsData->lights[i].cosAngle = cosf(outerDeg[i] * float(M_PI) / 180.0f);
+				spotLightsData->lights[i].cosFalloffStart = cosf(innerDeg[i] * float(M_PI) / 180.0f);
 
-			// 便利：球をライト位置に追従させたいなら（任意）
-			// if (ImGui::Button("Move Sphere To Light")) { sphereTransform.translate = pointLightData->position; }
+				ImGui::Separator();
+				ImGui::PopID();
+			}
+
+
+			ImGui::SeparatorText("RectLight x2");
+			for (int i = 0; i < 2; ++i) {
+				ImGui::PushID(200 + i);
+				ImGui::Text("RectLight[%d]", i);
+				ImGui::Checkbox("Enable", &enableRect[i]);
+
+				ImGui::DragFloat3("Position", &rectLightsData->lights[i].position.x, 0.01f, -50.0f, 50.0f);
+				ImGui::DragFloat3("Normal", &rectLightsData->lights[i].normal.x, 0.01f, -1.0f, 1.0f);
+				ImGui::DragFloat3("Tangent", &rectLightsData->lights[i].tangent.x, 0.01f, -1.0f, 1.0f);
+
+				rectLightsData->lights[i].normal = Normalize(rectLightsData->lights[i].normal);
+				rectLightsData->lights[i].tangent = Normalize(rectLightsData->lights[i].tangent);
+
+				ImGui::ColorEdit3("Color", &rectLightsData->lights[i].color.x);
+				ImGui::DragFloat("Intensity", &rectLightsData->lights[i].intensity, 0.01f, 0.0f, 100.0f);
+				ImGui::DragFloat("HalfWidth", &rectLightsData->lights[i].halfWidth, 0.01f, 0.01f, 50.0f);
+				ImGui::DragFloat("HalfHeight", &rectLightsData->lights[i].halfHeight, 0.01f, 0.01f, 50.0f);
+
+				ImGui::Separator();
+				ImGui::PopID();
+			}
+
 			
 
-			ImGui::SeparatorText("SpotLight");
-
-			// Position
-			ImGui::DragFloat3("SL Position", &spotLightData->position.x, 0.01f, -50.0f, 50.0f);
-
-			// Direction（正規化するのが大事）
-			ImGui::DragFloat3("SL Direction", &spotLightData->direction.x, 0.01f, -1.0f, 1.0f);
-			spotLightData->direction = Normalize(spotLightData->direction);
-
-			// Color
-			ImGui::ColorEdit3("SL Color", &spotLightData->color.x);
-
-			// Intensity / Distance / Decay
-			ImGui::DragFloat("SL Intensity", &spotLightData->intensity, 0.01f, 0.0f, 20.0f);
-			ImGui::DragFloat("SL Distance", &spotLightData->distance, 0.01f, 0.01f, 200.0f);
-			ImGui::DragFloat("SL Decay", &spotLightData->decay, 0.01f, 0.01f, 10.0f);
-
-			// Angle（度で触ってcosに変換すると扱いやすい）
-			static float slAngleDeg = 30.0f;
-			ImGui::SliderFloat("SL Angle(deg)", &slAngleDeg, 1.0f, 89.0f);
-			spotLightData->cosAngle = cosf(slAngleDeg * float(M_PI) / 180.0f);
-
-			static float slOuterDeg = 30.0f; // 外側
-			static float slInnerDeg = 20.0f; // 内側
-
-			ImGui::SliderFloat("SL Outer (deg)", &slOuterDeg, 1.0f, 89.0f);
-			ImGui::SliderFloat("SL Inner (deg)", &slInnerDeg, 0.0f, 88.0f);
-
-			// inner は outer より小さく（内側なので）
-			if (slInnerDeg >= slOuterDeg) slInnerDeg = slOuterDeg - 0.1f;
-
-			spotLightData->cosAngle = cosf(slOuterDeg * float(M_PI) / 180.0f);
-			spotLightData->cosFalloffStart = cosf(slInnerDeg * float(M_PI) / 180.0f);
-
-			ImGui::SeparatorText("RectLight (Area)");
-			
-
-			ImGui::DragFloat3("RL Position", &rectLightData->position.x, 0.01f, -50.0f, 50.0f);
-			ImGui::DragFloat3("RL Normal", &rectLightData->normal.x, 0.01f, -1.0f, 1.0f);
-			ImGui::DragFloat3("RL Tangent", &rectLightData->tangent.x, 0.01f, -1.0f, 1.0f);
-
-			rectLightData->normal = Normalize(rectLightData->normal);
-			rectLightData->tangent = Normalize(rectLightData->tangent);
-
-			ImGui::ColorEdit3("RL Color", &rectLightData->color.x);
-			ImGui::DragFloat("RL Intensity", &rectLightData->intensity, 0.01f, 0.0f, 50.0f);
-			
-			ImGui::End();
 
 
 			ImGui::Render();

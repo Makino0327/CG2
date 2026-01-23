@@ -1,5 +1,6 @@
 // ==============================
 // Object3D.PS.hlsl（全文：RectLight追加版・白い反射(鏡面)も出る版）
+// ※ Point / Spot / Rect を「2個ずつ」回す版
 // ==============================
 
 struct VertexShaderOutput
@@ -33,54 +34,66 @@ struct Camera
     float padding; // 16byte合わせ
 };
 
+// ==============================
+// 構造体の定義部分のみ抜粋・修正
+// ==============================
+
+// 修正前: 44byte(データ) + 12byte(pad) = 56byte (NG)
+// 修正後: 44byte(データ) + 4byte(pad) = 48byte (OK: 16の倍数)
 struct PointLight
 {
-    float4 color;
-    float3 position;
-    float intensity;
-
-    float radius;
-    float decay;
-
-    int enable;
-    float padding;
+    float4 color; // 16
+    float3 position; // 12
+    float intensity; // 4
+    float radius; // 4
+    float decay; // 4
+    int enable; // 4
+    float padding; // ★修正: float3 -> float に変更
 };
 
+// 修正前: 64byte(データ) + 12byte(pad) = 76byte (NG)
+// 修正後: 64byte(データ) + 0byte(pad) = 64byte (OK: 16の倍数)
 struct SpotLight
 {
-    float4 color;
-    float3 position;
-    float intensity;
-
-    float3 direction;
-    float distance;
-
-    float decay;
-    float cosAngle;
-    float cosFalloffStart;
-    int enable;
-
-    float padding;
+    float4 color; // 16
+    float3 position; // 12
+    float intensity; // 4
+    float3 direction; // 12
+    float distance; // 4
+    float decay; // 4
+    float cosAngle; // 4
+    float cosFalloffStart; // 4
+    int enable; // 4
+    // float3 padding;        // ★修正: 削除 (データだけで64byteピッタリのため不要)
 };
 
-// ★ RectLight（AreaLight）
+// 修正前: 76byte(データ) + 8byte(pad) = 84byte (NG)
+// 修正後: 76byte(データ) + 4byte(pad) = 80byte (OK: 16の倍数)
 struct RectLight
 {
-    float4 color;
-    float intensity;
-
-    float3 position;
-    float pad0;
-
-    float3 normal; // 面の法線（正規化して送る想定）
-    float pad1;
-
-    float3 tangent; // 横方向（正規化して送る想定）
-    float halfWidth;
-
-    float halfHeight;
-    int enable;
-    float2 pad2;
+    float4 color; // 16
+    float intensity; // 4
+    float3 position; // 12
+    float pad0; // 4
+    float3 normal; // 12
+    float pad1; // 4
+    float3 tangent; // 12
+    float halfWidth; // 4
+    float halfHeight; // 4
+    int enable; // 4
+    float pad2; // ★修正: float2 -> float に変更
+};
+struct PointLights
+{
+    PointLight lights[2];
+};
+struct SpotLights
+{
+    SpotLight lights[2];
+};
+struct RectLights
+{
+    RectLight lights[2];
 };
 
 // ------------------------------
@@ -89,9 +102,11 @@ struct RectLight
 ConstantBuffer<Material> gMaterial : register(b0);
 ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
 ConstantBuffer<Camera> gCamera : register(b3);
-ConstantBuffer<PointLight> gPointLight : register(b4);
-ConstantBuffer<SpotLight> gSpotLight : register(b5);
-ConstantBuffer<RectLight> gRectLight : register(b6);
+
+// ★ここを「単体」→「配列(2個)」に変更
+ConstantBuffer<PointLights> gPointLights : register(b4);
+ConstantBuffer<SpotLights> gSpotLights : register(b5);
+ConstantBuffer<RectLights> gRectLights : register(b6);
 
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
@@ -143,15 +158,6 @@ static void EvaluateRectLight(
     t = SafeNormalize(t);
 
     float3 b = SafeNormalize(cross(nL, t));
-
-    // 片面発光（表だけ）
-    // ※あなたの環境では「これを消したら出た」ので、ここでは判定を入れない
-    // 片面に戻したいなら、表側の定義に合わせて↓を有効化して調整する
-    //
-    // if (dot(nL, worldPos - rect.position) >= 0.0f)
-    // {
-    //     return;
-    // }
 
     const int S = 4; // 4x4 = 16
     const float invS = 1.0f / S;
@@ -256,16 +262,23 @@ PixelShaderOutput main(VertexShaderOutput input)
     }
 
     // ==================================================
-    // PointLight
+    // PointLight（2個）
     // ==================================================
-    if (gPointLight.enable != 0)
+    [unroll]
+    for (int i = 0; i < 2; ++i)
     {
-        float3 surfaceToLight = gPointLight.position - input.worldPosition;
+        PointLight pl = gPointLights.lights[i];
+        if (pl.enable == 0)
+        {
+            continue;
+        }
+
+        float3 surfaceToLight = pl.position - input.worldPosition;
         float distance = length(surfaceToLight);
 
         float factor = pow(
-            saturate(-distance / gPointLight.radius + 1.0f),
-            gPointLight.decay
+            saturate(-distance / pl.radius + 1.0f),
+            pl.decay
         );
 
         float3 Lp = SafeNormalize(surfaceToLight);
@@ -275,80 +288,97 @@ PixelShaderOutput main(VertexShaderOutput input)
         diffuseAcc +=
             gMaterial.color.rgb *
             textureColor.rgb *
-            gPointLight.color.rgb *
+            pl.color.rgb *
             halfLambertP *
-            gPointLight.intensity *
+            pl.intensity *
             factor;
 
         float3 Hp = SafeNormalize(Lp + V);
         float specPowP = pow(saturate(dot(N, Hp)), gMaterial.shininess);
 
         specularAcc +=
-            gPointLight.color.rgb *
-            gPointLight.intensity *
+            pl.color.rgb *
+            pl.intensity *
             specPowP *
             factor;
     }
 
     // ==================================================
-    // SpotLight
+    // SpotLight（2個）
     // ==================================================
-    if (gSpotLight.enable != 0)
+    [unroll]
+    for (int j = 0; j < 2; ++j)
     {
-        float3 surfaceToLight = gSpotLight.position - input.worldPosition;
+        SpotLight sl = gSpotLights.lights[j];
+        if (sl.enable == 0)
+        {
+            continue;
+        }
+
+        float3 surfaceToLight = sl.position - input.worldPosition;
         float distance = length(surfaceToLight);
 
-        if (distance <= gSpotLight.distance)
+        if (distance > sl.distance)
         {
-            float distFactor = pow(
-                saturate(-distance / gSpotLight.distance + 1.0f),
-                gSpotLight.decay
-            );
-
-            float3 Ls = SafeNormalize(surfaceToLight);
-
-            float3 spotDir = SafeNormalize(gSpotLight.direction);
-            float3 lightToSurfaceDir = -Ls;
-            float cosTheta = dot(spotDir, lightToSurfaceDir);
-
-            float angleOK = step(gSpotLight.cosAngle, cosTheta);
-            float denom = max(gSpotLight.cosFalloffStart - gSpotLight.cosAngle, 1e-5f);
-            float falloff = saturate((cosTheta - gSpotLight.cosAngle) / denom);
-            float angleFactor = angleOK * falloff;
-
-            float NdotLs = dot(N, Ls);
-            float halfLambertS = pow(NdotLs * 0.5f + 0.5f, 2.0f);
-
-            diffuseAcc +=
-                gMaterial.color.rgb *
-                textureColor.rgb *
-                gSpotLight.color.rgb *
-                halfLambertS *
-                gSpotLight.intensity *
-                distFactor *
-                angleFactor;
-
-            float3 Hs = SafeNormalize(Ls + V);
-            float specPowS = pow(saturate(dot(N, Hs)), gMaterial.shininess);
-
-            specularAcc +=
-                gSpotLight.color.rgb *
-                gSpotLight.intensity *
-                specPowS *
-                distFactor *
-                angleFactor;
+            continue;
         }
+
+        float distFactor = pow(
+            saturate(-distance / sl.distance + 1.0f),
+            sl.decay
+        );
+
+        float3 Ls = SafeNormalize(surfaceToLight);
+
+        float3 spotDir = SafeNormalize(sl.direction);
+        float3 lightToSurfaceDir = -Ls;
+        float cosTheta = dot(spotDir, lightToSurfaceDir);
+
+        float angleOK = step(sl.cosAngle, cosTheta);
+        float denom = max(sl.cosFalloffStart - sl.cosAngle, 1e-5f);
+        float falloff = saturate((cosTheta - sl.cosAngle) / denom);
+        float angleFactor = angleOK * falloff;
+
+        float NdotLs = dot(N, Ls);
+        float halfLambertS = pow(NdotLs * 0.5f + 0.5f, 2.0f);
+
+        diffuseAcc +=
+            gMaterial.color.rgb *
+            textureColor.rgb *
+            sl.color.rgb *
+            halfLambertS *
+            sl.intensity *
+            distFactor *
+            angleFactor;
+
+        float3 Hs = SafeNormalize(Ls + V);
+        float specPowS = pow(saturate(dot(N, Hs)), gMaterial.shininess);
+
+        specularAcc +=
+            sl.color.rgb *
+            sl.intensity *
+            specPowS *
+            distFactor *
+            angleFactor;
     }
 
     // ==================================================
-    // RectLight（Area）  ★diffuseとspecを分離
+    // RectLight（2個） ★diffuseとspecを分離
     // ==================================================
     float3 rectDiffuse = 0.0f;
     float3 rectSpec = 0.0f;
 
-    if (gRectLight.enable != 0)
+    [unroll]
+    for (int k = 0; k < 2; ++k)
     {
-        RectLight rl = gRectLight; // ★ここがポイント（cbuffer直渡し回避）
+        RectLight rl = gRectLights.lights[k];
+        if (rl.enable == 0)
+        {
+            continue;
+        }
+
+        float3 d = 0.0f;
+        float3 s = 0.0f;
 
         EvaluateRectLight(
             rl,
@@ -356,15 +386,15 @@ PixelShaderOutput main(VertexShaderOutput input)
             N,
             V,
             gMaterial.shininess,
-            rectDiffuse,
-            rectSpec
+            d,
+            s
         );
 
         // diffuseだけ色を乗せる（テクスチャ/マテリアル色）
-        rectDiffuse *= (gMaterial.color.rgb * textureColor.rgb);
+        d *= (gMaterial.color.rgb * textureColor.rgb);
 
-        // specは白い反射としてそのまま足す（必要なら倍率）
-        // rectSpec *= 1.0f;
+        rectDiffuse += d;
+        rectSpec += s; // specは白い反射としてそのまま足す
     }
 
     // ------------------------------
