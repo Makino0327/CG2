@@ -1,5 +1,5 @@
 // ==============================
-// Object3D.PS.hlsl（全文）
+// Object3D.PS.hlsl（全文：RectLight追加版・整理済み）
 // ==============================
 
 struct VertexShaderOutput
@@ -10,12 +10,14 @@ struct VertexShaderOutput
     float3 worldPosition : POSITION0; // VSで渡してる前提
 };
 
+// ------------------------------
+// Lights / Material
+// ------------------------------
 struct DirectionalLight
 {
     float4 color;
     float3 direction; // 「ライトが向いている方向」
     float intensity;
-    // enable切替したいならここに int enable; float3 pad; を追加
 };
 
 struct Material
@@ -23,14 +25,12 @@ struct Material
     float4 color;
     int enableLighting; // 0:なし 1:あり
     float shininess;
-    // ※あなたのMaterialにuvTransformが無い版なのでここまで
-    // uvTransformを使う版ならここに行列が来る
 };
 
 struct Camera
 {
     float3 worldPosition;
-    float padding; // 16byte合わせ（C++ CameraForGPUと一致）
+    float padding; // 16byte合わせ
 };
 
 struct PointLight
@@ -42,8 +42,8 @@ struct PointLight
     float radius;
     float decay;
 
-    int enable; // ★チェックでON/OFF
-    float padding; // 16byte合わせ
+    int enable;
+    float padding;
 };
 
 struct SpotLight
@@ -52,31 +52,57 @@ struct SpotLight
     float3 position;
     float intensity;
 
-    float3 direction; // スポットが照らす方向（単位ベクトル）
-    float distance; // 届く最大距離
+    float3 direction;
+    float distance;
 
-    float decay; // 距離減衰の指数
-    float cosAngle; // 内側の角度（cos）
-    float cosFalloffStart; // ★Falloff開始角度（cos）
-    int enable; // ★チェックでON/OFF
+    float decay;
+    float cosAngle;
+    float cosFalloffStart;
+    int enable;
 
-    float padding; // 16byte合わせ
+    float padding;
 };
 
+// ★ RectLight（AreaLight）
+struct RectLight
+{
+    float4 color;
+    float intensity;
+
+    float3 position;
+    float pad0;
+
+    float3 normal; // 面の法線（正規化して送る想定）
+    float pad1;
+
+    float3 tangent; // 横方向（正規化して送る想定）
+    float halfWidth;
+
+    float halfHeight;
+    int enable;
+    float2 pad2;
+};
+
+// ------------------------------
+// ConstantBuffers
+// ------------------------------
 ConstantBuffer<Material> gMaterial : register(b0);
 ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
 ConstantBuffer<Camera> gCamera : register(b3);
 ConstantBuffer<PointLight> gPointLight : register(b4);
 ConstantBuffer<SpotLight> gSpotLight : register(b5);
+ConstantBuffer<RectLight> gRectLight : register(b6);
 
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
 
+// ------------------------------
 struct PixelShaderOutput
 {
     float4 color : SV_TARGET0;
 };
 
+// ------------------------------
 static float3 SafeNormalize(float3 v)
 {
     float len2 = dot(v, v);
@@ -87,6 +113,86 @@ static float3 SafeNormalize(float3 v)
     return v * rsqrt(len2);
 }
 
+// 4x4 の等間隔サンプル（16点）で疑似的に面光源っぽくする
+static float3 EvaluateRectLight(
+    RectLight rect,
+    float3 worldPos,
+    float3 N,
+    float3 V,
+    float shininess
+)
+{
+    if (rect.enable == 0)
+    {
+        return 0;
+    }
+
+    // ライト基底
+    float3 nL = SafeNormalize(rect.normal);
+
+    // tangent を直交化（PS側でも保険）
+    float3 t = rect.tangent - nL * dot(rect.tangent, nL);
+    t = SafeNormalize(t);
+
+    float3 b = SafeNormalize(cross(nL, t));
+
+    // 片面発光（点がライトの表側にある時だけ）
+    // 「表側 = -normal側」にしたいならこの判定を逆にしてOK
+    
+
+    const int S = 4; // 4x4 = 16
+    const float invS = 1.0f / S;
+
+    float3 sum = 0;
+
+    // 面積（大きいほど明るくしたいなら使う）
+    float area = (rect.halfWidth * 2.0f) * (rect.halfHeight * 2.0f);
+
+    for (int y = 0; y < S; y++)
+    {
+        for (int x = 0; x < S; x++)
+        {
+            // 0..1 のセル中心
+            float2 u = (float2(x + 0.5f, y + 0.5f) * invS);
+
+            // -1..1 にして半幅/半高さへ
+            float sx = (u.x * 2.0f - 1.0f) * rect.halfWidth;
+            float sy = (u.y * 2.0f - 1.0f) * rect.halfHeight;
+
+            float3 samplePos = rect.position + t * sx + b * sy;
+
+            float3 Lvec = samplePos - worldPos;
+            float dist = length(Lvec);
+            float3 L = (dist > 1e-6f) ? (Lvec / dist) : float3(0, 0, 0);
+
+            // 受け手（面）のLambert
+            float ndl = saturate(dot(N, L));
+
+            // ライト面が点を向いてるか（面っぽさ）
+            float lFacing = saturate(dot(nL, -L));
+
+            // 簡易距離減衰（見た目調整用）
+            float att = 1.0f / max(dist * dist, 1e-3f);
+
+            // spec（Blinn-Phong）
+            float3 H = SafeNormalize(L + V);
+            float spec = pow(saturate(dot(N, H)), shininess);
+
+            float3 c = rect.color.rgb * rect.intensity;
+
+            sum += c * (ndl + spec) * lFacing * att;
+        }
+    }
+
+    // 平均 + 面積スケール
+    sum *= (1.0f / (S * S)) * area;
+
+    return sum;
+}
+
+// ==================================================
+// main
+// ==================================================
 PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
@@ -102,166 +208,145 @@ PixelShaderOutput main(VertexShaderOutput input)
         return output;
     }
 
-    // 法線（World空間法線をVSから渡してないなら、ここは要修正）
     float3 N = SafeNormalize(input.normal);
-
-    // 視線方向（surface -> camera）
     float3 V = SafeNormalize(gCamera.worldPosition - input.worldPosition);
 
-    // 蓄積用
-    float3 diffuseAcc = float3(0, 0, 0);
-    float3 specularAcc = float3(0, 0, 0);
+    float3 diffuseAcc = 0;
+    float3 specularAcc = 0;
 
     // ==================================================
-    // DirectionalLight（Half-Lambert + Blinn-Phong）
+    // DirectionalLight
     // ==================================================
     {
-        // ライトが向いている direction の「逆」が、表面へ入射する向き
         float3 L = SafeNormalize(-gDirectionalLight.direction);
-
         float NdotL = dot(N, L);
 
-        // Half-Lambert（資料のやつ）
         float halfLambert = pow(NdotL * 0.5f + 0.5f, 2.0f);
 
-        float3 diffuse =
+        diffuseAcc +=
             gMaterial.color.rgb *
             textureColor.rgb *
             gDirectionalLight.color.rgb *
             halfLambert *
             gDirectionalLight.intensity;
 
-        // Blinn-Phong
         float3 H = SafeNormalize(L + V);
-        float NdotH = saturate(dot(N, H));
-        float specPow = pow(NdotH, gMaterial.shininess);
+        float specPow = pow(saturate(dot(N, H)), gMaterial.shininess);
 
-        float3 specular =
+        specularAcc +=
             gDirectionalLight.color.rgb *
             gDirectionalLight.intensity *
             specPow;
-
-        diffuseAcc += diffuse;
-        specularAcc += specular;
     }
 
     // ==================================================
-    // PointLight（距離減衰：資料どおり）
+    // PointLight
     // ==================================================
     if (gPointLight.enable != 0)
     {
-       // surface -> light にする
         float3 surfaceToLight = gPointLight.position - input.worldPosition;
         float distance = length(surfaceToLight);
 
-// 距離減衰は距離だけ使うのでそのまま
         float factor = pow(
-    saturate(-distance / gPointLight.radius + 1.0f),
-    gPointLight.decay
-);
+            saturate(-distance / gPointLight.radius + 1.0f),
+            gPointLight.decay
+        );
 
-        float3 Lp = SafeNormalize(surfaceToLight); // ★surface -> light
+        float3 Lp = SafeNormalize(surfaceToLight);
         float NdotLp = dot(N, Lp);
-
         float halfLambertP = pow(NdotLp * 0.5f + 0.5f, 2.0f);
 
-        float3 diffusePoint =
-    gMaterial.color.rgb *
-    textureColor.rgb *
-    gPointLight.color.rgb *
-    halfLambertP *
-    gPointLight.intensity *
-    factor;
+        diffuseAcc +=
+            gMaterial.color.rgb *
+            textureColor.rgb *
+            gPointLight.color.rgb *
+            halfLambertP *
+            gPointLight.intensity *
+            factor;
 
-// Blinn-Phong（L と V の向きを揃えたのでこれでOK）
         float3 Hp = SafeNormalize(Lp + V);
-        float NdotHp = saturate(dot(N, Hp));
-        float specPowP = pow(NdotHp, gMaterial.shininess);
+        float specPowP = pow(saturate(dot(N, Hp)), gMaterial.shininess);
 
-        float3 specularPoint =
-    gPointLight.color.rgb *
-    gPointLight.intensity *
-    specPowP *
-    factor;
-
-
-        diffuseAcc += diffusePoint;
-        specularAcc += specularPoint;
+        specularAcc +=
+            gPointLight.color.rgb *
+            gPointLight.intensity *
+            specPowP *
+            factor;
     }
 
     // ==================================================
-    // SpotLight（距離減衰 + 角度Falloff）
+    // SpotLight
     // ==================================================
     if (gSpotLight.enable != 0)
     {
-    // surface -> light（★Pointと同じ思想で揃える）
         float3 surfaceToLight = gSpotLight.position - input.worldPosition;
         float distance = length(surfaceToLight);
 
         if (distance <= gSpotLight.distance)
         {
-        // 距離減衰
             float distFactor = pow(
-            saturate(-distance / gSpotLight.distance + 1.0f),
-            gSpotLight.decay
-        );
+                saturate(-distance / gSpotLight.distance + 1.0f),
+                gSpotLight.decay
+            );
 
-            float3 Ls = SafeNormalize(surfaceToLight); // ★surface -> light
+            float3 Ls = SafeNormalize(surfaceToLight);
 
-        // ===== 角度判定 =====
-        // spotDir は「ライトが照らす方向」(light -> forward) を想定
             float3 spotDir = SafeNormalize(gSpotLight.direction);
-
-        // light -> surface が欲しいので、surfaceToLight を反転
             float3 lightToSurfaceDir = -Ls;
-
-        // 中心ほど 1 に近い
             float cosTheta = dot(spotDir, lightToSurfaceDir);
 
-        // cosTheta が cosAngle 以上ならコーン内
             float angleOK = step(gSpotLight.cosAngle, cosTheta);
-
-        // Falloff（cosFalloffStart(内側) > cosAngle(外側) の並び前提）
             float denom = max(gSpotLight.cosFalloffStart - gSpotLight.cosAngle, 1e-5f);
             float falloff = saturate((cosTheta - gSpotLight.cosAngle) / denom);
-
             float angleFactor = angleOK * falloff;
 
-        // ===== 拡散（Half-Lambert）=====
-            float NdotLs = dot(N, Ls); // Ls は surface->light
+            float NdotLs = dot(N, Ls);
             float halfLambertS = pow(NdotLs * 0.5f + 0.5f, 2.0f);
 
-            float3 diffuseSpot =
-            gMaterial.color.rgb *
-            textureColor.rgb *
-            gSpotLight.color.rgb *
-            halfLambertS *
-            gSpotLight.intensity *
-            distFactor *
-            angleFactor;
+            diffuseAcc +=
+                gMaterial.color.rgb *
+                textureColor.rgb *
+                gSpotLight.color.rgb *
+                halfLambertS *
+                gSpotLight.intensity *
+                distFactor *
+                angleFactor;
 
-        // ===== 鏡面（Blinn-Phong）=====
-            float3 Hs = SafeNormalize(Ls + V); // ★向きが揃った
-            float NdotHs = saturate(dot(N, Hs));
-            float specPowS = pow(NdotHs, gMaterial.shininess);
+            float3 Hs = SafeNormalize(Ls + V);
+            float specPowS = pow(saturate(dot(N, Hs)), gMaterial.shininess);
 
-            float3 specularSpot =
-            gSpotLight.color.rgb *
-            gSpotLight.intensity *
-            specPowS *
-            distFactor *
-            angleFactor;
-
-            diffuseAcc += diffuseSpot;
-            specularAcc += specularSpot;
+            specularAcc +=
+                gSpotLight.color.rgb *
+                gSpotLight.intensity *
+                specPowS *
+                distFactor *
+                angleFactor;
         }
+    }
+
+    // ==================================================
+    // RectLight（Area）
+    // ==================================================
+    float3 rect = 0.0f;
+    if (gRectLight.enable != 0)
+    {
+        RectLight rl = gRectLight; // ★ここがポイント（cbuffer直渡し回避）
+        rect = EvaluateRectLight(
+        rl,
+        input.worldPosition,
+        N,
+        V,
+        gMaterial.shininess
+    );
+
+        rect *= (gMaterial.color.rgb * textureColor.rgb);
     }
 
 
     // ------------------------------
     // 出力
     // ------------------------------
-    output.color.rgb = diffuseAcc + specularAcc;
+    output.color.rgb = diffuseAcc + specularAcc + rect;
     output.color.a = gMaterial.color.a * textureColor.a;
 
     return output;

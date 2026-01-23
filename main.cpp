@@ -568,6 +568,25 @@ struct SpotLight {
 	float padding[1];      // ★16byte合わせ
 };
 
+struct RectLight {
+	Vector4 color;        // RGB
+	float intensity;      // 強度
+
+	Vector3 position;     // 矩形の中心
+	float  pad0;
+
+	Vector3 normal;       // 矩形の表面法線（単位ベクトル）
+	float  pad1;
+
+	Vector3 tangent;      // 矩形の横方向（単位ベクトル）
+	float  halfWidth;     // 半幅
+
+	float  halfHeight;    // 半高さ
+	int32_t enable;       // 0/1
+	float pad2[2];        // 16byte合わせ
+};
+
+
 // 1. ConvertString関数
 std::wstring ConvertString(const std::string& str) {
 	int len = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, nullptr, 0);
@@ -813,7 +832,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 	// 1. RootParameter作成（CBV b0）
-	D3D12_ROOT_PARAMETER rootParameters[7] = {};
+	D3D12_ROOT_PARAMETER rootParameters[8] = {};
 
 	// [0] Material（b0）→ PixelShader用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -854,6 +873,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	rootParameters[6].Descriptor.RegisterSpace = 0;
 
 
+	// [7] RectLight（b6）
+	rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[7].Descriptor.ShaderRegister = 6; // b6
+	rootParameters[7].Descriptor.RegisterSpace = 0;
 
 
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -1184,6 +1208,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 	pointLightData->enable = 1;
 	spotLightData->enable = 1;
 
+	// ===== RectLight =====
+	ID3D12Resource* rectLightResource =
+		CreateBufferResource(device, sizeof(RectLight));
+
+	RectLight* rectLightData = nullptr;
+	rectLightResource->Map(0, nullptr, reinterpret_cast<void**>(&rectLightData));
+
+	// 初期値（例）
+	rectLightData->color = { 1,1,1,1 };
+	rectLightData->intensity = 6.0f;
+	rectLightData->position = { 0.0f, 3.0f, 8.0f };
+
+	// 左手座標系で +Z 前。例えば「下向きに照らす」なら normal は (0,-1,0)
+	rectLightData->normal = Normalize({ 0.0f, -1.0f, 0.0f });
+
+	// tangent は normal と直交する方向（横方向）
+	rectLightData->tangent = Normalize({ 1.0f,  0.0f, 0.0f });
+
+	rectLightData->halfWidth = 2.0f;
+	rectLightData->halfHeight = 1.0f;
+
+	rectLightData->enable = 1;
 
 
 	// インプットレイアウト
@@ -1624,6 +1670,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			// b5 SpotLight
 			commandList->SetGraphicsRootConstantBufferView(6, spotLightResource->GetGPUVirtualAddress());
 
+			// b6 RectLight
+			commandList->SetGraphicsRootConstantBufferView(7, rectLightResource->GetGPUVirtualAddress());
+
+
 			// SRV heap + t0
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
@@ -1773,13 +1823,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			//ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 
 			ImGui::End();
-
+			static bool enableRect = true;
+			rectLightData->enable = enableRect ? 1 : 0;
 			ImGui::Begin("Light");
 			ImGui::Separator();
 			ImGui::Text("Light Toggle");
 			ImGui::Checkbox("Directional", &enableDirectional);
 			ImGui::Checkbox("Point", &enablePoint);
 			ImGui::Checkbox("Spot", &enableSpot);
+			ImGui::Checkbox("Rect Enable", &enableRect);
 			// -------- DirectionalLight (あるなら) --------
 			// ImGui::SliderFloat3(...)
 			ImGui::SeparatorText("DirectionalLight");
@@ -1810,10 +1862,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 			// 便利：球をライト位置に追従させたいなら（任意）
 			// if (ImGui::Button("Move Sphere To Light")) { sphereTransform.translate = pointLightData->position; }
-
-			ImGui::End();
-
-			ImGui::Begin("Light");
+			
 
 			ImGui::SeparatorText("SpotLight");
 
@@ -1849,6 +1898,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 			spotLightData->cosAngle = cosf(slOuterDeg * float(M_PI) / 180.0f);
 			spotLightData->cosFalloffStart = cosf(slInnerDeg * float(M_PI) / 180.0f);
 
+			ImGui::SeparatorText("RectLight (Area)");
+			
+
+			ImGui::DragFloat3("RL Position", &rectLightData->position.x, 0.01f, -50.0f, 50.0f);
+			ImGui::DragFloat3("RL Normal", &rectLightData->normal.x, 0.01f, -1.0f, 1.0f);
+			ImGui::DragFloat3("RL Tangent", &rectLightData->tangent.x, 0.01f, -1.0f, 1.0f);
+
+			rectLightData->normal = Normalize(rectLightData->normal);
+			rectLightData->tangent = Normalize(rectLightData->tangent);
+
+			ImGui::ColorEdit3("RL Color", &rectLightData->color.x);
+			ImGui::DragFloat("RL Intensity", &rectLightData->intensity, 0.01f, 0.0f, 50.0f);
+			ImGui::DragFloat("RL HalfWidth", &rectLightData->halfWidth, 0.01f, 0.01f, 20.0f);
+			ImGui::DragFloat("RL HalfHeight", &rectLightData->halfHeight, 0.01f, 0.01f, 20.0f);
 
 			ImGui::End();
 
