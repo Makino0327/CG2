@@ -15,12 +15,8 @@ public:
 
     virtual bool IsEndRequest() const { return endRequest_; }
 
-    // ★シーンをセットする（SceneManagerが後でやるならここ経由が楽）
-    void SetScene(BaseScene* scene) { scene_ = scene; }
-
 protected:
     bool endRequest_ = false;
 
-    // ★今のシーン（所有権はここでは持たない前提）
-    BaseScene* scene_ = nullptr;
+
 };

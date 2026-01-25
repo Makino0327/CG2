@@ -64,9 +64,25 @@ void Game::Initialize() {
     input_ = new Input();
     input_->Initialize(winApp_);
 
-    // ★ GamePlayScene を生成して、シーン固有の初期化を移植
-    gamePlayScene_ = new GamePlayScene();
-    gamePlayScene_->Initialize(dxCommon_, srvManager_, spriteCommon_, object3dCommon_, modelCommon_, particleCommon_, camera_);
+    sceneManager_ = new SceneManager();
+
+
+    // ===== 最初のシーンの生成 =====
+    BaseScene* scene = new TitleScene();
+    // ★ここが必須：TitleScene に共通ポインタを渡す
+    static_cast<TitleScene*>(scene)->SetContext(
+        dxCommon_,
+        srvManager_,
+        spriteCommon_,
+        object3dCommon_,
+        modelCommon_,
+        particleCommon_,
+        camera_
+    );
+    // シーンマネージャにセット（予約）
+    sceneManager_->SetNextScene(scene);
+
+   
 }
 
 void Game::Update() {
@@ -83,9 +99,8 @@ void Game::Update() {
     if (input_->TriggerKey(DIK_0)) {
         OutputDebugStringA("push 0\n");
     }
+    sceneManager_->Update();
 
-    // ★ シーン側へ委譲
-    gamePlayScene_->Update(deltaTime_);
 }
 
 void Game::Draw() {
@@ -95,8 +110,6 @@ void Game::Draw() {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
     (void)commandList; // 元コードにあったので残す（未使用警告回避）
 
-    // ★ シーン側へ委譲（CommonDrawSetting等もシーン側でやる）
-    gamePlayScene_->Draw();
 
 #ifdef USE_IMGUI
     imguiManager_->Begin();
@@ -107,18 +120,11 @@ void Game::Draw() {
     imguiManager_->End();
     imguiManager_->Draw();
 #endif
-
+    sceneManager_->Draw();
     dxCommon_->PostDraw();
 }
 
 void Game::Finalize() {
-
-    // ★ シーン終了
-    if (gamePlayScene_) {
-        gamePlayScene_->Finalize();
-        delete gamePlayScene_;
-        gamePlayScene_ = nullptr;
-    }
 
     // 3Dモデルマネージャーの終了
     ModelManager::GetInstance()->Finalize();
@@ -142,6 +148,9 @@ void Game::Finalize() {
     delete imguiManager_;
     imguiManager_ = nullptr;
 #endif
+
+    delete sceneManager_;
+    sceneManager_ = nullptr;
 
     delete srvManager_; srvManager_ = nullptr;
 

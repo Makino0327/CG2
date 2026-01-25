@@ -36,6 +36,7 @@
     <ClCompile Include="GamePlayScene.cpp" />
     <ClCompile Include="TitleScene.cpp" />
     <ClCompile Include="BaseScene.cpp" />
+    <ClCompile Include="SceneManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -66,6 +67,7 @@
     <ClInclude Include="GamePlayScene.h" />
     <ClInclude Include="TitleScene.h" />
     <ClInclude Include="BaseScene.h" />
+    <ClInclude Include="SceneManager.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Particle.hlsli" />

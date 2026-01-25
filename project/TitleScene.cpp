@@ -1,44 +1,30 @@
 #include "TitleScene.h"
 
+#include <cassert>
+#include <string>
+
 #include "DirectXCommon.h"
 #include "SrvManager.h"
 #include "SpriteCommon.h"
 #include "Sprite.h"
+
 #include "Object3dCommon.h"
 #include "Object3d.h"
 #include "Camera.h"
+
 #include "ParticleCommon.h"
-#include "Particle.h"
+#include "Particle.h"            // ※あなたのプロジェクトで ParticleSystem / ParticleType がここなら
 #include "ModelCommon.h"
 #include "ModelManager.h"
 #include "TextureManager.h"
 
 //==================================================
-// BaseScene interface（引数なし）
-//==================================================
-// ★BaseSceneから呼ばれる入口。
-// ★中身は「今までの引数あり関数」を呼ぶだけ。
-// ★参照（dxCommon_など）がセットされていない場合は何もしない。
-void TitleScene::Initialize()
-{
-    // Game側で Initialize( ... ) が呼ばれる想定なので、ここは空でOK
-}
-
-void TitleScene::Update()
-{
-    // ★Game側から渡された参照があるなら回す
-    if (dxCommon_ && srvManager_ && spriteCommon_ && object3dCommon_ &&
-        modelCommon_ && particleCommon_ && camera_) {
-        Update(1.0f / 60.0f);
-    }
-}
-
-
-//==================================================
-// ここから下は「あなたが貼った内容そのまま」
+// TitleScene
 //==================================================
 
-void TitleScene::Initialize(
+// ★Game側で “SceneManager->SetNextScene(new TitleScene())” した直後にこれを呼んで
+//   TitleScene に共通ポインタを渡す前提
+void TitleScene::SetContext(
     DirectXCommon* dxCommon,
     SrvManager* srvManager,
     SpriteCommon* spriteCommon,
@@ -54,16 +40,29 @@ void TitleScene::Initialize(
     modelCommon_ = modelCommon;
     particleCommon_ = particleCommon;
     camera_ = camera;
+}
 
-    // 3D オブジェクト（元コードにあったので移植）
-    object3d_ = new Object3d();
-    object3d_->Initialize(object3dCommon_);
+//==================================================
+// BaseScene interface
+//==================================================
 
-    // 3Dモデルマネージャー（Loadだけ移植：InitializeはGame側でやる）
+void TitleScene::Initialize()
+{
+    // ここが空だと “何も作られない” ので映らない
+    // そして dxCommon_ が null だと Draw() で落ちる
+    assert(dxCommon_);
+    assert(srvManager_);
+    assert(spriteCommon_);
+    assert(object3dCommon_);
+    assert(modelCommon_);
+    assert(particleCommon_);
+    assert(camera_);
+
+    // -------- モデル読み込み（Game側で Initialize 済み前提。ここは Load だけ） --------
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
 
-    // （必要なら）テクスチャを事前ロード
+    // -------- テクスチャ（必要なら事前ロード） --------
     auto texMan = TextureManager::GetInstance();
     texMan->LoadTexture("Resources/uvChecker.png");
     texMan->LoadTexture("Resources/monsterBall.png");
@@ -71,35 +70,27 @@ void TitleScene::Initialize(
     texMan->LoadTexture("Resources/circle.png");
     texMan->LoadTexture("Resources/fence.png");
 
+    // -------- パーティクル --------
     particleSystem_ = new ParticleSystem();
     particleSystem_->Initialize(dxCommon_, particleCommon_, camera_, srvManager_, ParticleType::CircleBurst);
-    particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });   // エミッタ基準位置
+    particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
-    // 通常モデル用のマテリアルリソースを作成
-    materialResource_ = dxCommon_->CreateBufferResource(sizeof(Material));
-    Material* materialData = nullptr;
-    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-    materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    materialData->uvTransform = MakeIdentity4x4();
-
-    // ライト用の定数バッファリソースを作成
+    // -------- ライトCB（Spriteが受け取るやつ）--------
     directionalLightResource_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
-    DirectionalLight* directionalLightData = nullptr;
-    directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
-    directionalLightData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    directionalLightData->direction = Vector3(0.0f, -1.0f, 0.0f);
-    directionalLightData->intensity = 4.0f;
+    DirectionalLight* light = nullptr;
+    directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
+    light->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+    light->direction = Vector3(0.0f, -1.0f, 0.0f);
+    light->intensity = 4.0f;
 
-    // Spriteの初期化
+    // -------- スプライト --------
+    sprites_.reserve(5);
     for (uint32_t i = 0; i < 5; ++i) {
         Sprite* sprite = new Sprite();
 
-        std::string texPath;
-        if (i % 2 == 0) {
-            texPath = "Resources/uvChecker.png";
-        } else {
-            texPath = "Resources/monsterBall.png";
-        }
+        std::string texPath = (i % 2 == 0)
+            ? "Resources/uvChecker.png"
+            : "Resources/monsterBall.png";
 
         sprite->Initialize(spriteCommon_, directionalLightResource_.Get(), texPath);
 
@@ -109,51 +100,67 @@ void TitleScene::Initialize(
         sprites_.push_back(sprite);
     }
 
-    // Object3d を作る（元コードの objA）
+    // -------- 3D --------
     objA_ = new Object3d();
     objA_->Initialize(object3dCommon_);
     objA_->SetModel("fence.obj");
     objA_->SetTexture("Resources/circle.png");
-    objA_->SetTranslate({ 0, 0, 0 });
+    objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
+
+    // ついでに初期位置（UI等でいじるならここ）
+    spritePos_ = { 100.0f, 200.0f };
 }
 
-void TitleScene::Update(float deltaTime)
+void TitleScene::Update()
 {
-    // Sprite Update（元コード通り）
+    // dt固定（まず動くのを優先）
+    const float dt = 1.0f / 60.0f;
+
+    // Sprite Update
     for (Sprite* sprite : sprites_) {
-        sprite->Update();
+        if (sprite) { sprite->Update(); }
     }
 
-    // 3D Update（元コード通り）
-    objA_->Update();
-    camera_->Update();
-    particleSystem_->Update(deltaTime);
+    // 3D Update
+    if (objA_) { objA_->Update(); }
 
-    // スプライトに反映（元コード通り）
-    if (!sprites_.empty()) {
+    // Camera
+    if (camera_) { camera_->Update(); }
+
+    // Particle
+    if (particleSystem_) { particleSystem_->Update(dt); }
+
+    // 例：スプライト0だけ座標反映
+    if (!sprites_.empty() && sprites_[0]) {
         sprites_[0]->SetPosition(spritePos_);
     }
 }
 
 void TitleScene::Draw()
 {
+    // ここで null チェックして逃げると「何も映らない」ので、
+    // 本来は assert で止めて原因を潰すのが正解
+    assert(dxCommon_);
+    assert(spriteCommon_);
+    assert(object3dCommon_);
+    assert(particleCommon_);
+
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
-    (void)commandList; // 元コードにあったので残す（未使用警告回避）
+    assert(commandList);
 
-    // ===== スプライト =====
+    // ===== Sprite =====
     spriteCommon_->CommonDrawSetting();
-
     for (Sprite* sprite : sprites_) {
-        sprite->Draw();
+        if (sprite) { sprite->Draw(); }
     }
 
-    // ======= Draw =======
+    // ===== 3D =====
     object3dCommon_->CommonDrawSetting();
-    objA_->Draw();
+    if (objA_) { objA_->Draw(); }
 
-    // そのあとインスタンス描画（Particle用PSO）
+    // ===== Particle =====
     particleCommon_->CommonDrawSetting();
-    particleSystem_->Draw();
+    if (particleSystem_) { particleSystem_->Draw(); }
 }
 
 void TitleScene::Finalize()
@@ -165,13 +172,13 @@ void TitleScene::Finalize()
     sprites_.clear();
 
     // 3D
-    delete objA_; objA_ = nullptr;
-    delete object3d_; object3d_ = nullptr;
+    delete objA_;
+    objA_ = nullptr;
 
     // Particle
-    delete particleSystem_; particleSystem_ = nullptr;
+    delete particleSystem_;
+    particleSystem_ = nullptr;
 
-    // ComPtrは自動解放
-    materialResource_.Reset();
+    // ComPtr は Reset
     directionalLightResource_.Reset();
 }

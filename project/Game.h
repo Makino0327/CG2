@@ -36,6 +36,8 @@ using Microsoft::WRL::ComPtr;
 #include "SrvManager.h"
 #include "ImGuiManager.h"
 #include "Framework.h"
+#include "BaseScene.h"    // ★追加
+#include "SceneManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -89,6 +91,7 @@ private:
     // ImGui
     ImGuiManager* imguiManager_ = nullptr;
 
-    // ★シーン
-    GamePlayScene* gamePlayScene_ = nullptr; // ★追加
+	BaseScene* scene_ = nullptr;    // ★追加
+
+	SceneManager* sceneManager_ = nullptr;  // ★追加
 };

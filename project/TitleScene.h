@@ -17,33 +17,31 @@ class Sprite;
 class Object3d;
 class ParticleSystem;
 
-class TitleScene : public BaseScene
-{
+class TitleScene : public BaseScene {
 public:
-	void Initialize() override;
-	void Finalize() override;
-	void Update() override;
-	void Draw() override;
-public:
-	void Initialize(DirectXCommon* dxCommon,
-		SrvManager* srvManager,
-		SpriteCommon* spriteCommon,
-		Object3dCommon* object3dCommon,
-		ModelCommon* modelCommon,
-		ParticleCommon* particleCommon,
-		Camera* camera);
+    void SetContext(DirectXCommon* dxCommon,
+        SrvManager* srvManager,
+        SpriteCommon* spriteCommon,
+        Object3dCommon* object3dCommon,
+        ModelCommon* modelCommon,
+        ParticleCommon* particleCommon,
+        Camera* camera);
 
-	void Update(float deltaTime);
+    void Initialize() override;
+    void Update() override;
+    void Draw() override;
+    void Finalize() override;
 
 private:
-	// ===== 共通参照（Gameが持つ）=====
-	DirectXCommon* dxCommon_ = nullptr;
-	SrvManager* srvManager_ = nullptr;
-	SpriteCommon* spriteCommon_ = nullptr;
-	Object3dCommon* object3dCommon_ = nullptr;
-	ModelCommon* modelCommon_ = nullptr;
-	ParticleCommon* particleCommon_ = nullptr;
-	Camera* camera_ = nullptr;
+    bool initialized_ = false; // ★二重初期化防止
+
+    DirectXCommon* dxCommon_ = nullptr;
+    SrvManager* srvManager_ = nullptr;
+    SpriteCommon* spriteCommon_ = nullptr;
+    Object3dCommon* object3dCommon_ = nullptr;
+    ModelCommon* modelCommon_ = nullptr;
+    ParticleCommon* particleCommon_ = nullptr;
+    Camera* camera_ = nullptr;
 
 	// ===== シーン固有（Gameから移植してここで持つ）=====
 	Object3d* object3d_ = nullptr;
