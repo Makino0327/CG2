@@ -1,5 +1,7 @@
 #pragma once
 
+class BaseScene; // ★前方宣言（ここではincludeしない）
+
 class Framework {
 public:
     virtual ~Framework() = default;
@@ -9,12 +11,16 @@ public:
     virtual void Finalize() {}
 
     void Run();
-    // 純粋仮想関数（必須）
     virtual void Draw() = 0;
 
-    // 終了チェック（const にしておくと Game 側と一致しやすい）
     virtual bool IsEndRequest() const { return endRequest_; }
+
+    // ★シーンをセットする（SceneManagerが後でやるならここ経由が楽）
+    void SetScene(BaseScene* scene) { scene_ = scene; }
 
 protected:
     bool endRequest_ = false;
+
+    // ★今のシーン（所有権はここでは持たない前提）
+    BaseScene* scene_ = nullptr;
 };

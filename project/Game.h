@@ -46,6 +46,7 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "xinput.lib")
 
 class GamePlayScene; // ★追加（インクルード名は増やさない）
+class TitleScene;
 
 class Game : public Framework
 {

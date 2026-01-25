@@ -34,6 +34,8 @@
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="Framework.cpp" />
     <ClCompile Include="GamePlayScene.cpp" />
+    <ClCompile Include="TitleScene.cpp" />
+    <ClCompile Include="BaseScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -62,6 +64,8 @@
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="Framework.h" />
     <ClInclude Include="GamePlayScene.h" />
+    <ClInclude Include="TitleScene.h" />
+    <ClInclude Include="BaseScene.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Particle.hlsli" />

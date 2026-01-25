@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "GamePlayScene.h"
+#include "TitleScene.h"
 
 void Game::Initialize() {
     Framework::Initialize();

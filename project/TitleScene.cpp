@@ -1,4 +1,4 @@
-#include "GamePlayScene.h"
+#include "TitleScene.h"
 
 #include "DirectXCommon.h"
 #include "SrvManager.h"
@@ -19,13 +19,14 @@
 // ★BaseSceneから呼ばれる入口。
 // ★中身は「今までの引数あり関数」を呼ぶだけ。
 // ★参照（dxCommon_など）がセットされていない場合は何もしない。
-void GamePlayScene::Initialize()
+void TitleScene::Initialize()
 {
     // Game側で Initialize( ... ) が呼ばれる想定なので、ここは空でOK
 }
 
-void GamePlayScene::Update()
+void TitleScene::Update()
 {
+    // ★Game側から渡された参照があるなら回す
     if (dxCommon_ && srvManager_ && spriteCommon_ && object3dCommon_ &&
         modelCommon_ && particleCommon_ && camera_) {
         Update(1.0f / 60.0f);
@@ -37,13 +38,15 @@ void GamePlayScene::Update()
 // ここから下は「あなたが貼った内容そのまま」
 //==================================================
 
-void GamePlayScene::Initialize(DirectXCommon* dxCommon,
+void TitleScene::Initialize(
+    DirectXCommon* dxCommon,
     SrvManager* srvManager,
     SpriteCommon* spriteCommon,
     Object3dCommon* object3dCommon,
     ModelCommon* modelCommon,
     ParticleCommon* particleCommon,
-    Camera* camera) {
+    Camera* camera)
+{
     dxCommon_ = dxCommon;
     srvManager_ = srvManager;
     spriteCommon_ = spriteCommon;
@@ -114,8 +117,8 @@ void GamePlayScene::Initialize(DirectXCommon* dxCommon,
     objA_->SetTranslate({ 0, 0, 0 });
 }
 
-void GamePlayScene::Update(float deltaTime) {
-
+void TitleScene::Update(float deltaTime)
+{
     // Sprite Update（元コード通り）
     for (Sprite* sprite : sprites_) {
         sprite->Update();
@@ -132,8 +135,8 @@ void GamePlayScene::Update(float deltaTime) {
     }
 }
 
-void GamePlayScene::Draw() {
-
+void TitleScene::Draw()
+{
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
     (void)commandList; // 元コードにあったので残す（未使用警告回避）
 
@@ -153,8 +156,8 @@ void GamePlayScene::Draw() {
     particleSystem_->Draw();
 }
 
-void GamePlayScene::Finalize() {
-
+void TitleScene::Finalize()
+{
     // Sprite
     for (Sprite* sprite : sprites_) {
         delete sprite;
