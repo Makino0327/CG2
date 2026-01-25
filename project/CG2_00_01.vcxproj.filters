@@ -33,6 +33,7 @@
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="Framework.cpp" />
+    <ClCompile Include="GamePlayScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -60,6 +61,7 @@
     <ClInclude Include="Game.h" />
     <ClInclude Include="SoundManager.h" />
     <ClInclude Include="Framework.h" />
+    <ClInclude Include="GamePlayScene.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Particle.hlsli" />
