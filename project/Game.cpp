@@ -69,7 +69,8 @@ void Game::Initialize() {
 
     // ===== 最初のシーンの生成 =====
     BaseScene* scene = new TitleScene();
-    // ★ここが必須：TitleScene に共通ポインタを渡す
+
+    // ★TitleScene にだけ SetContext（GamePlayScene じゃない）
     static_cast<TitleScene*>(scene)->SetContext(
         dxCommon_,
         srvManager_,
@@ -77,10 +78,14 @@ void Game::Initialize() {
         object3dCommon_,
         modelCommon_,
         particleCommon_,
-        camera_
+        camera_,
+        input_,
+        sceneManager_
     );
+
     // シーンマネージャにセット（予約）
     sceneManager_->SetNextScene(scene);
+
 
    
 }

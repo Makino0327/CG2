@@ -16,6 +16,8 @@ class Camera;
 class Sprite;
 class Object3d;
 class ParticleSystem;
+class Input;
+class SceneManager;
 
 class TitleScene : public BaseScene {
 public:
@@ -25,7 +27,7 @@ public:
         Object3dCommon* object3dCommon,
         ModelCommon* modelCommon,
         ParticleCommon* particleCommon,
-        Camera* camera);
+		Camera* camera, Input* input, SceneManager* sceneManager);
 
     void Initialize() override;
     void Update() override;
@@ -42,6 +44,8 @@ private:
     ModelCommon* modelCommon_ = nullptr;
     ParticleCommon* particleCommon_ = nullptr;
     Camera* camera_ = nullptr;
+	Input* input_ = nullptr;
+    SceneManager* sceneManager_ = nullptr;
 
 	// ===== シーン固有（Gameから移植してここで持つ）=====
 	Object3d* object3d_ = nullptr;

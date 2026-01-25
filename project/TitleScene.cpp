@@ -18,12 +18,14 @@
 #include "ModelManager.h"
 #include "TextureManager.h"
 
+#include "SceneManager.h"
+
+#include "Input.h"
+#include "GamePlayScene.h"
 //==================================================
 // TitleScene
 //==================================================
 
-// ★Game側で “SceneManager->SetNextScene(new TitleScene())” した直後にこれを呼んで
-//   TitleScene に共通ポインタを渡す前提
 void TitleScene::SetContext(
     DirectXCommon* dxCommon,
     SrvManager* srvManager,
@@ -31,7 +33,9 @@ void TitleScene::SetContext(
     Object3dCommon* object3dCommon,
     ModelCommon* modelCommon,
     ParticleCommon* particleCommon,
-    Camera* camera)
+    Camera* camera,
+    Input* input,
+    SceneManager* sceneManager)
 {
     dxCommon_ = dxCommon;
     srvManager_ = srvManager;
@@ -40,6 +44,8 @@ void TitleScene::SetContext(
     modelCommon_ = modelCommon;
     particleCommon_ = particleCommon;
     camera_ = camera;
+    input_ = input;
+    sceneManager_ = sceneManager; // ★追加
 }
 
 //==================================================
@@ -113,6 +119,25 @@ void TitleScene::Initialize()
 
 void TitleScene::Update()
 {
+
+    if (input_->TriggerKey(DIK_SPACE)) {
+        BaseScene* next = new GamePlayScene();
+
+        static_cast<GamePlayScene*>(next)->SetContext(
+            dxCommon_,
+            srvManager_,
+            spriteCommon_,
+            object3dCommon_,
+            modelCommon_,
+            particleCommon_,
+            camera_,
+            input_,
+            sceneManager_
+        );
+
+        sceneManager_->SetNextScene(next);
+    }
+
     // dt固定（まず動くのを優先）
     const float dt = 1.0f / 60.0f;
 
