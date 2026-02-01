@@ -1,20 +1,20 @@
 #pragma once
 #include "BaseScene.h"
+#include <memory>
 
 class SceneManager
 {
 public:
 	void Update();
 	void Draw();
-	void SetNextScene(BaseScene* nextScene) {
-		nextScene_ = nextScene;
+
+	void SetNextScene(std::unique_ptr<BaseScene> nextScene) {
+		nextScene_ = std::move(nextScene);
 	}
 
-	~SceneManager();
-
 private:
-	BaseScene* scene_ = nullptr; // 今実行中
-	BaseScene* nextScene_ = nullptr; // 次に切り替える予定
+	std::unique_ptr<BaseScene> scene_;      // 今実行中（所有）
+	std::unique_ptr<BaseScene> nextScene_;  // 次（所有）
 
 
 };

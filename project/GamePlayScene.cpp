@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <string>
+#include <memory>
 
 #include "DirectXCommon.h"
 #include "SrvManager.h"
@@ -51,6 +52,9 @@ void GamePlayScene::SetContext(
 //==================================================
 void GamePlayScene::Initialize()
 {
+    if (initialized_) { return; }
+    initialized_ = true;
+
     // ★ここで必ず初期化する（SceneManagerはこれしか呼ばない）
     assert(dxCommon_);
     assert(srvManager_);
@@ -63,7 +67,7 @@ void GamePlayScene::Initialize()
     assert(sceneManager_);
 
     // 3D オブジェクト共通（必要なら）
-    object3d_ = new Object3d();
+    object3d_ = std::make_unique<Object3d>();
     object3d_->Initialize(object3dCommon_);
 
     // モデル読み込み（Game側で ModelManager::Initialize 済み前提、ここはLoad）
@@ -79,7 +83,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/fence.png");
 
     // Particle
-    particleSystem_ = new ParticleSystem();
+    particleSystem_ = std::make_unique<ParticleSystem>();
     particleSystem_->Initialize(dxCommon_, particleCommon_, camera_, srvManager_, ParticleType::CircleBurst);
     particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
@@ -101,8 +105,9 @@ void GamePlayScene::Initialize()
     // Sprites
     sprites_.clear();
     sprites_.reserve(5);
+
     for (uint32_t i = 0; i < 5; ++i) {
-        Sprite* sprite = new Sprite();
+        auto sprite = std::make_unique<Sprite>();
 
         std::string texPath = (i % 2 == 0)
             ? "Resources/uvChecker.png"
@@ -113,25 +118,22 @@ void GamePlayScene::Initialize()
         Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
         sprite->SetPosition(pos);
 
-        sprites_.push_back(sprite);
+        sprites_.push_back(std::move(sprite));
     }
 
     // 3D
-    objA_ = new Object3d();
+    objA_ = std::make_unique<Object3d>();
     objA_->Initialize(object3dCommon_);
     objA_->SetModel("fence.obj");
     objA_->SetTexture("Resources/circle.png");
     objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
-
-    
 }
 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
 
-   
-    for (Sprite* sprite : sprites_) {
+    for (auto& sprite : sprites_) {
         if (sprite) { sprite->Update(); }
     }
 
@@ -156,7 +158,7 @@ void GamePlayScene::Draw()
 
     // Sprite
     spriteCommon_->CommonDrawSetting();
-    for (Sprite* sprite : sprites_) {
+    for (auto& sprite : sprites_) {
         if (sprite) { sprite->Draw(); }
     }
 
@@ -171,20 +173,16 @@ void GamePlayScene::Draw()
 
 void GamePlayScene::Finalize()
 {
-    for (Sprite* sprite : sprites_) {
-        delete sprite;
-    }
+    // ★ unique_ptr / ComPtr が解放はするが、
+    // ここでは「終了処理・切断」をやる（必要なら）
+
     sprites_.clear();
-
-    delete objA_;
-    objA_ = nullptr;
-
-    delete object3d_;
-    object3d_ = nullptr;
-
-    delete particleSystem_;
-    particleSystem_ = nullptr;
+    objA_.reset();
+    object3d_.reset();
+    particleSystem_.reset();
 
     materialResource_.Reset();
     directionalLightResource_.Reset();
+
+    initialized_ = false;
 }

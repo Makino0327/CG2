@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <memory>
 
 // DirectX / COM
 #include <d3d12.h>
@@ -63,35 +64,16 @@ public:
 
 private:
 
-    // Windows / Input / DX
-    WinApp* winApp_ = nullptr;
-    Input* input_ = nullptr;
-    DirectXCommon* dxCommon_ = nullptr;
-
-    // SRV / Texture
-    SrvManager* srvManager_ = nullptr;
-
-    // Sprite
-    SpriteCommon* spriteCommon_ = nullptr;
-
-    // 3D
-    Object3dCommon* object3dCommon_ = nullptr;
-    Object3d* object3d_ = nullptr;      // あなたの元コードにあったので保持（今は未使用でもOK）
-
-    // Model
-    ModelCommon* modelCommon_ = nullptr;
-
-    // Camera
-    Camera* camera_ = nullptr;
-
-    // Particle
-    ParticleCommon* particleCommon_ = nullptr;
-    float deltaTime_ = 1.0f / 60.0f;
-
-    // ImGui
-    ImGuiManager* imguiManager_ = nullptr;
-
-	BaseScene* scene_ = nullptr;    // ★追加
-
-	SceneManager* sceneManager_ = nullptr;  // ★追加
+    std::unique_ptr<WinApp> winApp_;
+    std::unique_ptr<Input> input_;
+    std::unique_ptr<DirectXCommon> dxCommon_;
+    std::unique_ptr<SrvManager> srvManager_;
+    std::unique_ptr<SpriteCommon> spriteCommon_;
+    std::unique_ptr<Object3dCommon> object3dCommon_;
+    std::unique_ptr<Object3d> object3d_;
+    std::unique_ptr<ModelCommon> modelCommon_;
+    std::unique_ptr<Camera> camera_;
+    std::unique_ptr<ParticleCommon> particleCommon_;
+    std::unique_ptr<ImGuiManager> imguiManager_;
+    std::unique_ptr<SceneManager> sceneManager_;
 };

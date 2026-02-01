@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <memory>
 #include <wrl.h>
 #include <d3d12.h>
 
@@ -62,15 +63,17 @@ private:
     Input* input_ = nullptr;
     SceneManager* sceneManager_ = nullptr;
 
-    // ===== シーン固有 =====
-    Object3d* object3d_ = nullptr;
-    Object3d* objA_ = nullptr;
+    // ===== シーン固有（GamePlaySceneが所有）=====
+    std::unique_ptr<Object3d> object3d_;
+    std::unique_ptr<Object3d> objA_;
 
-    std::vector<Sprite*> sprites_;
-    ParticleSystem* particleSystem_ = nullptr;
+    std::vector<std::unique_ptr<Sprite>> sprites_;
+    std::unique_ptr<ParticleSystem> particleSystem_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 
     Vector2 spritePos_ = { 0.0f, 0.0f };
+
+    bool initialized_ = false; // 二重初期化防止（保険）
 };

@@ -2,37 +2,39 @@
 #include "GamePlayScene.h"
 #include "TitleScene.h"
 
+#include <memory> // make_unique
+
 void Game::Initialize() {
     Framework::Initialize();
 
     // WindowsAPI初期化
-    winApp_ = new WinApp();
+    winApp_ = std::make_unique<WinApp>();
     winApp_->Initialize();
 
     // DirectX初期化
-    dxCommon_ = new DirectXCommon();
-    dxCommon_->Initialize(winApp_);
+    dxCommon_ = std::make_unique<DirectXCommon>();
+    dxCommon_->Initialize(winApp_.get());
 
     // SrvManager 初期化
-    srvManager_ = new SrvManager();
-    srvManager_->Initialize(dxCommon_);
+    srvManager_ = std::make_unique<SrvManager>();
+    srvManager_->Initialize(dxCommon_.get());
 
     // ★ ここで先に TextureManager を初期化
-    TextureManager::GetInstance()->Initialize(dxCommon_, srvManager_);
+    TextureManager::GetInstance()->Initialize(dxCommon_.get(), srvManager_.get());
 
     // SpriteCommon の初期化
-    spriteCommon_ = new SpriteCommon();
-    spriteCommon_->Initialize(dxCommon_, srvManager_);
+    spriteCommon_ = std::make_unique<SpriteCommon>();
+    spriteCommon_->Initialize(dxCommon_.get(), srvManager_.get());
 
     // 3d オブジェクト共通処理
-    object3dCommon_ = new Object3dCommon();
-    object3dCommon_->Initialize(dxCommon_);
+    object3dCommon_ = std::make_unique<Object3dCommon>();
+    object3dCommon_->Initialize(dxCommon_.get());
 
     // ★ カメラ生成 & デフォルトカメラに設定
-    camera_ = new Camera();
+    camera_ = std::make_unique<Camera>();
     camera_->SetRotate({ 0.3f, 0.0f, 0.0f });
     camera_->SetTranslate({ 0.0f, 3.0f, -10.0f });
-    object3dCommon_->SetDefaultCamera(camera_);
+    object3dCommon_->SetDefaultCamera(camera_.get());
 
     // ★ ImGui用にカメラ値を保持（初期値は今セットしてる値と同じにする）
     Vector3 camRotate = { 0.3f, 0.0f, 0.0f };
@@ -41,131 +43,139 @@ void Game::Initialize() {
     camera_->SetTranslate(camTranslate);
 
     // 3D オブジェクト（元コードにあったので移植）
-    object3d_ = new Object3d();
-    object3d_->Initialize(object3dCommon_);
+    object3d_ = std::make_unique<Object3d>();
+    object3d_->Initialize(object3dCommon_.get());
 
     // モデル共通処理
-    modelCommon_ = new ModelCommon();
-    modelCommon_->Initialize(dxCommon_);
+    modelCommon_ = std::make_unique<ModelCommon>();
+    modelCommon_->Initialize(dxCommon_.get());
 
     // ★ ParticleCommon 初期化
-    particleCommon_ = new ParticleCommon();
-    particleCommon_->Initialize(dxCommon_, srvManager_);
+    particleCommon_ = std::make_unique<ParticleCommon>();
+    particleCommon_->Initialize(dxCommon_.get(), srvManager_.get());
 
 #ifdef USE_IMGUI
-    imguiManager_ = new ImGuiManager();
-    imguiManager_->Initialize(winApp_, dxCommon_, srvManager_, srvManager_->GetDescriptorHeap());
+    imguiManager_ = std::make_unique<ImGuiManager>();
+    imguiManager_->Initialize(
+        winApp_.get(),
+        dxCommon_.get(),
+        srvManager_.get(),
+        srvManager_->GetDescriptorHeap()
+    );
 #endif
 
     // 3Dモデルマネージャー（Initializeは共通なのでGameに残す）
-    ModelManager::GetInstance()->Initialize(dxCommon_);
+    ModelManager::GetInstance()->Initialize(dxCommon_.get());
 
     // 入力の初期化（共通なのでGameに残す）
-    input_ = new Input();
-    input_->Initialize(winApp_);
+    input_ = std::make_unique<Input>();
+    input_->Initialize(winApp_.get());
 
-    sceneManager_ = new SceneManager();
-
+    // SceneManager
+    sceneManager_ = std::make_unique<SceneManager>();
 
     // ===== 最初のシーンの生成 =====
-    BaseScene* scene = new TitleScene();
+    auto scene = std::make_unique<TitleScene>();
 
-    // ★TitleScene にだけ SetContext（GamePlayScene じゃない）
-    static_cast<TitleScene*>(scene)->SetContext(
-        dxCommon_,
-        srvManager_,
-        spriteCommon_,
-        object3dCommon_,
-        modelCommon_,
-        particleCommon_,
-        camera_,
-        input_,
-        sceneManager_
+    scene->SetContext(
+        dxCommon_.get(),
+        srvManager_.get(),
+        spriteCommon_.get(),
+        object3dCommon_.get(),
+        modelCommon_.get(),
+        particleCommon_.get(),
+        camera_.get(),
+        input_.get(),
+        sceneManager_.get()
     );
 
-    // シーンマネージャにセット（予約）
-    sceneManager_->SetNextScene(scene);
-
-
-   
+    // ★所有権を SceneManager に渡す
+    sceneManager_->SetNextScene(std::move(scene));
 }
 
 void Game::Update() {
     Framework::Update();
 
     // メッセージ処理（元 while 内の先頭）
-    if (winApp_->ProcessMessage()) {
+    if (winApp_ && winApp_->ProcessMessage()) {
         endRequest_ = true;
         return;
     }
 
-    input_->Update();
+    if (input_) {
+        input_->Update();
 
-    if (input_->TriggerKey(DIK_0)) {
-        OutputDebugStringA("push 0\n");
+        if (input_->TriggerKey(DIK_0)) {
+            OutputDebugStringA("push 0\n");
+        }
     }
-    sceneManager_->Update();
 
+    if (sceneManager_) {
+        sceneManager_->Update();
+    }
 }
 
 void Game::Draw() {
+    if (!dxCommon_) { return; }
 
     dxCommon_->PreDraw();
 
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
-    (void)commandList; // 元コードにあったので残す（未使用警告回避）
-
+    (void)commandList; // 未使用警告回避
 
 #ifdef USE_IMGUI
-    imguiManager_->Begin();
+    if (imguiManager_) {
+        imguiManager_->Begin();
 
-    // ★ ImGuiもシーン側へ委譲（元コードのウィンドウそのまま）
-   // gamePlayScene_->DrawImGui();
+        // ★ ImGuiもシーン側へ委譲（元コードのウィンドウそのまま）
+        // gamePlayScene_->DrawImGui();
 
-    imguiManager_->End();
-    imguiManager_->Draw();
+        imguiManager_->End();
+        imguiManager_->Draw();
+    }
 #endif
-    sceneManager_->Draw();
+
+    if (sceneManager_) {
+        sceneManager_->Draw();
+    }
+
     dxCommon_->PostDraw();
 }
 
 void Game::Finalize() {
+
+    // ★ シーンを先に落としたいなら、ここで SceneManager を先に破棄してOK
+    // （SceneがDX資源を持ってるなら先に消す方が安全）
+    sceneManager_.reset();
 
     // 3Dモデルマネージャーの終了
     ModelManager::GetInstance()->Finalize();
     // テクスチャマネージャーの終了
     TextureManager::GetInstance()->Finalize();
 
-    delete spriteCommon_; spriteCommon_ = nullptr;
-    delete input_; input_ = nullptr;
-
-    // 3D
-    delete object3d_; object3d_ = nullptr;
-    delete object3dCommon_; object3dCommon_ = nullptr;
-
-    // Model / Particle / Camera
-    delete modelCommon_; modelCommon_ = nullptr;
-    delete particleCommon_; particleCommon_ = nullptr;
-    delete camera_; camera_ = nullptr;
-
 #ifdef USE_IMGUI
-    imguiManager_->Finalize();
-    delete imguiManager_;
-    imguiManager_ = nullptr;
+    if (imguiManager_) {
+        imguiManager_->Finalize();
+    }
+    imguiManager_.reset();
 #endif
 
-    delete sceneManager_;
-    sceneManager_ = nullptr;
+    // 以降は unique_ptr が自動解放（順序を明確にしたいものだけ reset してOK）
+    particleCommon_.reset();
+    modelCommon_.reset();
+    object3d_.reset();
+    object3dCommon_.reset();
+    spriteCommon_.reset();
+    input_.reset();
+    camera_.reset();
 
-    delete srvManager_; srvManager_ = nullptr;
-
-    delete dxCommon_; dxCommon_ = nullptr;
+    srvManager_.reset();
+    dxCommon_.reset();
 
     if (winApp_) {
         winApp_->Finalize();
-        delete winApp_;
-        winApp_ = nullptr;
     }
+    winApp_.reset();
 
     Framework::Finalize();
 }

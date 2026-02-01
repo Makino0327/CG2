@@ -1,8 +1,10 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <memory>
 #include <wrl.h>
 #include <d3d12.h>
+
 #include "Math.h"
 #include "BaseScene.h"
 
@@ -27,7 +29,9 @@ public:
         Object3dCommon* object3dCommon,
         ModelCommon* modelCommon,
         ParticleCommon* particleCommon,
-		Camera* camera, Input* input, SceneManager* sceneManager);
+        Camera* camera,
+        Input* input,
+        SceneManager* sceneManager);
 
     void Initialize() override;
     void Update() override;
@@ -35,8 +39,9 @@ public:
     void Finalize() override;
 
 private:
-    bool initialized_ = false; // ★二重初期化防止
+    bool initialized_ = false;
 
+    // ===== 借り物（所有しない）=====
     DirectXCommon* dxCommon_ = nullptr;
     SrvManager* srvManager_ = nullptr;
     SpriteCommon* spriteCommon_ = nullptr;
@@ -44,22 +49,16 @@ private:
     ModelCommon* modelCommon_ = nullptr;
     ParticleCommon* particleCommon_ = nullptr;
     Camera* camera_ = nullptr;
-	Input* input_ = nullptr;
+    Input* input_ = nullptr;
     SceneManager* sceneManager_ = nullptr;
 
-	// ===== シーン固有（Gameから移植してここで持つ）=====
-	Object3d* object3d_ = nullptr;
-	Object3d* objA_ = nullptr;
+    // ===== シーン固有（TitleScene が所有する）=====
+    std::unique_ptr<Object3d> objA_;
+    std::vector<std::unique_ptr<Sprite>> sprites_;
+    std::unique_ptr<ParticleSystem> particleSystem_;
 
-	std::vector<Sprite*> sprites_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 
-	ParticleSystem* particleSystem_ = nullptr;
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
-
-	// Game側で使ってたのと同じ変数（Update/ImGuiで使うならここに）
-	Vector2 spritePos_ = { 100.0f, 100.0f };
-
+    Vector2 spritePos_ = { 100.0f, 100.0f };
 };
-
