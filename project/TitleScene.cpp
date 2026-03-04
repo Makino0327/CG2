@@ -27,27 +27,7 @@
 // TitleScene
 //==================================================
 
-void TitleScene::SetContext(
-    DirectXCommon* dxCommon,
-    SrvManager* srvManager,
-    SpriteCommon* spriteCommon,
-    Object3dCommon* object3dCommon,
-    ModelCommon* modelCommon,
-    ParticleCommon* particleCommon,
-    Camera* camera,
-    Input* input,
-    SceneManager* sceneManager)
-{
-    dxCommon_ = dxCommon;
-    srvManager_ = srvManager;
-    spriteCommon_ = spriteCommon;
-    object3dCommon_ = object3dCommon;
-    modelCommon_ = modelCommon;
-    particleCommon_ = particleCommon;
-    camera_ = camera;
-    input_ = input;
-    sceneManager_ = sceneManager;
-}
+// ★ 長かった SetContext の実装は丸ごと削除！
 
 //==================================================
 // BaseScene interface
@@ -55,25 +35,25 @@ void TitleScene::SetContext(
 
 void TitleScene::Initialize()
 {
-    // 二重初期化防止（SceneManagerが切替時に1回だけ呼ぶ前提でも、保険）
+    // 二重初期化防止
     if (initialized_) { return; }
     initialized_ = true;
 
-    assert(dxCommon_);
-    assert(srvManager_);
-    assert(spriteCommon_);
-    assert(object3dCommon_);
-    assert(modelCommon_);
-    assert(particleCommon_);
-    assert(camera_);
-    assert(input_);
-    assert(sceneManager_);
+    // ★ assert もすべて context_ 経由に変更
+    assert(context_.dxCommon);
+    assert(context_.srvManager);
+    assert(context_.spriteCommon);
+    assert(context_.object3dCommon);
+    assert(context_.modelCommon);
+    assert(context_.particleCommon);
+    assert(context_.camera);
+    assert(context_.input);
 
-    // -------- モデル読み込み（Game側で Initialize 済み前提：ここは Load だけ） --------
+    // -------- モデル読み込み --------
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
 
-    // -------- テクスチャ（必要なら事前ロード） --------
+    // -------- テクスチャ --------
     auto texMan = TextureManager::GetInstance();
     texMan->LoadTexture("Resources/uvChecker.png");
     texMan->LoadTexture("Resources/monsterBall.png");
@@ -83,11 +63,12 @@ void TitleScene::Initialize()
 
     // -------- パーティクル --------
     particleSystem_ = std::make_unique<ParticleSystem>();
-    particleSystem_->Initialize(dxCommon_, particleCommon_, camera_, srvManager_, ParticleType::CircleBurst);
+    // ★ 引数を context_ 経由に変更
+    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
     particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
-    // -------- ライトCB（Spriteが受け取るやつ）--------
-    directionalLightResource_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
+    // -------- ライトCB --------
+    directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
     light->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -105,7 +86,8 @@ void TitleScene::Initialize()
             ? "Resources/uvChecker.png"
             : "Resources/monsterBall.png";
 
-        sprite->Initialize(spriteCommon_, directionalLightResource_.Get(), texPath);
+        // ★ 引数を context_ 経由に変更
+        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texPath);
 
         Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
         sprite->SetPosition(pos);
@@ -115,43 +97,25 @@ void TitleScene::Initialize()
 
     // -------- 3D --------
     objA_ = std::make_unique<Object3d>();
-    objA_->Initialize(object3dCommon_);
+    // ★ 引数を context_ 経由に変更
+    objA_->Initialize(context_.object3dCommon);
     objA_->SetModel("fence.obj");
     objA_->SetTexture("Resources/circle.png");
     objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
 
-    // ついでに初期位置（UI等でいじるならここ）
+    // ついでに初期位置
     spritePos_ = { 100.0f, 200.0f };
 }
 
 void TitleScene::Update()
 {
-    assert(input_);
-    assert(sceneManager_);
-
-    // ===== シーン切り替え（unique_ptr版）=====
-    if (input_->TriggerKey(DIK_SPACE)) {
-
-        auto next = std::make_unique<GamePlayScene>();
-
-        next->SetContext(
-            dxCommon_,
-            srvManager_,
-            spriteCommon_,
-            object3dCommon_,
-            modelCommon_,
-            particleCommon_,
-            camera_,
-            input_,
-            sceneManager_
-        );
-
-        // ★所有権移動（delete不要）
-        sceneManager_->SetNextScene(std::move(next));
-        return; // 切替予約したフレームはこれ以上触らないのが安全
+    // ★ 改善後のシーン遷移（バッチリです！）
+    if (context_.input->TriggerKey(DIK_SPACE)) {
+        sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+        return;
     }
 
-    // dt固定（まず動くのを優先）
+    // dt固定
     const float dt = 1.0f / 60.0f;
 
     // Sprite Update
@@ -162,8 +126,8 @@ void TitleScene::Update()
     // 3D Update
     if (objA_) { objA_->Update(); }
 
-    // Camera
-    if (camera_) { camera_->Update(); }
+    // Camera (★ context_ 経由に変更)
+    if (context_.camera) { context_.camera->Update(); }
 
     // Particle
     if (particleSystem_) { particleSystem_->Update(dt); }
@@ -176,40 +140,37 @@ void TitleScene::Update()
 
 void TitleScene::Draw()
 {
-    assert(dxCommon_);
-    assert(spriteCommon_);
-    assert(object3dCommon_);
-    assert(particleCommon_);
+    // ★ すべて context_ 経由に変更
+    assert(context_.dxCommon);
+    assert(context_.spriteCommon);
+    assert(context_.object3dCommon);
+    assert(context_.particleCommon);
 
-    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+    ID3D12GraphicsCommandList* commandList = context_.dxCommon->GetCommandList();
     assert(commandList);
 
     // ===== Sprite =====
-    spriteCommon_->CommonDrawSetting();
+    context_.spriteCommon->CommonDrawSetting();
     for (auto& sprite : sprites_) {
         if (sprite) { sprite->Draw(); }
     }
 
     // ===== 3D =====
-    object3dCommon_->CommonDrawSetting();
+    context_.object3dCommon->CommonDrawSetting();
     if (objA_) { objA_->Draw(); }
 
     // ===== Particle =====
-    particleCommon_->CommonDrawSetting();
+    context_.particleCommon->CommonDrawSetting();
     if (particleSystem_) { particleSystem_->Draw(); }
 }
 
 void TitleScene::Finalize()
 {
-    // ★“解放”は unique_ptr / ComPtr がやる
-    // ここでは「終了処理・切断」を行う（必要なら）
-
-    // Scene固有オブジェクトを先に落とす（順序を明確にしたいなら reset）
+    // ここは変更なしでOK
     sprites_.clear();
     objA_.reset();
     particleSystem_.reset();
 
-    // ComPtr
     directionalLightResource_.Reset();
     materialResource_.Reset();
 

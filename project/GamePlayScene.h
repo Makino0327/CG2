@@ -10,16 +10,8 @@
 #include "BaseScene.h"
 
 // ===== 前方宣言 =====
-class DirectXCommon;
-class SrvManager;
-class SpriteCommon;
-class Object3dCommon;
-class ModelCommon;
-class ParticleCommon;
-class Camera;
-class Input;
-class SceneManager;
-
+// SceneContext.h を BaseScene.h がインクルードしている前提なので、
+// ここで個別のコンポーネントを大量に宣言する必要はなくなります
 class Sprite;
 class Object3d;
 class ParticleSystem;
@@ -36,32 +28,11 @@ public:
     void Draw() override;
     void Finalize() override;
 
-public:
-    // ===== Game / TitleScene から呼ぶ =====
-    // シーン生成直後に必ずこれを呼んでから SetNextScene する
-    void SetContext(
-        DirectXCommon* dxCommon,
-        SrvManager* srvManager,
-        SpriteCommon* spriteCommon,
-        Object3dCommon* object3dCommon,
-        ModelCommon* modelCommon,
-        ParticleCommon* particleCommon,
-        Camera* camera,
-        Input* input,
-        SceneManager* sceneManager
-    );
+    // ★ SetContext は BaseScene で共通化されたため、ここからは削除！
 
 private:
-    // ===== 共通（Gameが所有・Sceneは参照だけ）=====
-    DirectXCommon* dxCommon_ = nullptr;
-    SrvManager* srvManager_ = nullptr;
-    SpriteCommon* spriteCommon_ = nullptr;
-    Object3dCommon* object3dCommon_ = nullptr;
-    ModelCommon* modelCommon_ = nullptr;
-    ParticleCommon* particleCommon_ = nullptr;
-    Camera* camera_ = nullptr;
-    Input* input_ = nullptr;
-    SceneManager* sceneManager_ = nullptr;
+    // ★ 個別のポインタ群（dxCommon_ など）もすべて削除！
+    // 親クラス BaseScene の context_ を使います。
 
     // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
@@ -75,5 +46,5 @@ private:
 
     Vector2 spritePos_ = { 0.0f, 0.0f };
 
-    bool initialized_ = false; // 二重初期化防止（保険）
+    bool initialized_ = false; // 二重初期化防止
 };

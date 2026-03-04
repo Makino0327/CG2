@@ -71,26 +71,27 @@ void Game::Initialize() {
     input_ = std::make_unique<Input>();
     input_->Initialize(winApp_.get());
 
-    // SceneManager
+    // Game::Initialize() の後半
+
+     // ========== 改善後 ==========
+
+     // 1. 各種ポインタを SceneContext にまとめる
+    SceneContext context;
+    context.dxCommon = dxCommon_.get();
+    context.srvManager = srvManager_.get();
+    context.spriteCommon = spriteCommon_.get();
+    context.object3dCommon = object3dCommon_.get();
+    context.modelCommon = modelCommon_.get();
+    context.particleCommon = particleCommon_.get();
+    context.camera = camera_.get();
+    context.input = input_.get();
+
+    // 2. SceneManager を作り、Context を「1回だけ」預ける
     sceneManager_ = std::make_unique<SceneManager>();
+    sceneManager_->SetContext(context);
 
-    // ===== 最初のシーンの生成 =====
-    auto scene = std::make_unique<TitleScene>();
-
-    scene->SetContext(
-        dxCommon_.get(),
-        srvManager_.get(),
-        spriteCommon_.get(),
-        object3dCommon_.get(),
-        modelCommon_.get(),
-        particleCommon_.get(),
-        camera_.get(),
-        input_.get(),
-        sceneManager_.get()
-    );
-
-    // ★所有権を SceneManager に渡す
-    sceneManager_->SetNextScene(std::move(scene));
+    // 3. 最初のシーンをセット（SetContextはSceneManagerが自動でやってくれる！）
+    sceneManager_->SetNextScene(std::make_unique<TitleScene>());
 }
 
 void Game::Update() {

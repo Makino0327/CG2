@@ -14,7 +14,7 @@
 #include "Camera.h"
 
 #include "ParticleCommon.h"
-#include "Particle.h"            // ParticleSystem / ParticleType がここにある想定
+#include "Particle.h"
 #include "ModelCommon.h"
 #include "ModelManager.h"
 #include "TextureManager.h"
@@ -23,58 +23,37 @@
 #include "SceneManager.h"
 
 //==================================================
-// 共通ポインタ受け取り（TitleSceneと同じ方式）
+// ★ SetContext は BaseScene 側で処理されるため削除！
 //==================================================
-void GamePlayScene::SetContext(
-    DirectXCommon* dxCommon,
-    SrvManager* srvManager,
-    SpriteCommon* spriteCommon,
-    Object3dCommon* object3dCommon,
-    ModelCommon* modelCommon,
-    ParticleCommon* particleCommon,
-    Camera* camera,
-    Input* input,
-    SceneManager* sceneManager)
-{
-    dxCommon_ = dxCommon;
-    srvManager_ = srvManager;
-    spriteCommon_ = spriteCommon;
-    object3dCommon_ = object3dCommon;
-    modelCommon_ = modelCommon;
-    particleCommon_ = particleCommon;
-    camera_ = camera;
-    input_ = input;
-    sceneManager_ = sceneManager;
-}
 
 //==================================================
-// BaseScene interface（引数なし）
+// BaseScene interface
 //==================================================
 void GamePlayScene::Initialize()
 {
     if (initialized_) { return; }
     initialized_ = true;
 
-    // ★ここで必ず初期化する（SceneManagerはこれしか呼ばない）
-    assert(dxCommon_);
-    assert(srvManager_);
-    assert(spriteCommon_);
-    assert(object3dCommon_);
-    assert(modelCommon_);
-    assert(particleCommon_);
-    assert(camera_);
-    assert(input_);
+    // ★ すべて context_ 経由に変更。sceneManager_ は直接使用。
+    assert(context_.dxCommon);
+    assert(context_.srvManager);
+    assert(context_.spriteCommon);
+    assert(context_.object3dCommon);
+    assert(context_.modelCommon);
+    assert(context_.particleCommon);
+    assert(context_.camera);
+    assert(context_.input);
     assert(sceneManager_);
 
-    // 3D オブジェクト共通（必要なら）
+    // 3D オブジェクト共通
     object3d_ = std::make_unique<Object3d>();
-    object3d_->Initialize(object3dCommon_);
+    object3d_->Initialize(context_.object3dCommon);
 
-    // モデル読み込み（Game側で ModelManager::Initialize 済み前提、ここはLoad）
+    // モデル読み込み
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
 
-    // テクスチャ（必要なら）
+    // テクスチャ
     auto texMan = TextureManager::GetInstance();
     texMan->LoadTexture("Resources/uvChecker.png");
     texMan->LoadTexture("Resources/monsterBall.png");
@@ -84,18 +63,18 @@ void GamePlayScene::Initialize()
 
     // Particle
     particleSystem_ = std::make_unique<ParticleSystem>();
-    particleSystem_->Initialize(dxCommon_, particleCommon_, camera_, srvManager_, ParticleType::CircleBurst);
+    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
     particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
-    // Material（使ってないなら消してもOK）
-    materialResource_ = dxCommon_->CreateBufferResource(sizeof(Material));
+    // Material
+    materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));
     Material* materialData = nullptr;
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
     materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     materialData->uvTransform = MakeIdentity4x4();
 
-    // DirectionalLight（Spriteが受け取る）
-    directionalLightResource_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
+    // DirectionalLight
+    directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
     light->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -113,7 +92,7 @@ void GamePlayScene::Initialize()
             ? "Resources/uvChecker.png"
             : "Resources/monsterBall.png";
 
-        sprite->Initialize(spriteCommon_, directionalLightResource_.Get(), texPath);
+        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texPath);
 
         Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
         sprite->SetPosition(pos);
@@ -123,7 +102,7 @@ void GamePlayScene::Initialize()
 
     // 3D
     objA_ = std::make_unique<Object3d>();
-    objA_->Initialize(object3dCommon_);
+    objA_->Initialize(context_.object3dCommon);
     objA_->SetModel("fence.obj");
     objA_->SetTexture("Resources/circle.png");
     objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
@@ -138,7 +117,9 @@ void GamePlayScene::Update()
     }
 
     if (objA_) { objA_->Update(); }
-    if (camera_) { camera_->Update(); }
+
+    // ★ context_ 経由に変更
+    if (context_.camera) { context_.camera->Update(); }
     if (particleSystem_) { particleSystem_->Update(dt); }
 
     if (!sprites_.empty() && sprites_[0]) {
@@ -148,34 +129,32 @@ void GamePlayScene::Update()
 
 void GamePlayScene::Draw()
 {
-    assert(dxCommon_);
-    assert(spriteCommon_);
-    assert(object3dCommon_);
-    assert(particleCommon_);
+    // ★ context_ 経由に変更
+    assert(context_.dxCommon);
+    assert(context_.spriteCommon);
+    assert(context_.object3dCommon);
+    assert(context_.particleCommon);
 
-    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+    ID3D12GraphicsCommandList* commandList = context_.dxCommon->GetCommandList();
     assert(commandList);
 
     // Sprite
-    spriteCommon_->CommonDrawSetting();
+    context_.spriteCommon->CommonDrawSetting();
     for (auto& sprite : sprites_) {
         if (sprite) { sprite->Draw(); }
     }
 
     // 3D
-    object3dCommon_->CommonDrawSetting();
+    context_.object3dCommon->CommonDrawSetting();
     if (objA_) { objA_->Draw(); }
 
     // Particle
-    particleCommon_->CommonDrawSetting();
+    context_.particleCommon->CommonDrawSetting();
     if (particleSystem_) { particleSystem_->Draw(); }
 }
 
 void GamePlayScene::Finalize()
 {
-    // ★ unique_ptr / ComPtr が解放はするが、
-    // ここでは「終了処理・切断」をやる（必要なら）
-
     sprites_.clear();
     objA_.reset();
     object3d_.reset();

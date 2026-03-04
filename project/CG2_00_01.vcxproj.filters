@@ -68,6 +68,7 @@
     <ClInclude Include="TitleScene.h" />
     <ClInclude Include="BaseScene.h" />
     <ClInclude Include="SceneManager.h" />
+    <ClInclude Include="SceneContext.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Particle.hlsli" />

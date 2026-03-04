@@ -8,30 +8,15 @@
 #include "Math.h"
 #include "BaseScene.h"
 
-class DirectXCommon;
-class SrvManager;
-class SpriteCommon;
-class Object3dCommon;
-class ModelCommon;
-class ParticleCommon;
-class Camera;
+// 借り物の前方宣言は SceneContext.h に移動するため、ここからは削除できます。
+// シーン固有で使うクラスだけ前方宣言を残します。
 class Sprite;
 class Object3d;
 class ParticleSystem;
-class Input;
-class SceneManager;
 
 class TitleScene : public BaseScene {
 public:
-    void SetContext(DirectXCommon* dxCommon,
-        SrvManager* srvManager,
-        SpriteCommon* spriteCommon,
-        Object3dCommon* object3dCommon,
-        ModelCommon* modelCommon,
-        ParticleCommon* particleCommon,
-        Camera* camera,
-        Input* input,
-        SceneManager* sceneManager);
+    // ★ 長かった SetContext(...) は削除！(BaseScene 側で面倒を見ます)
 
     void Initialize() override;
     void Update() override;
@@ -42,15 +27,8 @@ private:
     bool initialized_ = false;
 
     // ===== 借り物（所有しない）=====
-    DirectXCommon* dxCommon_ = nullptr;
-    SrvManager* srvManager_ = nullptr;
-    SpriteCommon* spriteCommon_ = nullptr;
-    Object3dCommon* object3dCommon_ = nullptr;
-    ModelCommon* modelCommon_ = nullptr;
-    ParticleCommon* particleCommon_ = nullptr;
-    Camera* camera_ = nullptr;
-    Input* input_ = nullptr;
-    SceneManager* sceneManager_ = nullptr;
+    // ★ ここにあった9個のポインタ群（dxCommon_ など）もすべて削除！
+    // 代わりに BaseScene から継承した `context_` (例: context_.dxCommon) を使用します。
 
     // ===== シーン固有（TitleScene が所有する）=====
     std::unique_ptr<Object3d> objA_;
