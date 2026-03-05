@@ -71,6 +71,9 @@ void Game::Initialize() {
     input_ = std::make_unique<Input>();
     input_->Initialize(winApp_.get());
 
+    sound_ = std::make_unique<SoundManager>();
+    bool ok = sound_->Initialize();
+    assert(ok);
     // Game::Initialize() の後半
 
      // ========== 改善後 ==========
@@ -85,6 +88,7 @@ void Game::Initialize() {
     context.particleCommon = particleCommon_.get();
     context.camera = camera_.get();
     context.input = input_.get();
+    context.sound = sound_.get();
 
     // 2. SceneManager を作り、Context を「1回だけ」預ける
     sceneManager_ = std::make_unique<SceneManager>();
@@ -145,13 +149,16 @@ void Game::Draw() {
 
 void Game::Finalize() {
 
-    // ★ シーンを先に落としたいなら、ここで SceneManager を先に破棄してOK
-    // （SceneがDX資源を持ってるなら先に消す方が安全）
+    // シーンを先に落とす
     sceneManager_.reset();
 
-    // 3Dモデルマネージャーの終了
+    // ★サウンドをここで確実に止める（再生中でも落ちにくくなる）
+    if (sound_) {
+        sound_->Finalize();
+        sound_.reset();
+    }
+
     ModelManager::GetInstance()->Finalize();
-    // テクスチャマネージャーの終了
     TextureManager::GetInstance()->Finalize();
 
 #ifdef USE_IMGUI
@@ -161,7 +168,6 @@ void Game::Finalize() {
     imguiManager_.reset();
 #endif
 
-    // 以降は unique_ptr が自動解放（順序を明確にしたいものだけ reset してOK）
     particleCommon_.reset();
     modelCommon_.reset();
     object3d_.reset();

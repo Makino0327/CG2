@@ -39,6 +39,7 @@ using Microsoft::WRL::ComPtr;
 #include "Framework.h"
 #include "BaseScene.h"    // ★追加
 #include "SceneManager.h"
+#include "SoundManager.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -66,6 +67,7 @@ private:
 
     std::unique_ptr<WinApp> winApp_;
     std::unique_ptr<Input> input_;
+    std::unique_ptr<SoundManager> sound_;
     std::unique_ptr<DirectXCommon> dxCommon_;
     std::unique_ptr<SrvManager> srvManager_;
     std::unique_ptr<SpriteCommon> spriteCommon_;

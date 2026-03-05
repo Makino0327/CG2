@@ -8,6 +8,7 @@
 
 #include "Math.h"
 #include "BaseScene.h"
+#include "SoundManager.h"
 
 // ===== 前方宣言 =====
 // SceneContext.h を BaseScene.h がインクルードしている前提なので、
@@ -47,4 +48,7 @@ private:
     Vector2 spritePos_ = { 0.0f, 0.0f };
 
     bool initialized_ = false; // 二重初期化防止
+
+    SoundData seSelect_;
+    bool soundLoaded_ = false;
 };

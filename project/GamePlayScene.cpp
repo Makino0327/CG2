@@ -43,6 +43,7 @@ void GamePlayScene::Initialize()
     assert(context_.particleCommon);
     assert(context_.camera);
     assert(context_.input);
+    assert(context_.sound);
     assert(sceneManager_);
 
     // 3D オブジェクト共通
@@ -106,10 +107,25 @@ void GamePlayScene::Initialize()
     objA_->SetModel("fence.obj");
     objA_->SetTexture("Resources/circle.png");
     objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
+
+    seSelect_ = context_.sound->SoundLoad(L"./Resources/select.mp3");
+
+
+    soundLoaded_ = true;
 }
 
 void GamePlayScene::Update()
 {
+    if (context_.sound) {
+        context_.sound->Update();
+    }
+
+    if (soundLoaded_) {
+
+        if (context_.input->TriggerKey(DIK_SPACE)) {
+            context_.sound->SoundPlayWave(seSelect_);
+        }
+    }
     const float dt = 1.0f / 60.0f;
 
     for (auto& sprite : sprites_) {
@@ -155,6 +171,11 @@ void GamePlayScene::Draw()
 
 void GamePlayScene::Finalize()
 {
+    // ★ 追加：サウンドデータの解放
+    if (context_.sound) {
+        context_.sound->SoundUnload(&seSelect_);
+    }
+
     sprites_.clear();
     objA_.reset();
     object3d_.reset();
@@ -163,5 +184,6 @@ void GamePlayScene::Finalize()
     materialResource_.Reset();
     directionalLightResource_.Reset();
 
+    soundLoaded_ = false;
     initialized_ = false;
 }
