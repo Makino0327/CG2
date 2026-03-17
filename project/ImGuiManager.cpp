@@ -68,7 +68,7 @@ void ImGuiManager::Draw()
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
     // デスクリプタヒープの配列をセットするコマンド
-    ID3D12DescriptorHeap* ppHeaps[] = { srvHeap_.Get() };
+    ID3D12DescriptorHeap* ppHeaps[] = { srvHeap_ };
     commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
 
     // 描画コマンドを発行

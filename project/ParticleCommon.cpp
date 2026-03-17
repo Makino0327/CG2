@@ -13,8 +13,8 @@ void ParticleCommon::CommonDrawSetting()
 {
     auto* commandList = dxCommon_->GetCommandList();
 
-    commandList->SetGraphicsRootSignature(rootSignature_);
-    commandList->SetPipelineState(pipelineState_);
+    commandList->SetGraphicsRootSignature(rootSignature_.Get());
+    commandList->SetPipelineState(pipelineState_.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // ★ SrvManager のヒープをセット
@@ -83,7 +83,7 @@ void ParticleCommon::CreateRootSignature()
 
     hr = device->CreateRootSignature(
         0, sig->GetBufferPointer(), sig->GetBufferSize(),
-        IID_PPV_ARGS(&rootSignature_));
+        IID_PPV_ARGS(rootSignature_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }
 
@@ -134,7 +134,7 @@ void ParticleCommon::CreateGraphicsPipelineState()
 
     // --- PSO 設定 ---
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
-    desc.pRootSignature = rootSignature_;
+    desc.pRootSignature = rootSignature_.Get();
     desc.InputLayout = inputLayout;
     desc.VS = { vs->GetBufferPointer(), vs->GetBufferSize() };
     desc.PS = { ps->GetBufferPointer(), ps->GetBufferSize() };
@@ -157,6 +157,6 @@ void ParticleCommon::CreateGraphicsPipelineState()
 
     desc.SampleDesc.Count = 1;
 
-    HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipelineState_));
+    HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }

@@ -22,7 +22,7 @@ private:
 private:
     DirectXCommon* dxCommon_ = nullptr;
 
-    ID3D12RootSignature* rootSignature_ = nullptr;
-    ID3D12PipelineState* pipelineState_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
     Camera* defaultCamera_ = nullptr;
 };

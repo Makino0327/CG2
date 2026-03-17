@@ -69,14 +69,13 @@ bool SoundManager::Initialize() {
 // ★追加：毎フレーム呼んで、終わったボイスを安全にお掃除する
 void SoundManager::Update() {
     for (auto it = activeVoices_.begin(); it != activeVoices_.end(); ) {
-        VoiceCallback* cb = *it;
+        VoiceCallback* cb = it->get();
         if (cb->isFinished) {
-            // 再生が終わっていたら、ここで安全に破棄する
             if (cb->voice) {
                 cb->voice->DestroyVoice();
+                cb->voice = nullptr;
             }
-            delete cb;
-            it = activeVoices_.erase(it); // リストから削除
+            it = activeVoices_.erase(it);
         } else {
             ++it;
         }
@@ -85,11 +84,11 @@ void SoundManager::Update() {
 
 void SoundManager::Finalize() {
     // ★追加：終了時にまだ再生中のボイスがあれば強制終了させる
-    for (auto cb : activeVoices_) {
-        if (cb->voice) {
+    for (auto& cb : activeVoices_) {
+        if (cb && cb->voice) {
             cb->voice->DestroyVoice();
+            cb->voice = nullptr;
         }
-        delete cb;
     }
     activeVoices_.clear();
 
@@ -198,7 +197,7 @@ void SoundManager::SoundPlayWave(const SoundData& soundData) {
     assert(xAudio2_);
     assert(!soundData.buffer.empty());
 
-    VoiceCallback* callback = new VoiceCallback();
+    auto callback = std::make_unique<VoiceCallback>();
 
     IXAudio2SourceVoice* sourceVoice = nullptr;
     HRESULT hr = xAudio2_->CreateSourceVoice(
@@ -206,7 +205,7 @@ void SoundManager::SoundPlayWave(const SoundData& soundData) {
         &soundData.wfex,
         0,
         XAUDIO2_DEFAULT_FREQ_RATIO,
-        callback
+		callback.get()
     );
     assert(SUCCEEDED(hr));
 
@@ -224,5 +223,6 @@ void SoundManager::SoundPlayWave(const SoundData& soundData) {
     assert(SUCCEEDED(hr));
 
     // ★追加：破棄リストに登録して管理下に置く
-    activeVoices_.push_back(callback);
+    callback->voice = sourceVoice;
+    activeVoices_.push_back(std::move(callback));
 }

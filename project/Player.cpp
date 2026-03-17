@@ -5,7 +5,7 @@ void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 {
     input_ = input;
 
-    object_ = new Object3d();
+    object_ = std::make_unique<Object3d>();
     object_->Initialize(object3dCommon);
     object_->SetModel("cube.obj");
     object_->SetTexture("Resources/cube.jpg");

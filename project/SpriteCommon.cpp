@@ -14,8 +14,8 @@ void SpriteCommon::CommonDrawSetting()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-    commandList->SetGraphicsRootSignature(rootSignature_);
-    commandList->SetPipelineState(pipelineState_);
+    commandList->SetGraphicsRootSignature(rootSignature_.Get());
+    commandList->SetPipelineState(pipelineState_.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // ★★ これが無いのが原因 ★★
@@ -100,7 +100,7 @@ void SpriteCommon::CreateRootSignature() {
         0,
         signatureBlob->GetBufferPointer(),
         signatureBlob->GetBufferSize(),
-        IID_PPV_ARGS(&rootSignature_));   // ★メンバ変数に代入すること
+        IID_PPV_ARGS(rootSignature_.GetAddressOf()));   // ★メンバ変数に代入すること
 
     assert(SUCCEEDED(hr));
 }
@@ -158,7 +158,7 @@ void SpriteCommon::CreateGraphicsPipelineState() {
 
     // ===== PSO 設定 =====
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
-    desc.pRootSignature = rootSignature_;        // ★メンバを使う
+    desc.pRootSignature = rootSignature_.Get();      // ★メンバを使う
     desc.InputLayout = inputLayoutDesc;
     desc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
     desc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
@@ -183,7 +183,7 @@ void SpriteCommon::CreateGraphicsPipelineState() {
     desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
     // ===== 実際に生成 =====
-    HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pipelineState_));
+    HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }
 

@@ -6,7 +6,7 @@
 #include "DirectXCommon.h"
 #include <unordered_map>
 #include "SrvManager.h"
-
+#include <memory>
 class TextureManager
 {
 
@@ -36,17 +36,16 @@ public:
 
 	SrvManager* GetSrvManager() const { return srvManager_; }
 
-
+	TextureManager() = default;
+	~TextureManager() = default;
 private:
-	static TextureManager* instance_;
+	static std::unique_ptr<TextureManager> instance_;
 
 	DirectXCommon* dxCommon_ = nullptr;
 
 	// SRVインデックスの開始番号
 	static uint32_t kSRVIndexTop;
 
-	TextureManager() = default;
-	~TextureManager() = default;
 	TextureManager(TextureManager&) = delete;
 	TextureManager& operator=(const TextureManager&) = delete;
 

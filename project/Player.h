@@ -2,7 +2,7 @@
 #include "Object3d.h"
 #include "Input.h"
 #include "MapChipField.h"
-
+#include <memory>
 class Player
 {
 public:
@@ -27,7 +27,7 @@ private:
 
     void ResolveRightCollisionWithMap(Vector3& pos);
 private:
-    Object3d* object_ = nullptr;
+    std::unique_ptr<Object3d> object_;
     Input* input_ = nullptr;
 
     // 物理系

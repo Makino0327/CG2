@@ -26,6 +26,6 @@ public:
 private:
 	uint32_t imguiSrvIndex_ = 0;
 	DirectXCommon* dxCommon_ = nullptr;
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap_;
+	ID3D12DescriptorHeap* srvHeap_ = nullptr;
 
 };

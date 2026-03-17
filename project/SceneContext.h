@@ -21,5 +21,5 @@ struct SceneContext {
     ParticleCommon* particleCommon = nullptr;
     Camera* camera = nullptr;
     Input* input = nullptr;
-    SoundManager* sound;
+    SoundManager* sound = nullptr;
 };

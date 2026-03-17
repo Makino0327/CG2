@@ -9,6 +9,7 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <mferror.h>
+#include <memory>
 
 #pragma comment(lib, "xaudio2.lib")
 #pragma comment(lib, "mfplat.lib")
@@ -49,5 +50,5 @@ private:
     bool mfInitialized_ = false;
 
     // ★追加：再生中のボイス（とコールバック）を管理するリスト
-    std::vector<VoiceCallback*> activeVoices_;
+    std::vector<std::unique_ptr<VoiceCallback>> activeVoices_;
 };

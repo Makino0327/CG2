@@ -3,7 +3,7 @@
 #include "DirectXCommon.h"
 #include "Logger.h"
 
-TextureManager* TextureManager::instance_ = nullptr;
+std::unique_ptr<TextureManager> TextureManager::instance_ = nullptr;
 //uint32_t TextureManager::kSRVIndexTop = 1; // 0 は ImGui 用に予約
 
 void TextureManager::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
@@ -18,16 +18,15 @@ void TextureManager::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 
 TextureManager* TextureManager::GetInstance()
 {
-	if (instance_ == nullptr) {
-		instance_ = new TextureManager();
-	}
-	return instance_;
+    if (!instance_) {
+        instance_ = std::make_unique<TextureManager>();
+    }
+    return instance_.get();
 }
 
 void TextureManager::Finalize()
 {
-	delete instance_;
-	instance_ = nullptr;
+    instance_.reset();
 }
 
 DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)

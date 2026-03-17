@@ -110,7 +110,7 @@ public:
         return swapChainResources_.size();
     }
 
-
+    ~DirectXCommon();
 
     // 最大SRV数
     static const uint32_t kMaxSRVCount;
@@ -145,7 +145,7 @@ private:
     UINT descriptorSizeDSV_ = 0;
 
     // フェンス関連
-    ID3D12Fence* fence_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     UINT64 fenceValue_ = 0;
     HANDLE fenceEvent_ = nullptr;
 

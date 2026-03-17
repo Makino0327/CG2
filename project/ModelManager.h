@@ -19,14 +19,14 @@ public:
 
     // ロードモデル
     void LoadModel(const std::string& filePath);
-private:
-
-    // シングルトン：唯一のインスタンス
-    static ModelManager* instance;
 
     // コンストラクタ / デストラクタ
     ModelManager() = default;
     ~ModelManager() = default;
+private:
+
+    // シングルトン：唯一のインスタンス
+    static std::unique_ptr<ModelManager> instance;
 
     // コピー禁止
     ModelManager(const ModelManager&) = delete;
@@ -36,5 +36,5 @@ private:
     // モデルデータ
     std::map<std::string, std::unique_ptr<Model>> models;
 
-    ModelCommon* modelCommon = nullptr;
+    std::unique_ptr<ModelCommon> modelCommon = nullptr;
 };

@@ -17,7 +17,8 @@ const uint32_t DirectXCommon::kMaxSRVCount = 512;
 
 using namespace Microsoft::WRL;
 
-ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(
+    ID3D12Device* device, int32_t width, int32_t height)
 {
     // 生成するResourceの設定
     D3D12_RESOURCE_DESC resourceDesc{};
@@ -40,14 +41,14 @@ ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t 
     depthClearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // 深度値のフォーマット
 
     // Resourceの生成
-    ID3D12Resource* resource = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
     HRESULT hr = device->CreateCommittedResource(
         &heapProperties, // Heapの設定
         D3D12_HEAP_FLAG_NONE, // Heapの特殊な設定。特になし。
         &resourceDesc, // Resourceの設定
         D3D12_RESOURCE_STATE_DEPTH_WRITE, // 深度値を書き込む状態にしておく
         &depthClearValue, // Clear最適値
-        IID_PPV_ARGS(&resource)); // 作成するResourceポインタへのポインタ
+        IID_PPV_ARGS(resource.GetAddressOf())); // 作成するResourceポインタへのポインタ
     assert(SUCCEEDED(hr));
 
     return resource;
@@ -92,7 +93,7 @@ void DirectXCommon::Initialize(WinApp* winApp)
     assert(winApp);
     this->winApp = winApp;
 
-	InitializeFixFPS();        // 固定FPS制御の初期化
+    InitializeFixFPS();        // 固定FPS制御の初期化
 
     // --- スライドの順番通りに初期化 ---
 
@@ -226,8 +227,6 @@ void DirectXCommon::InitializeSwapChain()
 
 void DirectXCommon::InitializeDepthBuffer()
 {
-    // DSV ヒープは InitializeDescriptorHeaps で作っている前提なら、
-    // ここで新しく作らなくても OK。作っていない場合は↓でも可。
     if (!dsvDescriptorHeap_) {
         dsvDescriptorHeap_ = CreateDescriptorHeap(
             D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
@@ -236,26 +235,12 @@ void DirectXCommon::InitializeDepthBuffer()
         );
     }
 
-    // DepthStencil テクスチャを作成（既存の関数をそのまま使う）
-    ID3D12Resource* depthStencilResource =
-        CreateDepthStencilTextureResource(
-            device.Get(),
-            WinApp::kClientWidth,
-            WinApp::kClientHeight
-        );
-    depthStencilResource_ = depthStencilResource; // ここは今まで通りの型でOK
-
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-
-    device->CreateDepthStencilView(
-        depthStencilResource_.Get(),
-        &dsvDesc,
-        dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart()
+    depthStencilResource_ = CreateDepthStencilTextureResource(
+        device.Get(),
+        WinApp::kClientWidth,
+        WinApp::kClientHeight
     );
 }
-
 
 void DirectXCommon::InitializeDescriptorHeaps()
 {
@@ -347,21 +332,12 @@ void DirectXCommon::InitializeRenderTargetView() {
 
 void DirectXCommon::InitializeDepthStencilView()
 {
-    // DepthStencil Textureをウィンドウのサイズで作成
-    ID3D12Resource* depthStencilResource =
-        CreateDepthStencilTextureResource(
-            device.Get(),                 // ← main の device を device_ に変えるだけ
-            WinApp::kClientWidth,
-            WinApp::kClientHeight);
-
-    // DSVの設定
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;           // Format。基本的にはResourceに合わせる
-    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;    // 2dTexture
+    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 
-    // DSVHeapの先頭にDSVをつくる
     device->CreateDepthStencilView(
-        depthStencilResource,
+        depthStencilResource_.Get(),
         &dsvDesc,
         dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart());
 }
@@ -371,7 +347,7 @@ void DirectXCommon::InitializeFence()
     HRESULT hr = S_OK;
 
     // フェンス作成（main のコードそのまま）
-    hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence_));
+    hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(fence_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
     fenceValue_ = 0;
@@ -534,13 +510,11 @@ void DirectXCommon::PostDraw()
     assert(SUCCEEDED(hr));
 
     // 6. コマンドの実行完了を待つ（資料スライドそのまま）
-    commandQueue_->Signal(fence_, ++fenceValue_);
+    commandQueue_->Signal(fence_.Get(), ++fenceValue_);
 
     if (fence_->GetCompletedValue() != fenceValue_) {
-        HANDLE event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-        fence_->SetEventOnCompletion(fenceValue_, event);
-        WaitForSingleObject(event, INFINITE);
-        CloseHandle(event);
+        fence_->SetEventOnCompletion(fenceValue_, fenceEvent_);
+        WaitForSingleObject(fenceEvent_, INFINITE);
     }
 
     // 7. 固定FPS制御
@@ -556,14 +530,14 @@ void DirectXCommon::PostDraw()
 
 void DirectXCommon::InitializeFixFPS()
 {
-	// 固定FPS制御の初期化
-	reference_ = std::chrono::high_resolution_clock::now();
+    // 固定FPS制御の初期化
+    reference_ = std::chrono::high_resolution_clock::now();
 }
 
 void DirectXCommon::UpdateFixFPS()
 {
-	// 固定FPS制御
-	const std::chrono::microseconds kMinTime(uint64_t(1000000.0f / 60.0f));    // 60FPS
+    // 固定FPS制御
+    const std::chrono::microseconds kMinTime(uint64_t(1000000.0f / 60.0f));    // 60FPS
     // 
     const std::chrono::microseconds kMinCheckTime(uint64_t(1000000.0f / 65.0f));
 
@@ -757,3 +731,11 @@ Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::UploadTextureData(
 
 
 
+
+DirectXCommon::~DirectXCommon()
+{
+    if (fenceEvent_ != nullptr) {
+        CloseHandle(fenceEvent_);
+        fenceEvent_ = nullptr;
+    }
+}

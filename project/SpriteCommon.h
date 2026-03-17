@@ -26,9 +26,9 @@ public:
 
 private:
 	// ルートシグネチャ
-	ID3D12RootSignature* rootSignature_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 	// グラフィクスパイプラインステート
-	ID3D12PipelineState* pipelineState_ = nullptr; 
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
 	SrvManager* srvManager_ = nullptr;
 
 };
