@@ -662,74 +662,84 @@ Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateBufferResource(size_
 Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateTextureResource(
     const DirectX::TexMetadata& metadata)
 {
-    // metadaraをもとにResourceの設定
     D3D12_RESOURCE_DESC resourceDesc{};
-    resourceDesc.Width = static_cast<UINT>(metadata.width);      // Textureの幅
-    resourceDesc.Height = static_cast<UINT>(metadata.height);     // Textureの高さ
-    resourceDesc.MipLevels = static_cast<UINT16>(metadata.mipLevels);// mipmapの数
-    resourceDesc.DepthOrArraySize = static_cast<UINT16>(metadata.arraySize);// 奥行きor配列数
-    resourceDesc.Format = metadata.format;                        // TextureのFormat
-    resourceDesc.SampleDesc.Count = 1;                                      // サンプリングカウント。1固定
+    resourceDesc.Width = static_cast<UINT64>(metadata.width);
+    resourceDesc.Height = static_cast<UINT>(metadata.height);
+    resourceDesc.MipLevels = static_cast<UINT16>(metadata.mipLevels);
+    resourceDesc.DepthOrArraySize = static_cast<UINT16>(metadata.arraySize);
+    resourceDesc.Format = metadata.format;
+    resourceDesc.SampleDesc.Count = 1;
     resourceDesc.Dimension = static_cast<D3D12_RESOURCE_DIMENSION>(metadata.dimension);
 
-    // 利用するHeapの設定（書き戻し可能なCPUアクセス用）
     D3D12_HEAP_PROPERTIES heapProperties{};
-    heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM;                 // 細かい設定を行う
-    heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;     // WriteBackポリシー
-    heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;                   // プロセッサの近く
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-    // リソース作成
     Microsoft::WRL::ComPtr<ID3D12Resource> resource;
 
     HRESULT hr = device->CreateCommittedResource(
         &heapProperties,
         D3D12_HEAP_FLAG_NONE,
         &resourceDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
+        D3D12_RESOURCE_STATE_COPY_DEST,
         nullptr,
         IID_PPV_ARGS(&resource)
     );
 
     if (FAILED(hr)) {
         Logger::Log("Failed to create texture resource.");
-        assert(false); // デバッグ中は止める
-        return nullptr; // ComPtr が空のまま返る
+        assert(false);
+        return nullptr;
     }
 
     Logger::Log("Texture resource created successfully.");
     return resource;
 }
-
 Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::UploadTextureData(
     const Microsoft::WRL::ComPtr<ID3D12Resource>& texture,
     const DirectX::ScratchImage& mipImages)
 {
-    // Meta情報を取得
-    const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+    std::vector<D3D12_SUBRESOURCE_DATA> subresources;
 
-    // 全MipMapについて
-    for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel) {
+    HRESULT hr = DirectX::PrepareUpload(
+        device.Get(),
+        mipImages.GetImages(),
+        mipImages.GetImageCount(),
+        mipImages.GetMetadata(),
+        subresources
+    );
+    assert(SUCCEEDED(hr));
 
-        // MipMapLevelを指定して各Imageを取得
-        const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
+    uint64_t intermediateSize = GetRequiredIntermediateSize(
+        texture.Get(),
+        0,
+        static_cast<UINT>(subresources.size())
+    );
 
-        // Textureに転送
-        HRESULT hr = texture->WriteToSubresource(
-            static_cast<UINT>(mipLevel),
-            nullptr,
-            img->pixels,
-            static_cast<UINT>(img->rowPitch),
-            static_cast<UINT>(img->slicePitch));
-        assert(SUCCEEDED(hr));
-    }
+    Microsoft::WRL::ComPtr<ID3D12Resource> intermediateResource =
+        CreateBufferResource(intermediateSize);
 
-    // ★ 今は中間リソースを使っていないので、空の ComPtr を返す
-    return Microsoft::WRL::ComPtr<ID3D12Resource>{};
-    // もしくは単に  return {};  でもOK
+    UpdateSubresources(
+        commandList_.Get(),
+        texture.Get(),
+        intermediateResource.Get(),
+        0,
+        0,
+        static_cast<UINT>(subresources.size()),
+        subresources.data()
+    );
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = texture.Get();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+
+    commandList_->ResourceBarrier(1, &barrier);
+
+    return intermediateResource;
 }
-
-
-
 
 
 DirectXCommon::~DirectXCommon()
