@@ -738,10 +738,35 @@ Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::UploadTextureData(
 
     commandList_->ResourceBarrier(1, &barrier);
 
+    // =========================
+    // 追加：コマンドを実行して完了待ち
+    // =========================
+
+    hr = commandList_->Close();
+    assert(SUCCEEDED(hr));
+
+    ID3D12CommandList* commandLists[] = { commandList_.Get() };
+    commandQueue_->ExecuteCommandLists(1, commandLists);
+
+    ++fenceValue_;
+    hr = commandQueue_->Signal(fence_.Get(), fenceValue_);
+    assert(SUCCEEDED(hr));
+
+    if (fence_->GetCompletedValue() < fenceValue_) {
+        hr = fence_->SetEventOnCompletion(fenceValue_, fenceEvent_);
+        assert(SUCCEEDED(hr));
+        WaitForSingleObject(fenceEvent_, INFINITE);
+    }
+
+    // 次のコマンド記録のためにリセット
+    hr = commandAllocator_->Reset();
+    assert(SUCCEEDED(hr));
+
+    hr = commandList_->Reset(commandAllocator_.Get(), nullptr);
+    assert(SUCCEEDED(hr));
+
     return intermediateResource;
 }
-
-
 DirectXCommon::~DirectXCommon()
 {
     if (fenceEvent_ != nullptr) {
