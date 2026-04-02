@@ -322,6 +322,11 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# Visual Studio build output folders in this repo
+project/CG2_00_01/
+project/x64/
+CG2_00_01/x64/
+
 imgui.ini
 git rm --cached imgui.ini
 
