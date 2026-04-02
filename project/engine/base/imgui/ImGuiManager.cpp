@@ -10,7 +10,10 @@ void ImGuiManager::Initialize(
     dxCommon_ = dxCommon;
     srvHeap_ = srvHeap;
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
+
 
     ImGui_ImplWin32_Init(winApp->GetHwnd());
 
