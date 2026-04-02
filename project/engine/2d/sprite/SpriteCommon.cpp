@@ -149,8 +149,10 @@ void SpriteCommon::CreateGraphicsPipelineState() {
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
     // ===== シェーダコンパイル =====
-    auto vertexShaderBlob = dxCommon_->CompileShader(L"Object3D.VS.hlsl", L"vs_6_0");
-    auto pixelShaderBlob = dxCommon_->CompileShader(L"Object3D.PS.hlsl", L"ps_6_0");
+    // SpriteCommon.cpp
+    auto vertexShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Object3D.VS.hlsl", L"vs_6_0");
+    auto pixelShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Object3D.PS.hlsl", L"ps_6_0");
+
 
 
     assert(vertexShaderBlob);

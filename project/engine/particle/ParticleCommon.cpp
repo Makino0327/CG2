@@ -129,8 +129,10 @@ void ParticleCommon::CreateGraphicsPipelineState()
     rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
     // --- シェーダをロード ---
-    auto vs = dxCommon_->CompileShader(L"Particle.VS.hlsl", L"vs_6_0");
-    auto ps = dxCommon_->CompileShader(L"Particle.PS.hlsl", L"ps_6_0");
+    // ParticleCommon.cpp
+    auto vs = dxCommon_->CompileShader(L"Resources/shaders/Particle.VS.hlsl", L"vs_6_0");
+    auto ps = dxCommon_->CompileShader(L"Resources/shaders/Particle.PS.hlsl", L"ps_6_0");
+
 
     // --- PSO 設定 ---
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
