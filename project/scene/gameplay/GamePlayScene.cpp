@@ -19,8 +19,14 @@
 #include "../engine/3d/model/ModelManager.h"
 #include "../engine/2d/texture/TextureManager.h"
 
+#include "../engine/3d/skybox/SkyboxCommon.h"
+#include "../engine/3d/skybox/Skybox.h"
+
 #include "../engine/input/Input.h"
 #include "../scene/SceneManager.h"
+#ifdef USE_IMGUI
+#include "../externals/imgui/imgui.h"
+#endif
 
 //==================================================
 // ★ SetContext は BaseScene 側で処理されるため削除！
@@ -108,6 +114,16 @@ void GamePlayScene::Initialize()
     objA_->SetTexture("Resources/circle.png");
     objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
 
+	// Skybox
+    skyboxCommon_ = std::make_unique<SkyboxCommon>();
+    skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
+    skyboxCommon_->SetDefaultCamera(context_.camera);
+
+    skybox_ = std::make_unique<Skybox>();
+    skybox_->Initialize(skyboxCommon_.get());
+    skybox_->SetCamera(context_.camera);
+
+
     seSelect_ = context_.sound->SoundLoad(L"./Resources/select.mp3");
 
 
@@ -136,6 +152,9 @@ void GamePlayScene::Update()
 
     // ★ context_ 経由に変更
     if (context_.camera) { context_.camera->Update(); }
+
+
+    if (skybox_) { skybox_->Update(); }
     //if (particleSystem_) { particleSystem_->Update(dt); }
 
     //if (!sprites_.empty() && sprites_[0]) {
@@ -160,9 +179,13 @@ void GamePlayScene::Draw()
     //    if (sprite) { sprite->Draw(); }
     //}
 
+    if (skybox_) {
+        skybox_->Draw();
+    }
+
     // 3D
     context_.object3dCommon->CommonDrawSetting();
-    //if (objA_) { objA_->Draw(); }
+    if (objA_) { objA_->Draw(); }
 
     // Particle
     context_.particleCommon->CommonDrawSetting();
@@ -181,9 +204,29 @@ void GamePlayScene::Finalize()
     object3d_.reset();
     particleSystem_.reset();
 
+    skybox_.reset();
+    skyboxCommon_.reset();
+
     materialResource_.Reset();
     directionalLightResource_.Reset();
 
     soundLoaded_ = false;
     initialized_ = false;
+}
+
+void GamePlayScene::DrawImGui()
+{
+#ifdef USE_IMGUI
+    if (!context_.camera) {
+        return;
+    }
+
+    Transform& cameraTransform = context_.camera->GetTransform();
+
+    ImGui::Begin("Camera");
+    ImGui::DragFloat3("Translate", &cameraTransform.translate.x, 0.1f);
+    ImGui::DragFloat3("Rotate", &cameraTransform.rotate.x, 0.01f);
+    ImGui::Text("Skybox and objects use this camera.");
+    ImGui::End();
+#endif
 }

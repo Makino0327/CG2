@@ -131,18 +131,26 @@ void Game::Draw() {
 #ifdef USE_IMGUI
     if (imguiManager_) {
         imguiManager_->Begin();
+        if (sceneManager_) {
+            sceneManager_->DrawImGui();
+        }
 
         // ★ ImGuiもシーン側へ委譲（元コードのウィンドウそのまま）
         // gamePlayScene_->DrawImGui();
 
-        imguiManager_->End();
-        imguiManager_->Draw();
     }
 #endif
 
     if (sceneManager_) {
         sceneManager_->Draw();
     }
+
+#ifdef USE_IMGUI
+    if (imguiManager_) {
+        imguiManager_->End();
+        imguiManager_->Draw();
+    }
+#endif
 
     dxCommon_->PostDraw();
 }

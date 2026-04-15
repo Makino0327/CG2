@@ -9,6 +9,8 @@
 #include "../engine/math/Math.h"
 #include "../BaseScene.h"
 #include "../engine/audio/SoundManager.h"
+#include "../engine/3d/skybox/Skybox.h"
+#include "../engine/3d/skybox/SkyboxCommon.h"
 
 // ===== 前方宣言 =====
 // SceneContext.h を BaseScene.h がインクルードしている前提なので、
@@ -16,6 +18,8 @@
 class Sprite;
 class Object3d;
 class ParticleSystem;
+class Skybox;
+class SkyboxCommon;
 
 //==================================================
 // GamePlayScene
@@ -28,6 +32,7 @@ public:
     void Update() override;
     void Draw() override;
     void Finalize() override;
+    void DrawImGui() override;
 
     // ★ SetContext は BaseScene で共通化されたため、ここからは削除！
 
@@ -38,6 +43,9 @@ private:
     // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
     std::unique_ptr<Object3d> objA_;
+
+    std::unique_ptr<SkyboxCommon> skyboxCommon_;
+    std::unique_ptr<Skybox> skybox_;
 
     std::vector<std::unique_ptr<Sprite>> sprites_;
     std::unique_ptr<ParticleSystem> particleSystem_;

@@ -46,11 +46,24 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)
 
     Logger::Log("Attempting to load texture: " + filePath);
 
-    HRESULT hr = DirectX::LoadFromWICFile(
-        filePathW.c_str(),
-        DirectX::WIC_FLAGS_FORCE_SRGB,
-        nullptr,
-        image);
+    HRESULT hr = S_OK;
+
+    // ddsかそれ以外かをわける
+    std::string extension = std::filesystem::path(filePath).extension().string();
+    if (extension == ".dds") {
+        hr = DirectX::LoadFromDDSFile(
+            filePathW.c_str(),
+            DirectX::DDS_FLAGS_NONE,
+            nullptr,
+            image);
+    } else {
+        hr = DirectX::LoadFromWICFile(
+            filePathW.c_str(),
+            DirectX::WIC_FLAGS_FORCE_SRGB,
+            nullptr,
+            image);
+    }
+
     if (FAILED(hr)) {
         Logger::Log("Failed to load texture: " + filePath);
         return DirectX::ScratchImage{};
@@ -60,14 +73,20 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)
     // MipMap 作成
     // ===========================
     DirectX::ScratchImage mipImages{};
-    hr = DirectX::GenerateMipMaps(
-        image.GetImages(),
-        image.GetImageCount(),
-        image.GetMetadata(),
-        DirectX::TEX_FILTER_SRGB,
-        0,
-        mipImages);
-    assert(SUCCEEDED(hr));
+
+    if (DirectX::IsCompressed(image.GetMetadata().format)) {
+        mipImages = std::move(image);
+    } else {
+        hr = DirectX::GenerateMipMaps(
+            image.GetImages(),
+            image.GetImageCount(),
+            image.GetMetadata(),
+            DirectX::TEX_FILTER_SRGB,
+            0,
+            mipImages);
+        assert(SUCCEEDED(hr));
+    }
+
 
     // ===========================
     // TextureData を追加
@@ -106,8 +125,7 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)
     srvManager_->CreateSRVforTexture2D(
         textureData.srvIndex,
         textureData.resource.Get(),
-        textureData.metadata.format,
-        static_cast<UINT>(textureData.metadata.mipLevels));
+        textureData.metadata);
 
     // ★ 読み込み順を保存（旧index互換のため）
     textureOrder_.push_back(filePath);

@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include "../../base/srv/SrvManager.h"
 #include <memory>
+#include <filesystem>
+
 class TextureManager
 {
 

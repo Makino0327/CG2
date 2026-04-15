@@ -5,6 +5,8 @@
     <FxCompile Include="Resources\shaders\Object3D.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Particle.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Particle.VS.hlsl" />
+    <FxCompile Include="Resources\shaders\Skybox.VS.hlsl" />
+    <FxCompile Include="Resources\shaders\Skybox.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />
@@ -37,6 +39,8 @@
     <ClCompile Include="scene\title\TitleScene.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
+    <ClCompile Include="engine\3d\skybox\SkyboxCommon.cpp" />
+    <ClCompile Include="engine\3d\skybox\Skybox.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -69,9 +73,12 @@
     <ClInclude Include="scene\BaseScene.h" />
     <ClInclude Include="scene\SceneManager.h" />
     <ClInclude Include="scene\SceneContext.h" />
+    <ClInclude Include="engine\3d\skybox\SkyboxCommon.h" />
+    <ClInclude Include="engine\3d\skybox\Skybox.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
     <None Include="Resources\shaders\Particle.hlsli" />
+    <None Include="Resources\shaders\Skybox.hlsli" />
   </ItemGroup>
 </Project>
