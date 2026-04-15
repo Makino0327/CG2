@@ -95,7 +95,7 @@ void Game::Initialize() {
     sceneManager_->SetContext(context);
 
     // 3. 最初のシーンをセット（SetContextはSceneManagerが自動でやってくれる！）
-    sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+    sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
 }
 
 void Game::Update() {

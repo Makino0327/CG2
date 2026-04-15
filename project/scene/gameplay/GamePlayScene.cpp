@@ -116,31 +116,31 @@ void GamePlayScene::Initialize()
 
 void GamePlayScene::Update()
 {
-    if (context_.sound) {
-        context_.sound->Update();
-    }
+    //if (context_.sound) {
+    //    context_.sound->Update();
+    //}
 
-    if (soundLoaded_) {
+    //if (soundLoaded_) {
 
-        if (context_.input->TriggerKey(DIK_SPACE)) {
-            context_.sound->SoundPlayWave(seSelect_);
-        }
-    }
+    //    if (context_.input->TriggerKey(DIK_SPACE)) {
+    //        context_.sound->SoundPlayWave(seSelect_);
+    //    }
+    //}
     const float dt = 1.0f / 60.0f;
 
-    for (auto& sprite : sprites_) {
-        if (sprite) { sprite->Update(); }
-    }
+    //for (auto& sprite : sprites_) {
+    //    if (sprite) { sprite->Update(); }
+    //}
 
     if (objA_) { objA_->Update(); }
 
     // ★ context_ 経由に変更
     if (context_.camera) { context_.camera->Update(); }
-    if (particleSystem_) { particleSystem_->Update(dt); }
+    //if (particleSystem_) { particleSystem_->Update(dt); }
 
-    if (!sprites_.empty() && sprites_[0]) {
-        sprites_[0]->SetPosition(spritePos_);
-    }
+    //if (!sprites_.empty() && sprites_[0]) {
+    //    sprites_[0]->SetPosition(spritePos_);
+    //}
 }
 
 void GamePlayScene::Draw()
@@ -156,17 +156,17 @@ void GamePlayScene::Draw()
 
     // Sprite
     context_.spriteCommon->CommonDrawSetting();
-    for (auto& sprite : sprites_) {
-        if (sprite) { sprite->Draw(); }
-    }
+    //for (auto& sprite : sprites_) {
+    //    if (sprite) { sprite->Draw(); }
+    //}
 
     // 3D
     context_.object3dCommon->CommonDrawSetting();
-    if (objA_) { objA_->Draw(); }
+    //if (objA_) { objA_->Draw(); }
 
     // Particle
     context_.particleCommon->CommonDrawSetting();
-    if (particleSystem_) { particleSystem_->Draw(); }
+    //if (particleSystem_) { particleSystem_->Draw(); }
 }
 
 void GamePlayScene::Finalize()
