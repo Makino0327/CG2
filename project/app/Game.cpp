@@ -96,6 +96,11 @@ void Game::Initialize() {
 
     // 3. 最初のシーンをセット（SetContextはSceneManagerが自動でやってくれる！）
     sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+
+    offscreenRenderer_ = std::make_unique<OffscreenRenderer>();
+    offscreenRenderer_->Initialize(dxCommon_.get(), srvManager_.get());
+
+
 }
 
 void Game::Update() {
@@ -123,26 +128,25 @@ void Game::Update() {
 void Game::Draw() {
     if (!dxCommon_) { return; }
 
-    dxCommon_->PreDraw();
-
-    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
-    (void)commandList; // 未使用警告回避
-
 #ifdef USE_IMGUI
     if (imguiManager_) {
         imguiManager_->Begin();
         if (sceneManager_) {
             sceneManager_->DrawImGui();
         }
-
-        // ★ ImGuiもシーン側へ委譲（元コードのウィンドウそのまま）
-        // gamePlayScene_->DrawImGui();
-
     }
 #endif
 
+    if (offscreenRenderer_) {
+        offscreenRenderer_->PreDrawScene();
+    }
+
     if (sceneManager_) {
         sceneManager_->Draw();
+    }
+
+    if (offscreenRenderer_) {
+        offscreenRenderer_->DrawToBackBuffer();
     }
 
 #ifdef USE_IMGUI
@@ -154,6 +158,7 @@ void Game::Draw() {
 
     dxCommon_->PostDraw();
 }
+
 
 void Game::Finalize() {
 
@@ -175,6 +180,8 @@ void Game::Finalize() {
     }
     imguiManager_.reset();
 #endif
+
+    offscreenRenderer_.reset();
 
     particleCommon_.reset();
     modelCommon_.reset();

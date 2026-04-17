@@ -41,6 +41,7 @@ using Microsoft::WRL::ComPtr;
 #include "../scene/SceneManager.h"
 #include "../engine/audio/SoundManager.h"
 #include "../engine/base/winapp/WinApp.h"
+#include "../engine/base/offscreen/OffscreenRenderer.h"
 
 // ライブラリリンク（ここにまとめておく）
 #pragma comment(lib, "d3d12.lib")
@@ -79,4 +80,7 @@ private:
     std::unique_ptr<ParticleCommon> particleCommon_;
     std::unique_ptr<ImGuiManager> imguiManager_;
     std::unique_ptr<SceneManager> sceneManager_;
+    std::unique_ptr<OffscreenRenderer> offscreenRenderer_;
+
+
 };

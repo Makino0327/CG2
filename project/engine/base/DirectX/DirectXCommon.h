@@ -9,6 +9,8 @@
 #include <dxcapi.h>
 #include <chrono>
 
+#include "../../math/Math.h"
+
 #include "../../../externals/DirectXTex/DirectXTex.h"
 #include "../../../externals/DirectXTex/d3dx12.h"
 
@@ -101,6 +103,25 @@ public:
         D3D12_DESCRIPTOR_HEAP_TYPE heapType,
         UINT numDescriptors,
         bool shaderVisible);
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> CreateRenderTextureResource(
+        uint32_t width,
+        uint32_t height,
+        DXGI_FORMAT format,
+        const Vector4& clearColor);
+    ID3D12Resource* GetCurrentBackBufferResource() const {
+        return swapChainResources_[swapChain_->GetCurrentBackBufferIndex()].Get();
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentBackBufferRTVHandle() const {
+        D3D12_CPU_DESCRIPTOR_HANDLE handle = rtvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<SIZE_T>(swapChain_->GetCurrentBackBufferIndex()) * descriptorSizeRTV_;
+        return handle;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE GetDSVHandle() const {
+        return dsvDescriptorHeap_->GetCPUDescriptorHandleForHeapStart();
+    }
 
 private:
     Microsoft::WRL::ComPtr<ID3D12Device> device;

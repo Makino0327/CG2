@@ -179,13 +179,13 @@ void GamePlayScene::Draw()
     //    if (sprite) { sprite->Draw(); }
     //}
 
-    if (skybox_) {
-        skybox_->Draw();
-    }
+    //if (skybox_) {
+    //    skybox_->Draw();
+    //}
 
     // 3D
     context_.object3dCommon->CommonDrawSetting();
-    if (objA_) { objA_->Draw(); }
+    //if (objA_) { objA_->Draw(); }
 
     // Particle
     context_.particleCommon->CommonDrawSetting();

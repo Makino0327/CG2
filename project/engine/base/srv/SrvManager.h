@@ -35,6 +35,11 @@ public:
 
 	ID3D12DescriptorHeap* GetDescriptorHeap() const { return descriptorHeap_.Get(); }
 
+	void CreateSRVForRenderTexture(
+		uint32_t srvIndex,
+		ID3D12Resource* pResource,
+		DXGI_FORMAT format);
+
 private:
 	DirectXCommon* directXCommon_ = nullptr;	
 

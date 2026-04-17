@@ -774,3 +774,43 @@ DirectXCommon::~DirectXCommon()
         fenceEvent_ = nullptr;
     }
 }
+
+Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateRenderTextureResource(
+    uint32_t width,
+    uint32_t height,
+    DXGI_FORMAT format,
+    const Vector4& clearColor)
+{
+    D3D12_RESOURCE_DESC resourceDesc{};
+    resourceDesc.Width = width;
+    resourceDesc.Height = height;
+    resourceDesc.MipLevels = 1;
+    resourceDesc.DepthOrArraySize = 1;
+    resourceDesc.Format = format;
+    resourceDesc.SampleDesc.Count = 1;
+    resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    D3D12_HEAP_PROPERTIES heapProperties{};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12_CLEAR_VALUE clearValue{};
+    clearValue.Format = format;
+    clearValue.Color[0] = clearColor.x;
+    clearValue.Color[1] = clearColor.y;
+    clearValue.Color[2] = clearColor.z;
+    clearValue.Color[3] = clearColor.w;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+
+    HRESULT hr = device->CreateCommittedResource(
+        &heapProperties,
+        D3D12_HEAP_FLAG_NONE,
+        &resourceDesc,
+        D3D12_RESOURCE_STATE_RENDER_TARGET,
+        &clearValue,
+        IID_PPV_ARGS(&resource));
+    assert(SUCCEEDED(hr));
+
+    return resource;
+}
