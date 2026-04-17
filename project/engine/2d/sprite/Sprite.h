@@ -21,6 +21,8 @@ struct Material {
 	Vector4 color;
 	int32_t lightingType;     // ← ここをリネーム
 	float padding[3];         // ← 既にパディング済みなのでそのままOK
+	float environmentCoefficient;
+	float padding2[3];
 	Matrix4x4 uvTransform;
 };
 

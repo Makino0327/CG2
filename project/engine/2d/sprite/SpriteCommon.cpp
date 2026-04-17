@@ -150,8 +150,8 @@ void SpriteCommon::CreateGraphicsPipelineState() {
 
     // ===== シェーダコンパイル =====
     // SpriteCommon.cpp
-    auto vertexShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Object3D.VS.hlsl", L"vs_6_0");
-    auto pixelShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Object3D.PS.hlsl", L"ps_6_0");
+    auto vertexShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Sprite.VS.hlsl", L"vs_6_0");
+    auto pixelShaderBlob = dxCommon_->CompileShader(L"Resources/shaders/Sprite.PS.hlsl", L"ps_6_0");
 
 
 

@@ -41,7 +41,7 @@ void Model::Draw()
         TextureManager::GetInstance()->GetSrvHandleGPU(
             modelData_.material.textureFilePath);
 
-    commandList->SetGraphicsRootDescriptorTable(3, textureHandle);
+    commandList->SetGraphicsRootDescriptorTable(4, textureHandle);
 
     for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
         commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
@@ -225,6 +225,7 @@ void Model::InitializeMaterial()
         static_cast<int>(LightingType::Lambert);
 
     // UV 行列は単位行列
+    materialData_->environmentCoefficient = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
 }
 

@@ -1,4 +1,5 @@
 #include "Object3dCommon.h"
+#include "../../2d/texture/TextureManager.h"
 
 void Object3dCommon::Initialize(DirectXCommon* dxCommon)
 {
@@ -17,7 +18,9 @@ void Object3dCommon::CommonDrawSetting()
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // ★ 共有SRVヒープをセット
-    ID3D12DescriptorHeap* heaps[] = { dxCommon_->GetSrvDescriptorHeap() };
+    ID3D12DescriptorHeap* heaps[] = {
+        TextureManager::GetInstance()->GetSrvManager()->GetDescriptorHeap()
+    };
     commandList->SetDescriptorHeaps(1, heaps);
 }
 
@@ -33,8 +36,14 @@ void Object3dCommon::CreateRootSignature()
     descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
+    D3D12_DESCRIPTOR_RANGE environmentDescriptorRange{};
+    environmentDescriptorRange.BaseShaderRegister = 1;
+    environmentDescriptorRange.NumDescriptors = 1;
+    environmentDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    environmentDescriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
     // --- RootParameter ---
-    D3D12_ROOT_PARAMETER rootParameters[4]{};
+    D3D12_ROOT_PARAMETER rootParameters[6]{};
 
     // b0 : Material
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -51,11 +60,22 @@ void Object3dCommon::CreateRootSignature()
     rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     rootParameters[2].Descriptor.ShaderRegister = 2;
 
-    // t0 : Texture
-    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    // b3 : Camera
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
-    rootParameters[3].DescriptorTable.pDescriptorRanges = &descriptorRange;
+    rootParameters[3].Descriptor.ShaderRegister = 3;
+
+    // t0 : Texture
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[4].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[4].DescriptorTable.pDescriptorRanges = &descriptorRange;
+
+    // t1 : EnvironmentTexture
+    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[5].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[5].DescriptorTable.pDescriptorRanges = &environmentDescriptorRange;
 
     // --- Sampler ---
     D3D12_STATIC_SAMPLER_DESC staticSampler{};

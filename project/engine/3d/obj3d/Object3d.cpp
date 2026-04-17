@@ -1,50 +1,50 @@
 #include "Object3d.h"
 #include "Object3dCommon.h"
-#include "../model/Model.h"  
+#include "../model/Model.h"
 #include "../model/ModelManager.h"
 
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
     object3dCommon_ = object3dCommon;
 
-	camera_ = object3dCommon_->GetDefaultCamera();
+    camera_ = object3dCommon_->GetDefaultCamera();
 
-    transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-    cameraTransform = { {1.0f,1.0f,1.0f},{0.3f,0.0f,0.0f},{0.0f,3.0f,-10.0f} };
+    transform = { {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+    cameraTransform = { {1.0f, 1.0f, 1.0f}, {0.3f, 0.0f, 0.0f}, {0.0f, 3.0f, -10.0f} };
 
     InitializeTransformationMatrix();
     InitializeDirectionalLight();
+    InitializeCameraForGPU();
     InitializeMaterial();
+    SetEnvironmentTexture(environmentTextureFilePath_);
 }
+
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
 
     Matrix4x4 worldMatrix =
-        MakeAffineMatrix(transform.scale,
-            transform.rotate,
-            transform.translate);
+        MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
     Matrix4x4 worldViewProjectionMatrix;
 
     if (camera_) {
         const Matrix4x4& vp = camera_->GetViewProjectionMatrix();
-
-        // ★ camera の VP を保持
         viewProjectionMatrix_ = vp;
-
         worldViewProjectionMatrix = Multiply(worldMatrix, vp);
     } else {
         worldViewProjectionMatrix = worldMatrix;
-        viewProjectionMatrix_ = MakeIdentity4x4(); // なくてもいいけど一応
+        viewProjectionMatrix_ = MakeIdentity4x4();
     }
 
     transformationMatrixData_->WVP = worldViewProjectionMatrix;
     transformationMatrixData_->World = worldMatrix;
+
+    if (cameraData_) {
+        cameraData_->worldPosition = camera_ ? camera_->GetTranslate() : Vector3{ 0.0f, 0.0f, 0.0f };
+        cameraData_->padding = 0.0f;
+    }
 }
-
-
-// Object3d.cpp
 
 void Object3d::Draw()
 {
@@ -52,24 +52,22 @@ void Object3d::Draw()
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // ★Material CBuffer(b0)
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
-
-    // 平行光源(b1)
     commandList->SetGraphicsRootConstantBufferView(
         1, directionalLightResource_->GetGPUVirtualAddress());
-
-    // 行列(b2)
     commandList->SetGraphicsRootConstantBufferView(
         2, transformationMatrixResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(
+        3, cameraResource_->GetGPUVirtualAddress());
+
+    commandList->SetGraphicsRootDescriptorTable(
+        5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
         model_->Draw();
     }
 }
-
-
 
 MaterialData Object3d::LoadMaterialTemplateFile(
     const std::string& directoryPath,
@@ -78,7 +76,7 @@ MaterialData Object3d::LoadMaterialTemplateFile(
 {
     std::ifstream file(directoryPath + "/" + mtlFileName);
     if (!file.is_open()) {
-        return material;   // 読めない場合そのまま返す
+        return material;
     }
 
     std::string line;
@@ -97,24 +95,17 @@ MaterialData Object3d::LoadMaterialTemplateFile(
     return material;
 }
 
-
-
-
 void Object3d::InitializeTransformationMatrix()
 {
-    // Object3dCommon から DirectXCommon を取得
-    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon(); // 実プロジェクトの関数名に合わせて
+    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
 
-    // バッファリソース作成
     transformationMatrixResource_ =
         dxCommon->CreateBufferResource(sizeof(TransformationMatrix));
 
-    // マップしてポインタ取得
     transformationMatrixResource_->Map(
         0, nullptr,
         reinterpret_cast<void**>(&transformationMatrixData_));
 
-    // 初期値を書き込む
     transformationMatrixData_->WVP = MakeIdentity4x4();
     transformationMatrixData_->World = MakeIdentity4x4();
 }
@@ -123,24 +114,31 @@ void Object3d::InitializeDirectionalLight()
 {
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
 
-    // バッファ作成
     directionalLightResource_ =
         dxCommon->CreateBufferResource(sizeof(DirectionalLight));
 
-    // マップしてポインタ取得
     directionalLightResource_->Map(
         0, nullptr,
         reinterpret_cast<void**>(&directionalLightData_));
 
-    // 初期値設定（main.cpp と同じ）
     directionalLightData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     directionalLightData_->direction = Vector3(0.0f, -1.0f, 0.0f);
     directionalLightData_->intensity = 4.0f;
 }
 
+void Object3d::InitializeCameraForGPU()
+{
+    DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
+
+    cameraResource_ = dxCommon->CreateBufferResource(sizeof(CameraForGPU));
+    cameraResource_->Map(0, nullptr, reinterpret_cast<void**>(&cameraData_));
+
+    cameraData_->worldPosition = { 0.0f, 0.0f, 0.0f };
+    cameraData_->padding = 0.0f;
+}
+
 void Object3d::SetModel(const std::string& filePath)
 {
-    // モデルを検索してセットする
     model_ = ModelManager::GetInstance()->FindModel(filePath);
 }
 
@@ -150,8 +148,7 @@ void Object3d::SetTexture(const std::string& filePath)
     texMan->LoadTexture(filePath);
 
     if (model_) {
-        model_->SetTextureIndex(
-            texMan->GetTextureIndexByFilePath(filePath));
+        model_->SetTextureIndex(texMan->GetTextureIndexByFilePath(filePath));
     }
 }
 
@@ -162,9 +159,9 @@ void Object3d::InitializeMaterial()
     materialResource_ = dxCommon->CreateBufferResource(sizeof(Material));
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
 
-    // 初期値
     materialData_->color = Vector4(1, 1, 1, 1);
-    materialData_->lightingType = 1; // Lambertとか使うなら。無ければ0でもOK
+    materialData_->lightingType = 1;
+    materialData_->environmentCoefficient = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
 }
 
@@ -175,7 +172,18 @@ void Object3d::SetColor(const Vector4& color)
     }
 }
 
-// Object3d.cpp
+void Object3d::SetEnvironmentTexture(const std::string& filePath)
+{
+    environmentTextureFilePath_ = filePath;
+    TextureManager::GetInstance()->LoadTexture(environmentTextureFilePath_);
+}
+
+void Object3d::SetEnvironmentCoefficient(float coefficient)
+{
+    if (materialData_) {
+        materialData_->environmentCoefficient = coefficient;
+    }
+}
 
 void Object3d::DrawInstanced(UINT instanceCount)
 {
@@ -183,21 +191,19 @@ void Object3d::DrawInstanced(UINT instanceCount)
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
-    // ★Material CBuffer(b0)
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
-
-    // ★平行光源(b1)
     commandList->SetGraphicsRootConstantBufferView(
         1, directionalLightResource_->GetGPUVirtualAddress());
-
-    // ★行列(b2)
-    // ※「Object3d用のインスタンシング」をする場合は
-    //    ここも使う想定だから残す
     commandList->SetGraphicsRootConstantBufferView(
         2, transformationMatrixResource_->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(
+        3, cameraResource_->GetGPUVirtualAddress());
+
+    commandList->SetGraphicsRootDescriptorTable(
+        5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
-        model_->DrawInstanced(instanceCount); // ★ここだけ違う
+        model_->DrawInstanced(instanceCount);
     }
 }

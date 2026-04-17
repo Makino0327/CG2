@@ -42,6 +42,11 @@ struct DirectionalLight {
 	float intensity;      // 強度
 };
 
+struct CameraForGPU {
+	Vector3 worldPosition;
+	float padding;
+};
+
 
 class Object3d
 {
@@ -65,6 +70,7 @@ public:
 
 	// 
 	void InitializeDirectionalLight();
+	void InitializeCameraForGPU();
 
 	void SetModel(const std::string& filePath);
 
@@ -88,6 +94,8 @@ public:
 	Matrix4x4 GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
 
 	void SetColor(const Vector4& color);
+	void SetEnvironmentTexture(const std::string& filePath);
+	void SetEnvironmentCoefficient(float coefficient);
 	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
 
 private:
@@ -101,6 +109,8 @@ private:
 	// ライト用の定数バッファリソース
 	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 	DirectionalLight* directionalLightData_ = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
+	CameraForGPU* cameraData_ = nullptr;
 
 	Transform transform;
 	Transform cameraTransform;
@@ -110,6 +120,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 	Material* materialData_ = nullptr;
 	Camera* camera_ = nullptr;
+	std::string environmentTextureFilePath_ = "Resources/rostock_laage_airport_4k.dds";
 
 	Matrix4x4 viewProjectionMatrix_{};
 };

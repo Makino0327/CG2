@@ -138,5 +138,9 @@ void Skybox::CreateMaterial()
     materialData_->padding[0] = 0.0f;
     materialData_->padding[1] = 0.0f;
     materialData_->padding[2] = 0.0f;
+    materialData_->environmentCoefficient = 0.0f;
+    materialData_->padding2[0] = 0.0f;
+    materialData_->padding2[1] = 0.0f;
+    materialData_->padding2[2] = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
 }

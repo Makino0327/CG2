@@ -221,6 +221,7 @@ void Sprite::CreateMaterialData()
 	// ========================
 	materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 	materialData->lightingType = 0;
+	materialData->environmentCoefficient = 0.0f;
 	materialData->uvTransform = MakeIdentity4x4();
 }
 

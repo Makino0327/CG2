@@ -9,20 +9,17 @@ ConstantBuffer<TransformationMatrix> gTransformationMatrix : register(b2);
 
 struct VertexShaderInput
 {
-    float4 position : POSITION0; 
+    float4 position : POSITION0;
     float2 texcoord : TEXCOORD0;
     float3 normal : NORMAL0;
 };
 
-
 VertexShaderOutput main(VertexShaderInput input)
 {
     VertexShaderOutput output;
-    float4 worldPosition = mul(input.position, gTransformationMatrix.World);
     output.position = mul(input.position, gTransformationMatrix.WVP);
     output.texcoord = input.texcoord;
-    output.normal = normalize(mul(input.normal, (float3x3) gTransformationMatrix.World));
-    output.worldPosition = worldPosition.xyz;
-
+    output.normal = normalize(mul(input.normal, (float3x3)gTransformationMatrix.World));
+    output.worldPosition = float3(0.0f, 0.0f, 0.0f);
     return output;
 }
