@@ -64,7 +64,7 @@ private:
 
 	// テクスチャ関連
     uint32_t textureIndex_ = 0;
-    std::string textureFilePath_ = "Resources/rostock_laage_airport_4k.dds";
+    std::string textureFilePath_ = "Resources/skybox.dds";
 
     Transform transform_{
         {1.0f, 1.0f, 1.0f},
