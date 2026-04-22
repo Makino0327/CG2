@@ -88,6 +88,11 @@ void OffscreenRenderer::DrawToBackBuffer()
         // ボックスフィルタ用のパイプラインステートを設定する
         commandList->SetPipelineState(boxFilterPipelineState_.Get());
         break;
+    case PostEffectType::GaussianFilter:
+        // ガウシアンフィルタ用のパイプラインステートを設定する
+        commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
+        break;
+
     }
 
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -182,6 +187,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto boxFilterPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/BoxFilter.PS.hlsl",
         L"ps_6_0");
+    auto gaussianFilterPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/GaussianFilter.PS.hlsl",
+        L"ps_6_0");
 
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -265,6 +273,17 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         IID_PPV_ARGS(boxFilterPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
+    // ガウシアンフィルタ用のピクセルシェーダを設定する
+    desc.PS = {
+        gaussianFilterPixelShaderBlob->GetBufferPointer(),
+        gaussianFilterPixelShaderBlob->GetBufferSize()
+    };
+
+    // ガウシアンフィルタ用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(gaussianFilterPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
 
 }
 

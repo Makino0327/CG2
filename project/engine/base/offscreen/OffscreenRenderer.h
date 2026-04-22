@@ -9,6 +9,7 @@ enum class PostEffectType {
     Sepia,
     Vignette,
     BoxFilter,
+    GaussianFilter,
 };
 
 class OffscreenRenderer {
@@ -41,6 +42,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> vignettePipelineState_;
     // ボックスフィルタ用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> boxFilterPipelineState_;
+    // ガウシアンフィルタ用のパイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> gaussianFilterPipelineState_;
+
     PostEffectType postEffectType_ = PostEffectType::Copy;
 
 };

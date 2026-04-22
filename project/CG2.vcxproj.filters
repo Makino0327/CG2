@@ -13,6 +13,7 @@
     <FxCompile Include="Resources\shaders\Sepia.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Vignette.PS.hlsl" />
     <FxCompile Include="Resources\shaders\BoxFilter.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\GaussianFilter.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />
