@@ -75,7 +75,8 @@ void Game::Initialize() {
     bool ok = sound_->Initialize();
     assert(ok);
     // Game::Initialize() の後半
-
+    offscreenRenderer_ = std::make_unique<OffscreenRenderer>();
+    offscreenRenderer_->Initialize(dxCommon_.get(), srvManager_.get());
      // ========== 改善後 ==========
 
      // 1. 各種ポインタを SceneContext にまとめる
@@ -89,6 +90,7 @@ void Game::Initialize() {
     context.camera = camera_.get();
     context.input = input_.get();
     context.sound = sound_.get();
+    context.offscreenRenderer = offscreenRenderer_.get();
 
     // 2. SceneManager を作り、Context を「1回だけ」預ける
     sceneManager_ = std::make_unique<SceneManager>();
@@ -96,11 +98,6 @@ void Game::Initialize() {
 
     // 3. 最初のシーンをセット（SetContextはSceneManagerが自動でやってくれる！）
     sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
-
-    offscreenRenderer_ = std::make_unique<OffscreenRenderer>();
-    offscreenRenderer_->Initialize(dxCommon_.get(), srvManager_.get());
-
-
 }
 
 void Game::Update() {

@@ -11,6 +11,7 @@ class ParticleCommon;
 class Camera;
 class Input;
 class SoundManager;
+class OffscreenRenderer;
 
 struct SceneContext {
     DirectXCommon* dxCommon = nullptr;
@@ -22,4 +23,6 @@ struct SceneContext {
     Camera* camera = nullptr;
     Input* input = nullptr;
     SoundManager* sound = nullptr;
+    OffscreenRenderer* offscreenRenderer = nullptr;
+
 };

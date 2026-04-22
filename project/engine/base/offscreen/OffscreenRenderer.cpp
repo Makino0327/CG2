@@ -69,7 +69,20 @@ void OffscreenRenderer::DrawToBackBuffer()
     commandList->RSSetScissorRects(1, &scissorRect);
 
     commandList->SetGraphicsRootSignature(rootSignature_.Get());
-    commandList->SetPipelineState(pipelineState_.Get());
+    switch (postEffectType_) {
+    case PostEffectType::Copy:
+        commandList->SetPipelineState(copyPipelineState_.Get());
+        break;
+
+    case PostEffectType::Grayscale:
+        commandList->SetPipelineState(grayscalePipelineState_.Get());
+        break;
+
+    case PostEffectType::Sepia:
+        commandList->SetPipelineState(sepiaPipelineState_.Get());
+        break;
+    }
+
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
@@ -145,9 +158,18 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto vertexShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/CopyImage.VS.hlsl",
         L"vs_6_0");
-    auto pixelShaderBlob = dxCommon_->CompileShader(
+    auto copyPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/CopyImage.PS.hlsl",
         L"ps_6_0");
+
+    auto grayscalePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Grayscale.PS.hlsl",
+        L"ps_6_0");
+
+    auto sepiaPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Sepia.PS.hlsl",
+        L"ps_6_0");
+
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
     inputLayout.pInputElementDescs = nullptr;
@@ -168,7 +190,6 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     desc.pRootSignature = rootSignature_.Get();
     desc.InputLayout = inputLayout;
     desc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
-    desc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
     desc.BlendState = blendDesc;
     desc.RasterizerState = rasterizerDesc;
     desc.DepthStencilState = depthStencilDesc;
@@ -179,9 +200,34 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
     desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 
-    HRESULT hr = device->CreateGraphicsPipelineState(
+    HRESULT hr = S_OK;
+
+    desc.PS = {
+        copyPixelShaderBlob->GetBufferPointer(),
+        copyPixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
         &desc,
-        IID_PPV_ARGS(pipelineState_.GetAddressOf()));
+        IID_PPV_ARGS(copyPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
+
+    desc.PS = {
+        grayscalePixelShaderBlob->GetBufferPointer(),
+        grayscalePixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(grayscalePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    desc.PS = {
+        sepiaPixelShaderBlob->GetBufferPointer(),
+        sepiaPixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(sepiaPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
 }
 

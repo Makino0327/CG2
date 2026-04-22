@@ -3,6 +3,12 @@
 #include "../srv/SrvManager.h"
 #include "../renderTexture/RenderTexture.h"
 
+enum class PostEffectType {
+    Copy,
+    Grayscale,
+    Sepia,
+};
+
 class OffscreenRenderer {
 public:
     void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
@@ -11,6 +17,9 @@ public:
     void DrawToBackBuffer();
 
     RenderTexture* GetRenderTexture() const { return renderTexture_.get(); }
+    // セッター
+    void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
+    PostEffectType GetPostEffectType() const { return postEffectType_; }
 
 private:
     void CreateRootSignature();
@@ -22,5 +31,12 @@ private:
     std::unique_ptr<RenderTexture> renderTexture_;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
+
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> copyPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> grayscalePipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> sepiaPipelineState_;
+
+
+    PostEffectType postEffectType_ = PostEffectType::Copy;
+
 };

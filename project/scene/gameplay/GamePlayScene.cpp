@@ -22,6 +22,8 @@
 #include "../engine/3d/skybox/SkyboxCommon.h"
 #include "../engine/3d/skybox/Skybox.h"
 
+#include "../engine/base/offscreen/OffscreenRenderer.h"
+
 #include "../engine/input/Input.h"
 #include "../scene/SceneManager.h"
 #ifdef USE_IMGUI
@@ -242,5 +244,25 @@ void GamePlayScene::DrawImGui()
         ImGui::SliderFloat("Reflection", &objA_->GetMaterial()->environmentCoefficient, 0.0f, 1.0f);
         ImGui::End();
     }
+    if (context_.offscreenRenderer) {
+        ImGui::Begin("Post Effect");
+
+        const char* items[] = {
+            "Copy",
+            "Grayscale",
+            "Sepia",
+        };
+
+        int current =
+            static_cast<int>(context_.offscreenRenderer->GetPostEffectType());
+
+        if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
+            context_.offscreenRenderer->SetPostEffectType(
+                static_cast<PostEffectType>(current));
+        }
+
+        ImGui::End();
+    }
+
 #endif
 }
