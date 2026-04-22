@@ -7,6 +7,7 @@ enum class PostEffectType {
     Copy,
     Grayscale,
     Sepia,
+    Vignette,
 };
 
 class OffscreenRenderer {
@@ -35,7 +36,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> copyPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> grayscalePipelineState_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> sepiaPipelineState_;
-
+    // ヴィネッティング用のパイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> vignettePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
 

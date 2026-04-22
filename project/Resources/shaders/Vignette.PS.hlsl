@@ -1,0 +1,31 @@
+#include "CopyImage.hlsli"
+
+Texture2D<float4> gTexture : register(t0);
+SamplerState gSampler : register(s0);
+
+struct PixelShaderOutput
+{
+    float4 color : SV_TARGET0;
+};
+
+PixelShaderOutput main(VertexShaderOutput input)
+{
+    PixelShaderOutput output;
+
+    // 元画像の色をテクスチャから取得する
+    output.color = gTexture.Sample(gSampler, input.texcoord);
+
+    // 中心から離れるほど小さくなる値を作る
+    float2 correct = input.texcoord * (1.0f - input.texcoord.yx);
+
+    // 中心付近が1.0、端に近いほど0.0に近づく値に調整する
+    float vignette = correct.x * correct.y * 16.0f;
+
+    // powで暗くなり方を調整し、saturateで0.0から1.0の範囲に収める
+    vignette = saturate(pow(vignette, 0.8f));
+
+    // 元画像のRGBにヴィネッティング係数を掛けて、画面端を暗くする
+    output.color.rgb *= vignette;
+
+    return output;
+}

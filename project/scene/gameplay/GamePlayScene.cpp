@@ -256,6 +256,7 @@ void GamePlayScene::DrawImGui()
             "Copy",
             "Grayscale",
             "Sepia",
+             "Vignette",
         };
 
         int current =

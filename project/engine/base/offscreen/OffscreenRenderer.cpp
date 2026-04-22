@@ -81,6 +81,10 @@ void OffscreenRenderer::DrawToBackBuffer()
     case PostEffectType::Sepia:
         commandList->SetPipelineState(sepiaPipelineState_.Get());
         break;
+    case PostEffectType::Vignette:
+        commandList->SetPipelineState(vignettePipelineState_.Get());
+        break;
+
     }
 
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -169,6 +173,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto sepiaPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Sepia.PS.hlsl",
         L"ps_6_0");
+    auto vignettePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Vignette.PS.hlsl",
+        L"ps_6_0");
 
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -228,6 +235,19 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         &desc,
         IID_PPV_ARGS(sepiaPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
+
+    // ヴィネッティング用のピクセルシェーダを設定する
+    desc.PS = {
+        vignettePixelShaderBlob->GetBufferPointer(),
+        vignettePixelShaderBlob->GetBufferSize()
+    };
+
+    // ヴィネッティング用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(vignettePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
 
 }
 

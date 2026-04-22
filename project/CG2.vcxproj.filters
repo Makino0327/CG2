@@ -11,6 +11,7 @@
     <FxCompile Include="Resources\shaders\CopyImage.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Grayscale.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Sepia.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\Vignette.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />
