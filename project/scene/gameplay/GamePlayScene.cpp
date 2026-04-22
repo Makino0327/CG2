@@ -68,7 +68,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/uvChecker.png");
     texMan->LoadTexture("Resources/monsterBall.png");
     texMan->LoadTexture("Resources/checkerBoard.png");
-    texMan->LoadTexture("Resources/circle.png");
+    texMan->LoadTexture("Resources/circle2.png");
     texMan->LoadTexture("Resources/fence.png");
     texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
@@ -165,7 +165,9 @@ void GamePlayScene::Update()
 
 
     if (skybox_) { skybox_->Update(); }
-    //if (particleSystem_) { particleSystem_->Update(dt); }
+
+    // Particleを毎フレーム更新する
+    if (particleSystem_) { particleSystem_->Update(dt); }
 
     //if (!sprites_.empty() && sprites_[0]) {
     //    sprites_[0]->SetPosition(spritePos_);
@@ -199,7 +201,10 @@ void GamePlayScene::Draw()
 
     // Particle
     context_.particleCommon->CommonDrawSetting();
-    //if (particleSystem_) { particleSystem_->Draw(); }
+
+    // Particleを描画する
+    if (particleSystem_) { particleSystem_->Draw(); }
+
 }
 
 void GamePlayScene::Finalize()
@@ -262,6 +267,10 @@ void GamePlayScene::DrawImGui()
         }
 
         ImGui::End();
+    }
+    // Particleの調整用ImGuiを表示する
+    if (particleSystem_) {
+        particleSystem_->ShowImGui();
     }
 
 #endif

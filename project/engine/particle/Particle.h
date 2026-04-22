@@ -13,7 +13,7 @@ class Camera;
 class Model;
 
 // =============================
-// パーティクルの種類
+// Particle type
 // =============================
 enum class ParticleType {
     CircleBurst = 0,
@@ -22,7 +22,7 @@ enum class ParticleType {
 };
 
 // =============================
-// CPU側1粒のデータ
+// CPU-side data for one particle
 // =============================
 struct ParticleData {
     Transform transform;
@@ -30,23 +30,24 @@ struct ParticleData {
     Vector4   color;
     float     lifeTime;
     float     currentTime;
+    bool      isAlive;
 };
 
 // =============================
-// エミッタのパラメータ
+// Emitter parameters
 // =============================
 struct ParticleEmitterParam
 {
-    float   positionRange;   // どのくらいの範囲にばらまくか
-    float   velocityRange;   // どのくらいの速さで飛ばすか
-    float   lifeTimeMin;     // 寿命の最小
-    float   lifeTimeMax;     // 寿命の最大
-    Vector4 baseColor;       // 基本の色
-    bool    randomColor;     // ランダム色を使うか
+    float   positionRange;   // Spawn spread range. CircleBurst does not use this now.
+    float   velocityRange;   // Random velocity range.
+    float   lifeTimeMin;     // Minimum lifetime.
+    float   lifeTimeMax;     // Maximum lifetime.
+    Vector4 baseColor;       // Base color.
+    bool    randomColor;     // Use random color.
 };
 
 // =============================
-// GPU に送る1粒分
+// GPU-side data for one particle
 // =============================
 struct ParticleForGPU {
     Matrix4x4 WVP;
@@ -55,46 +56,46 @@ struct ParticleForGPU {
 };
 
 // =============================
-// プリセット1件分
+// One particle preset
 // =============================
 struct ParticlePreset {
     ParticleType          type;
-    const char* name;        // "CircleBurst" など
-    const char* texturePath; // "Resources/circle.png" など
-    const char* modelName;   // "plane.obj" など
+    const char* name;
+    const char* texturePath;
+    const char* modelName;
     ParticleEmitterParam  param;
 };
 
 // =============================
-// パーティクルシステム本体
+// Particle system
 // =============================
 class ParticleSystem
 {
 public:
-    // 初期化：どのプリセットを使うかだけ指定
+    // Initialize particle system with a preset.
     void Initialize(DirectXCommon* dxCommon,
         ParticleCommon* particleCommon,
         Camera* camera,
         SrvManager* srvManager,
         ParticleType type);
 
-    // 毎フレーム更新
+    // Update particles every frame.
     void Update(float deltaTime);
 
-    // 描画
+    // Draw particles.
     void Draw();
 
-    // ImGui ウィンドウ
+    // Show ImGui editor.
     void ShowImGui();
 
-    // エミッタの基準位置（左手座標系）
+    // Set emitter world position.
     void SetPosition(const Vector3& pos) { emitterPosition_ = pos; }
 
-    // あとから種類を切り替える
+    // Change preset after initialization.
     void ApplyPreset(ParticleType type);
 
 private:
-    // インスタンス数と、SRVヒープで使うインデックス
+    // Instance count and SRV index.
     static const uint32_t kNumInstance = 10;
     static const uint32_t kInstancingSrvIndex = 10;
 
@@ -102,42 +103,37 @@ private:
     ParticleCommon* particleCommon_ = nullptr;
     Camera* camera_ = nullptr;
 
-    // Instancing用リソース
+    // Instancing resource.
     Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
     ParticleForGPU* instancingData_ = nullptr;
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_{};
 
-    // テクスチャ / モデル
+    // Texture and model.
     std::string textureFilePath_;
     std::string modelFileName_;
 
-    // CPU 側パーティクル
+    // CPU-side particles.
     ParticleData          particles_[kNumInstance];
     ParticleEmitterParam  emitterParam_{};
     ParticleType          currentType_ = ParticleType::CircleBurst;
 
-    // エミッタのワールド位置
+    // Emitter world position.
     Vector3 emitterPosition_{ 0.0f, 0.0f, 0.0f };
-    // ===== 追加：放出（Emit）制御 =====
-    bool  isEmitting_ = true;         // 出し続けるか
-    float emitRate_ = 30.0f;          // 1秒あたり何個出すか
-    float emitAccumulator_ = 0.0f;    // 端数の蓄積
-    uint32_t emitCursor_ = 0;         // 次に上書きする粒の番号（リング）
 
+    // Emit control.
+    bool  isEmitting_ = true;         // Particle emission on/off.
+    float emitInterval_ = 1.0f;       // Seconds between burst emissions.
+    float emitTimer_ = 0.0f;          // Elapsed time for the next burst.
+    int   emitCount_ = 3;             // Particles emitted per burst.
+    uint32_t emitCursor_ = 0;         // Next particle index to overwrite.
 
-    // ===== 風（CircleBurst用）=====
-    bool  windEnabled_ = true;
-    Vector3 windDirection_{ 1.0f, 0.0f, 0.0f }; // 右方向がデフォ（+X）
-    float windStrength_ = 20.0f;                // 風の強さ
-    bool  windAsAcceleration_ = true;          // true=加速度（自然） / false=速度に直接足す
-
-
-    // 乱数
+    // Random generator.
     std::mt19937 randomEngine_;
 
-    SrvManager* srvManager_ = nullptr;        // ★追加
+    SrvManager* srvManager_ = nullptr;
     uint32_t instancingSrvIndex_ = 0;
 
 private:
     ParticleData MakeNewParticle();
+    ParticleData MakeDeadParticle();
 };
