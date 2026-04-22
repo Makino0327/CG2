@@ -69,6 +69,8 @@ public:
 
     ID3D12Device* GetDevice() const { return device.Get(); }
     ID3D12GraphicsCommandList* GetCommandList() const { return commandList_.Get(); }
+    // ImGui の DirectX12 backend がテクスチャアップロードに使うコマンドキューを渡す
+    ID3D12CommandQueue* GetCommandQueue() const { return commandQueue_.Get(); }
 
     ID3D12DescriptorHeap* GetSrvDescriptorHeap() const {
         return srvDescriptorHeap_.Get();
