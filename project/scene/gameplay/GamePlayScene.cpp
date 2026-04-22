@@ -257,6 +257,7 @@ void GamePlayScene::DrawImGui()
             "Grayscale",
             "Sepia",
              "Vignette",
+             "BoxFilter",
         };
 
         int current =

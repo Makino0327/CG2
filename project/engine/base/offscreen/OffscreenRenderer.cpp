@@ -84,7 +84,10 @@ void OffscreenRenderer::DrawToBackBuffer()
     case PostEffectType::Vignette:
         commandList->SetPipelineState(vignettePipelineState_.Get());
         break;
-
+    case PostEffectType::BoxFilter:
+        // ボックスフィルタ用のパイプラインステートを設定する
+        commandList->SetPipelineState(boxFilterPipelineState_.Get());
+        break;
     }
 
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -176,6 +179,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto vignettePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Vignette.PS.hlsl",
         L"ps_6_0");
+    auto boxFilterPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/BoxFilter.PS.hlsl",
+        L"ps_6_0");
 
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -246,6 +252,17 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(vignettePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+    // ボックスフィルタ用のピクセルシェーダを設定する
+    desc.PS = {
+        boxFilterPixelShaderBlob->GetBufferPointer(),
+        boxFilterPixelShaderBlob->GetBufferSize()
+    };
+
+    // ボックスフィルタ用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(boxFilterPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
 
