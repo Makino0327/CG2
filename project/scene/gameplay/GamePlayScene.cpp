@@ -68,7 +68,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/checkerBoard.png");
     texMan->LoadTexture("Resources/circle.png");
     texMan->LoadTexture("Resources/fence.png");
-    texMan->LoadTexture("Resources/cube.jpg");
+    texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
 
     // Particle
@@ -116,11 +116,11 @@ void GamePlayScene::Initialize()
     objA_ = std::make_unique<Object3d>();
     objA_->Initialize(context_.object3dCommon);
     objA_->SetModel("cube.obj");
-    objA_->SetTexture("Resources/cube.jpg");
+    objA_->SetTexture("Resources/Cube.png");
     objA_->SetEnvironmentTexture("Resources/skybox.dds");
     objA_->SetEnvironmentCoefficient(0.35f);
     objA_->SetScale({ 1.5f, 1.5f, 1.5f });
-    objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
+    objA_->SetTranslate({ 0.0f, -5.0f, 20.0f });
 
 	// Skybox
     skyboxCommon_ = std::make_unique<SkyboxCommon>();

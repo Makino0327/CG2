@@ -222,7 +222,7 @@ void Model::InitializeMaterial()
     // main.cpp でやっていたのと同じように lightingType を設定
     // （Lambert を初期値にしておく例）
     materialData_->lightingType =
-        static_cast<int>(LightingType::Lambert);
+        static_cast<int>(LightingType::HalfLambert);
 
     // UV 行列は単位行列
     materialData_->environmentCoefficient = 0.0f;

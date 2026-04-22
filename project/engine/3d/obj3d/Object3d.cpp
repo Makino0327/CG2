@@ -123,7 +123,7 @@ void Object3d::InitializeDirectionalLight()
 
     directionalLightData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     directionalLightData_->direction = Vector3(0.0f, -1.0f, 0.0f);
-    directionalLightData_->intensity = 4.0f;
+    directionalLightData_->intensity = 0.2f;
 }
 
 void Object3d::InitializeCameraForGPU()
@@ -160,7 +160,7 @@ void Object3d::InitializeMaterial()
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
 
     materialData_->color = Vector4(1, 1, 1, 1);
-    materialData_->lightingType = 1;
+    materialData_->lightingType = static_cast<int>(LightingType::HalfLambert);
     materialData_->environmentCoefficient = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
 }
