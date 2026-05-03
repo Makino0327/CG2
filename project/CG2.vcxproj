@@ -161,6 +161,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
+    <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="game\camera\Camera.cpp" />
     <ClCompile Include="engine\base\leakchecker\D3DResourceLeakChecker.cpp" />
@@ -294,6 +295,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
+    <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="scene\BaseScene.h" />
     <ClInclude Include="game\camera\Camera.h" />
     <ClInclude Include="engine\base\leakchecker\D3DResourceLeakChecker.h" />

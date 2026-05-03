@@ -72,6 +72,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/fence.png");
     texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
+    texMan->LoadTexture("Resources/gradationLine.png"); // // Ring 用のグラデーションテクスチャ
 
     // Particle
     particleSystem_ = std::make_unique<ParticleSystem>();
