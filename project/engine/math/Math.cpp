@@ -290,3 +290,96 @@ Matrix4x4 MakeRotateYMatrix(float radian)
 
 	return result;
 }
+
+Quaternion Normalize(const Quaternion& q) {
+	float length = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+	if (length == 0.0f) {
+		return { 0.0f, 0.0f, 0.0f, 1.0f };
+	}
+	return { q.x / length, q.y / length, q.z / length, q.w / length };
+}
+
+Vector3 Lerp(const Vector3& a, const Vector3& b, float t) {
+	return {
+		a.x + (b.x - a.x) * t,
+		a.y + (b.y - a.y) * t,
+		a.z + (b.z - a.z) * t
+	};
+}
+
+float Dot(const Quaternion& q0, const Quaternion& q1) {
+	return q0.x * q1.x + q0.y * q1.y + q0.z * q1.z + q0.w * q1.w;
+}
+
+Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t) {
+	Quaternion qStart = Normalize(q0);
+	Quaternion qEnd = Normalize(q1);
+
+	float dot = Dot(qStart, qEnd);
+
+	// 最短経路で補間するため、逆向きなら片方を反転する
+	if (dot < 0.0f) {
+		dot = -dot;
+		qEnd.x = -qEnd.x;
+		qEnd.y = -qEnd.y;
+		qEnd.z = -qEnd.z;
+		qEnd.w = -qEnd.w;
+	}
+
+	// ほぼ同じ向きなら線形補間で十分
+	if (dot > 0.9995f) {
+		Quaternion result = {
+			qStart.x + (qEnd.x - qStart.x) * t,
+			qStart.y + (qEnd.y - qStart.y) * t,
+			qStart.z + (qEnd.z - qStart.z) * t,
+			qStart.w + (qEnd.w - qStart.w) * t
+		};
+		return Normalize(result);
+	}
+
+	float theta = acosf(dot);
+	float sinTheta = sinf(theta);
+
+	float weight0 = sinf((1.0f - t) * theta) / sinTheta;
+	float weight1 = sinf(t * theta) / sinTheta;
+
+	Quaternion result = {
+		qStart.x * weight0 + qEnd.x * weight1,
+		qStart.y * weight0 + qEnd.y * weight1,
+		qStart.z * weight0 + qEnd.z * weight1,
+		qStart.w * weight0 + qEnd.w * weight1
+	};
+	return Normalize(result);
+}
+
+Matrix4x4 MakeRotateMatrix(const Quaternion& quaternion)
+{
+	// 正規化した Quaternion から回転行列を作る
+	Quaternion q = Normalize(quaternion);
+
+	Matrix4x4 matrix = MakeIdentity4x4();
+
+	matrix.m[0][0] = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
+	matrix.m[0][1] = 2.0f * (q.x * q.y + q.z * q.w);
+	matrix.m[0][2] = 2.0f * (q.x * q.z - q.y * q.w);
+
+	matrix.m[1][0] = 2.0f * (q.x * q.y - q.z * q.w);
+	matrix.m[1][1] = 1.0f - 2.0f * (q.x * q.x + q.z * q.z);
+	matrix.m[1][2] = 2.0f * (q.y * q.z + q.x * q.w);
+
+	matrix.m[2][0] = 2.0f * (q.x * q.z + q.y * q.w);
+	matrix.m[2][1] = 2.0f * (q.y * q.z - q.x * q.w);
+	matrix.m[2][2] = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
+
+	return matrix;
+}
+
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Quaternion& rotate, const Vector3& translate)
+{
+	// scale, rotate, translate からアフィン行列を作る
+	Matrix4x4 scaleMatrix = MakeScaleMatrix(scale);
+	Matrix4x4 rotateMatrix = MakeRotateMatrix(rotate);
+	Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
+
+	return Multiply(Multiply(scaleMatrix, rotateMatrix), translateMatrix);
+}

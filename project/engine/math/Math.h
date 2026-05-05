@@ -11,6 +11,11 @@ struct Vector2 {
 	float x, y;
 };
 
+struct Quaternion {
+	float x, y, z, w;
+};
+
+
 struct Matrix4x4 {
 	float m[4][4];
 };
@@ -32,6 +37,7 @@ Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float botto
 Matrix4x4 Multiply(const Matrix4x4& a, const Matrix4x4& b);
 Matrix4x4 Inverse(const Matrix4x4& m);
 Vector3 Normalize(const Vector3& v);
+Quaternion Normalize(const Quaternion& q);
 Matrix4x4 MakeScaleMatrix(const Vector3& scale);
 Matrix4x4 MakeRotateZMatrix(float angle);
 Matrix4x4 MakeTranslateMatrix(const Vector3& translate);
@@ -40,3 +46,11 @@ Vector3 AddVector(const Vector3& v, float scalar);
 // Math.h
 
 Matrix4x4 MakeRotateYMatrix(float radian);   // ★追加
+
+Vector3 Lerp(const Vector3& a, const Vector3& b, float t);
+float Dot(const Quaternion& q0, const Quaternion& q1);
+Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t);
+
+Matrix4x4 MakeRotateMatrix(const Quaternion& quaternion);
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Quaternion& rotate, const Vector3& translate);
+

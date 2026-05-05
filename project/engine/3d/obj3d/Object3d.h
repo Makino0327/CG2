@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include "../../../game/camera/Camera.h"
+#include "../../animation/Animation.h"
 
 class Object3dCommon;
 class Model;
@@ -98,6 +99,12 @@ public:
 	void SetEnvironmentCoefficient(float coefficient);
 	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
 
+	// アニメーション関連
+	void SetAnimation(const Animation& animation) { animation_ = animation; }
+	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
+	void ResetAnimationTime() { animationTime_ = 0.0f; }
+	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
+
 private:
 	// 3Dオブジェクト共通処理
 	Object3dCommon* object3dCommon_ = nullptr;
@@ -123,5 +130,12 @@ private:
 	std::string environmentTextureFilePath_ = "Resources/skybox.dds";
 
 	Matrix4x4 viewProjectionMatrix_{};
+
+	// アニメーション関連
+	Animation animation_;
+	float animationTime_ = 0.0f;
+	bool isAnimationPlaying_ = false;
+	std::string animationNodeName_;
+
 };
 

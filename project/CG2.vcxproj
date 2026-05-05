@@ -159,6 +159,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="engine\animation\Animation.cpp" />
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
@@ -294,6 +295,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="engine\animation\Animation.h" />
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />

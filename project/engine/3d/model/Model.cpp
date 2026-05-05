@@ -368,7 +368,9 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 {
     ModelData modelData;
 
-    const std::string jsonText = ReadTextFile(directoryPath + "/" + filename);
+    const std::string gltfFilePath = directoryPath + "/" + filename;
+    const std::string jsonText = ReadTextFile(gltfFilePath);
+    const std::filesystem::path gltfDirectory = std::filesystem::path(gltfFilePath).parent_path();
     const std::vector<GltfAccessor> accessors = ParseAccessors(jsonText);
     const std::vector<GltfBufferView> bufferViews = ParseBufferViews(jsonText);
 
@@ -376,7 +378,7 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
     std::vector<std::string> bufferObjects = SplitTopLevelObjects(buffersBlock);
     assert(!bufferObjects.empty());
     const std::string bufferUri = FindStringValue(bufferObjects[0], "uri");
-    const std::vector<uint8_t> binary = ReadBinaryFile(directoryPath + "/" + bufferUri);
+    const std::vector<uint8_t> binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
 
     std::string texturesBlock = ExtractArrayBlock(jsonText, "textures");
     std::vector<std::string> textureObjects = SplitTopLevelObjects(texturesBlock);
@@ -386,7 +388,8 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
     std::string imagesBlock = ExtractArrayBlock(jsonText, "images");
     std::vector<std::string> imageObjects = SplitTopLevelObjects(imagesBlock);
     assert(imageIndex < imageObjects.size());
-    modelData.material.textureFilePath = directoryPath + "/" + FindStringValue(imageObjects[imageIndex], "uri");
+    modelData.material.textureFilePath =
+        (gltfDirectory / FindStringValue(imageObjects[imageIndex], "uri")).string();
 
     std::string meshesBlock = ExtractArrayBlock(jsonText, "meshes");
     std::vector<std::string> meshObjects = SplitTopLevelObjects(meshesBlock);

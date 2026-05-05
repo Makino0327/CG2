@@ -11,6 +11,8 @@
 #include "../engine/audio/SoundManager.h"
 #include "../engine/3d/skybox/Skybox.h"
 #include "../engine/3d/skybox/SkyboxCommon.h"
+#include "../engine/animation/Animation.h"
+
 
 // ===== 前方宣言 =====
 // SceneContext.h を BaseScene.h がインクルードしている前提なので、

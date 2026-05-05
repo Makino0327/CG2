@@ -52,6 +52,7 @@
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\particle\Cylinder.cpp" />
+    <ClCompile Include="engine\animation\Animation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -90,6 +91,7 @@
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\particle\Cylinder.h" />
+    <ClInclude Include="engine\animation\Animation.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

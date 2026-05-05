@@ -22,9 +22,58 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
+    Quaternion animationRotate = { 0.0f, 0.0f, 0.0f, 1.0f };
+    bool hasAnimationRotate = false;
+    if (isAnimationPlaying_ && animation_.duration > 0.0f) {
+        // ひとまず 60fps 前提で時刻を進める
+        animationTime_ += 1.0f / 60.0f;
 
-    Matrix4x4 worldMatrix =
-        MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+        // 最後まで行ったら先頭に戻してループ再生する
+        animationTime_ = std::fmod(animationTime_, animation_.duration);
+    }
+
+    if (isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
+        
+        if (isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
+            auto it = animation_.nodeAnimations.find(animationNodeName_);
+
+            // 指定した node 名の Animation があるときだけ再生する
+            if (it != animation_.nodeAnimations.end()) {
+                const NodeAnimation& nodeAnimation = it->second;
+
+                // translate のキーがあれば現在時刻の値を反映する
+                if (!nodeAnimation.translate.keyframes.empty()) {
+                    transform.translate =
+                        CalculateValue(nodeAnimation.translate.keyframes, animationTime_);
+                }
+
+                // scale のキーがあれば現在時刻の値を反映する
+                if (!nodeAnimation.scale.keyframes.empty()) {
+                    transform.scale =
+                        CalculateValue(nodeAnimation.scale.keyframes, animationTime_);
+                }
+
+                // rotate のキーがあれば現在時刻の値を取得する
+                if (!nodeAnimation.rotate.keyframes.empty()) {
+                    animationRotate =
+                        CalculateValue(nodeAnimation.rotate.keyframes, animationTime_);
+                    hasAnimationRotate = true;
+                }
+            }
+        }
+    }
+
+    Matrix4x4 worldMatrix;
+
+    if (hasAnimationRotate) {
+        // アニメーション回転があるときは Quaternion 版を使う
+        worldMatrix =
+            MakeAffineMatrix(transform.scale, animationRotate, transform.translate);
+    } else {
+        // これまで通り Euler 角版を使う
+        worldMatrix =
+            MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+    }
 
     Matrix4x4 worldViewProjectionMatrix;
 
