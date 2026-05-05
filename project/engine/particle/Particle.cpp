@@ -116,13 +116,20 @@ void ParticleSystem::Initialize(
         particles_[i] = MakeDeadParticle();
     }
 
-    // 現在の形状設定に応じて Ring を作り直す
+    // // 現在の形状設定に応じて描画オブジェクトを作る
     if (meshType_ == EffectMeshType::Ring) {
         ring_ = std::make_unique<Ring>();
         ring_->Initialize(dxCommon_);
+        cylinder_.reset();
+    } else if (meshType_ == EffectMeshType::Cylinder) {
+        cylinder_ = std::make_unique<Cylinder>();
+        cylinder_->Initialize(dxCommon_);
+        ring_.reset();
     } else {
         ring_.reset();
+        cylinder_.reset();
     }
+
 }
 
 void ParticleSystem::ApplyPreset(ParticleType type)
@@ -156,15 +163,21 @@ void ParticleSystem::ApplyPreset(ParticleType type)
         particles_[i] = MakeDeadParticle();
     }
 
-    // 初期化後にプリセットを切り替えた場合も Ring を作り直す
     if (dxCommon_) {
         if (meshType_ == EffectMeshType::Ring) {
             ring_ = std::make_unique<Ring>();
             ring_->Initialize(dxCommon_);
+            cylinder_.reset();
+        } else if (meshType_ == EffectMeshType::Cylinder) {
+            cylinder_ = std::make_unique<Cylinder>();
+            cylinder_->Initialize(dxCommon_);
+            ring_.reset();
         } else {
             ring_.reset();
+            cylinder_.reset();
         }
     }
+
 }
 
 ParticleData ParticleSystem::MakeNewParticle()
@@ -257,6 +270,41 @@ ParticleData ParticleSystem::MakeDeadParticle()
 void ParticleSystem::Update(float deltaTime)
 {
     if (!camera_) { return; }
+
+    // // Cylinder は動かさず、その場に1本だけ置く
+    if (meshType_ == EffectMeshType::Cylinder) {
+        for (uint32_t i = 0; i < kNumInstance; ++i) {
+            instancingData_[i].World = MakeIdentity4x4();
+            instancingData_[i].WVP = MakeIdentity4x4();
+            instancingData_[i].color = { 1.0f, 1.0f, 1.0f, 0.0f };
+        }
+
+        // // Emitting が OFF なら表示しない
+        if (!isEmitting_) {
+            return;
+        }
+
+        Transform transform{};
+        transform.scale = { 1.0f, 1.0f, 1.0f };
+        transform.rotate = { 0.0f, 0.0f, 0.0f };
+        transform.translate = emitterPosition_;
+
+        Matrix4x4 world = MakeAffineMatrix(
+            transform.scale,
+            transform.rotate,
+            transform.translate);
+
+        Matrix4x4 viewProjection = camera_->GetViewProjectionMatrix();
+        Matrix4x4 wvp = Multiply(world, viewProjection);
+
+        // // 1本目だけ表示する
+        instancingData_[0].World = world;
+        instancingData_[0].WVP = wvp;
+        instancingData_[0].color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+        return;
+    }
+
 
     // 同じ位置からまとめてパーティクルを発生させる
     if (isEmitting_) {
@@ -353,49 +401,36 @@ void ParticleSystem::Draw()
             ring_->DrawInstanced(kNumInstance);
         }
     }
-}
-
-void ParticleSystem::ShowImGui()
-{
-#ifdef USE_IMGUI
-    ImGui::Begin("Particle Editor");
-
-    const char* meshItems[] = { "Plane", "Ring" };
-    int currentMesh = static_cast<int>(meshType_);
-    if (ImGui::Combo("Mesh Type", &currentMesh, meshItems, IM_ARRAYSIZE(meshItems))) {
-        meshType_ = static_cast<EffectMeshType>(currentMesh);
-
-        // // 形状切り替え後に使用テクスチャを更新する
-        if (meshType_ == EffectMeshType::Ring) {
-            textureFilePath_ = "Resources/gradationLine.png";
-
-            // // Ring が未生成なら作る
-            if (!ring_ && dxCommon_) {
-                ring_ = std::make_unique<Ring>();
-                ring_->Initialize(dxCommon_);
-            }
-        } else {
-            textureFilePath_ = "Resources/circle2.png";
-
-            // // Plane 側では Ring を破棄しておく
-            ring_.reset();
-        }
-
-        // // 切り替え時に既存パーティクルを消して見た目をリセットする
-        for (uint32_t i = 0; i < kNumInstance; ++i) {
-            particles_[i] = MakeDeadParticle();
+    else if (meshType_ == EffectMeshType::Cylinder) {
+        if (cylinder_) {
+            cylinder_->DrawInstanced(kNumInstance);
         }
     }
 
-    // エミッター位置を調整する
+}
+
+void ParticleSystem::ShowImGui(const char* windowName)
+{
+#ifdef USE_IMGUI
+    ImGui::Begin(windowName);
+
+    const char* meshItems[] = { "Plane", "Ring", "Cylinder" };
+
+    int currentMesh = static_cast<int>(meshType_);
+    if (ImGui::Combo("Mesh Type", &currentMesh, meshItems, IM_ARRAYSIZE(meshItems))) {
+        // // ImGui で選んだ形状に切り替える
+        SetMeshType(static_cast<EffectMeshType>(currentMesh));
+    }
+
+    // // エミッター位置を調整する
     ImGui::DragFloat3("Emitter Pos", &emitterPosition_.x, 0.1f);
 
-    // 発生設定を調整する
+    // // 放出設定を調整する
     ImGui::Checkbox("Is Emitting", &isEmitting_);
     ImGui::SliderFloat("Emit Interval", &emitInterval_, 0.01f, 1.0f);
     ImGui::SliderInt("Emit Count", &emitCount_, 1, 10);
 
-    // 速度と寿命を調整する
+    // // 速度を調整する
     ImGui::SliderFloat("Velocity Range", &emitterParam_.velocityRange, 0.0f, 10.0f);
 
     ImGui::SliderFloat("Life Time Min", &emitterParam_.lifeTimeMin, 0.1f, 5.0f);
@@ -408,10 +443,48 @@ void ParticleSystem::ShowImGui()
         emitterParam_.lifeTimeMin = emitterParam_.lifeTimeMax;
     }
 
-    // 色を調整する
+    // // 色を調整する
     ImGui::Checkbox("Random Color", &emitterParam_.randomColor);
     ImGui::ColorEdit4("Base Color", &emitterParam_.baseColor.x);
 
     ImGui::End();
 #endif
+}
+
+
+void ParticleSystem::SetMeshType(EffectMeshType type)
+{
+    // // 新しい形状を保存する
+    meshType_ = type;
+
+    // // 使用するテクスチャを形状に合わせて切り替える
+    if (meshType_ == EffectMeshType::Ring || meshType_ == EffectMeshType::Cylinder) {
+        textureFilePath_ = "Resources/gradationLine.png";
+    } else {
+        textureFilePath_ = "Resources/circle2.png";
+    }
+
+    // // まだ初期化前ならここで終わる
+    if (!dxCommon_) {
+        return;
+    }
+
+    // // 形状に応じて描画オブジェクトを作り直す
+    if (meshType_ == EffectMeshType::Ring) {
+        ring_ = std::make_unique<Ring>();
+        ring_->Initialize(dxCommon_);
+        cylinder_.reset();
+    } else if (meshType_ == EffectMeshType::Cylinder) {
+        cylinder_ = std::make_unique<Cylinder>();
+        cylinder_->Initialize(dxCommon_);
+        ring_.reset();
+    } else {
+        ring_.reset();
+        cylinder_.reset();
+    }
+
+    // // 形状を変えたときに以前の粒子を消しておく
+    for (uint32_t i = 0; i < kNumInstance; ++i) {
+        particles_[i] = MakeDeadParticle();
+    }
 }

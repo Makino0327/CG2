@@ -59,4 +59,9 @@ private:
 
     SoundData seSelect_;
     bool soundLoaded_ = false;
+
+    // Ring 用パーティクル
+    std::unique_ptr<ParticleSystem> ringParticleSystem_;
+
+    std::unique_ptr<ParticleSystem> cylinderParticleSystem_;
 };

@@ -8,6 +8,7 @@
 #include "../math/Math.h"
 #include "../base/srv/SrvManager.h"
 #include "Ring.h"
+#include "Cylinder.h"
 
 class DirectXCommon;
 class ParticleCommon;
@@ -29,6 +30,7 @@ enum class ParticleType {
 enum class EffectMeshType {
     Plane = 0,
     Ring = 1,
+    Cylinder = 2,
 };
 
 // =============================
@@ -96,13 +98,18 @@ public:
     void Draw();
 
     // ImGui の編集UIを表示する
-    void ShowImGui();
+    void ShowImGui(const char* windowName);
+
 
     // エミッターのワールド座標を設定する
     void SetPosition(const Vector3& pos) { emitterPosition_ = pos; }
 
     // 初期化後にプリセットを切り替える
     void ApplyPreset(ParticleType type);
+
+    // // 描画形状を切り替える
+    void SetMeshType(EffectMeshType type);
+
 
 private:
     // インスタンス数と SRV 関連
@@ -131,7 +138,7 @@ private:
     Vector3 emitterPosition_{ 0.0f, 0.0f, 0.0f };
 
     // 発生制御
-    bool  isEmitting_ = true;         // パーティクルを発生させるか
+    bool  isEmitting_ = false;         // パーティクルを発生させるか
     float emitInterval_ = 1.0f;       // 発生間隔（秒）
     float emitTimer_ = 0.0f;          // 次の発生までの経過時間
     int   emitCount_ = 3;             // 1回の発生で出す個数
@@ -146,6 +153,9 @@ private:
     // 描画に使う形状
     EffectMeshType meshType_ = EffectMeshType::Plane; // 現在使う形状
     std::unique_ptr<Ring> ring_;                      // Ring 描画用オブジェクト
+    // // Cylinder 描画用オブジェクト
+    std::unique_ptr<Cylinder> cylinder_;
+
 
 private:
     ParticleData MakeNewParticle();

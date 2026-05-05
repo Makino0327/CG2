@@ -74,10 +74,38 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/skybox.dds");
     texMan->LoadTexture("Resources/gradationLine.png"); // // Ring 用のグラデーションテクスチャ
 
-    // Particle
+    // // 通常パーティクル
     particleSystem_ = std::make_unique<ParticleSystem>();
-    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
+    particleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::CircleBurst);
+    particleSystem_->SetMeshType(EffectMeshType::Plane);
     particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
+
+    // Ring パーティクル
+    ringParticleSystem_ = std::make_unique<ParticleSystem>();
+    ringParticleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::CircleBurst);
+    ringParticleSystem_->SetMeshType(EffectMeshType::Ring);
+    ringParticleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
+
+    // Cylinder パーティクル
+    cylinderParticleSystem_ = std::make_unique<ParticleSystem>();
+    cylinderParticleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::CircleBurst);
+    cylinderParticleSystem_->SetMeshType(EffectMeshType::Cylinder);
+    cylinderParticleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
     // Material
     materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));
@@ -170,6 +198,12 @@ void GamePlayScene::Update()
     // Particleを毎フレーム更新する
     if (particleSystem_) { particleSystem_->Update(dt); }
 
+    // Ring パーティクルを更新する
+    if (ringParticleSystem_) { ringParticleSystem_->Update(dt); }
+
+    // Cylinder パーティクルを更新する
+    if (cylinderParticleSystem_) { cylinderParticleSystem_->Update(dt); }
+
     //if (!sprites_.empty() && sprites_[0]) {
     //    sprites_[0]->SetPosition(spritePos_);
     //}
@@ -205,7 +239,10 @@ void GamePlayScene::Draw()
 
     // Particleを描画する
     if (particleSystem_) { particleSystem_->Draw(); }
-
+    // Ring パーティクルを描画する
+    if (ringParticleSystem_) { ringParticleSystem_->Draw(); }
+    // Cylinder パーティクルを描画する
+    if (cylinderParticleSystem_) { cylinderParticleSystem_->Draw(); }
 }
 
 void GamePlayScene::Finalize()
@@ -219,6 +256,9 @@ void GamePlayScene::Finalize()
     objA_.reset();
     object3d_.reset();
     particleSystem_.reset();
+    ringParticleSystem_.reset();
+    // Cylinder パーティクルを解放する
+    cylinderParticleSystem_.reset();
 
     skybox_.reset();
     skyboxCommon_.reset();
@@ -272,10 +312,28 @@ void GamePlayScene::DrawImGui()
 
         ImGui::End();
     }
-    // Particleの調整用ImGuiを表示する
+    // 通常パーティクルの ImGui
     if (particleSystem_) {
-        particleSystem_->ShowImGui();
+        ImGui::PushID("NormalParticle");
+        particleSystem_->ShowImGui("Particle Editor##Normal");
+        ImGui::PopID();
     }
+
+    // Ring パーティクルの ImGui
+    if (ringParticleSystem_) {
+        ImGui::PushID("RingParticle");
+        ringParticleSystem_->ShowImGui("Particle Editor##Ring");
+        ImGui::PopID();
+    }
+
+
+    // Cylinder パーティクルの ImGui
+    if (cylinderParticleSystem_) {
+        ImGui::PushID("CylinderParticle");
+        cylinderParticleSystem_->ShowImGui("Particle Editor##Cylinder");
+        ImGui::PopID();
+    }
+
 
 #endif
 }
