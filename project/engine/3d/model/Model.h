@@ -28,6 +28,7 @@ private:
 	void InitializeVertexBuffer();
 	// マテリアル初期化
 	void InitializeMaterial();
+	void InitializeIndexBuffer();
 
 private:
 	// modelの共通処理
@@ -47,5 +48,12 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 	// バッファリソース内のデータを指すポインタ
 	Material* materialData_ = nullptr;
+
+	// 各 mesh 用の index buffer
+	std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> indexBuffers_;
+
+	// 各 mesh 用の index buffer view
+	std::vector<D3D12_INDEX_BUFFER_VIEW> indexBufferViews_;
+
 };
 

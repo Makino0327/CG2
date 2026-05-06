@@ -120,12 +120,22 @@ void Object3d::Draw()
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
 
+    if (model_) {
+        // モデルに設定されているテクスチャを t0 に設定する
+        commandList->SetGraphicsRootDescriptorTable(
+            4,
+            TextureManager::GetInstance()->GetSrvHandleGPU(
+                model_->GetModelData().material.textureFilePath));
+    }
+
+    // 環境マップを t1 に設定する
     commandList->SetGraphicsRootDescriptorTable(
         5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
         model_->Draw();
     }
+
 }
 
 MaterialData Object3d::LoadMaterialTemplateFile(
@@ -273,8 +283,22 @@ void Object3d::DrawInstanced(UINT instanceCount)
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
 
+    if (model_) {
+        // モデルに設定されているテクスチャを t0 に設定する
+        commandList->SetGraphicsRootDescriptorTable(
+            4,
+            TextureManager::GetInstance()->GetSrvHandleGPU(
+                model_->GetModelData().material.textureFilePath));
+    }
+
+    // 環境マップを t1 に設定する
     commandList->SetGraphicsRootDescriptorTable(
         5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
+
+    if (model_) {
+        model_->DrawInstanced(instanceCount);
+    }
+
 
     if (model_) {
         model_->DrawInstanced(instanceCount);

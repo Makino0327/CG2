@@ -401,39 +401,50 @@ void Model::Initialize(ModelCommon* modelCommon,
 	// 拡張子に応じてローダを切り替える
 	modelData_ = LoadModelFile(directoryPath, filename);
 
-	// 笆ｼ 繝・け繧ｹ繝√Ε隱ｭ縺ｿ霎ｼ縺ｿ
+	
 	TextureManager::GetInstance()->LoadTexture(
 		modelData_.material.textureFilePath);
 
-	// 笆ｼ 鬆らせ繝舌ャ繝輔ぃ蛻晄悄蛹・
+	// 頂点バッファを初期化する
 	InitializeVertexBuffer();
 
-	// 笆ｼ 繝槭ユ繝ｪ繧｢繝ｫ蛻晄悄蛹・
+	// index バッファを初期化する
+	InitializeIndexBuffer();
+
+	// material を初期化する
 	InitializeMaterial();
+
 }
 
 void Model::Draw()
 {
-	auto* dxCommon = modelCommon_->GetDxCommon();
-	auto* commandList = dxCommon->GetCommandList();
+	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
 
-	auto* srvManager = TextureManager::GetInstance()->GetSrvManager();
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-	ID3D12DescriptorHeap* heaps[] = {
-		srvManager->GetDescriptorHeap()
-	};
-	commandList->SetDescriptorHeaps(1, heaps);
+		// 頂点バッファを設定する
+		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[meshIndex]);
 
-	D3D12_GPU_DESCRIPTOR_HANDLE textureHandle =
-		TextureManager::GetInstance()->GetSrvHandleGPU(
-			modelData_.material.textureFilePath);
+		if (!mesh.indices.empty()) {
+			// index バッファを設定する
+			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
 
-	commandList->SetGraphicsRootDescriptorTable(4, textureHandle);
-
-	for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
-		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
-		commandList->DrawInstanced(
-			static_cast<UINT>(modelData_.meshes[i].vertices.size()), 1, 0, 0);
+			// index を使って描画する
+			commandList->DrawIndexedInstanced(
+				static_cast<UINT>(mesh.indices.size()),
+				1,
+				0,
+				0,
+				0);
+		} else {
+			// index が無い場合は従来の描画にフォールバックする
+			commandList->DrawInstanced(
+				static_cast<UINT>(mesh.vertices.size()),
+				1,
+				0,
+				0);
+		}
 	}
 }
 
@@ -462,6 +473,7 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 	{
 		std::ifstream file(directoryPath + "/" + filename);
 		assert(file.is_open());
+
 		std::string line;
 		while (std::getline(file, line)) {
 			if (line.rfind("mtllib", 0) == 0) {
@@ -513,12 +525,14 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 			normals.push_back(normal);
 		} else if (identifier == "f") {
 			VertexData triangle[3];
+
 			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
 				std::string vertexDefinition;
 				s >> vertexDefinition;
 
 				std::istringstream v(vertexDefinition);
 				uint32_t elementIndices[3];
+
 				for (int32_t element = 0; element < 3; ++element) {
 					std::string index;
 					std::getline(v, index, '/');
@@ -543,11 +557,20 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 				triangle[faceVertex] = { position, texcoord, normal };
 			}
 
+			// 面の頂点を今まで通り 3 頂点として追加する
 			currentMesh.vertices.push_back(triangle[2]);
 			currentMesh.vertices.push_back(triangle[1]);
 			currentMesh.vertices.push_back(triangle[0]);
 		} else if (identifier == "o" || identifier == "g") {
 			if (!currentMesh.vertices.empty()) {
+				// ひとまず頂点数ぶんの連番 index を作る
+				currentMesh.indices.resize(currentMesh.vertices.size());
+
+				for (uint32_t index = 0; index < currentMesh.indices.size(); ++index) {
+					// 0, 1, 2, 3 ... の順で index を入れる
+					currentMesh.indices[index] = index;
+				}
+
 				modelData.meshes.push_back(currentMesh);
 				currentMesh = MeshData();
 			}
@@ -559,11 +582,20 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 	}
 
 	if (!currentMesh.vertices.empty()) {
+		// 最後の mesh に対しても連番 index を作る
+		currentMesh.indices.resize(currentMesh.vertices.size());
+
+		for (uint32_t index = 0; index < currentMesh.indices.size(); ++index) {
+			// 0, 1, 2, 3 ... の順で index を入れる
+			currentMesh.indices[index] = index;
+		}
+
 		modelData.meshes.push_back(currentMesh);
 	}
 
 	return modelData;
 }
+
 
 ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::string& filename)
 {
@@ -639,50 +671,52 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 		meshData.name = FindStringValue(meshObject, "name");
 	}
 
-	for (uint32_t i = 0; i < indexAccessor.count; i += 3) {
-		VertexData triangle[3]{};
+	// glTF の頂点数ぶんだけ確保する
+	meshData.vertices.resize(positionAccessor.count);
 
-		for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-			uint32_t vertexIndex = indices[i + faceVertex];
+	for (uint32_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex) {
+		Vector4 position = {
+			positions[vertexIndex * 3 + 0],
+			positions[vertexIndex * 3 + 1],
+			positions[vertexIndex * 3 + 2],
+			1.0f
+		};
 
-			Vector4 position = {
-				positions[vertexIndex * 3 + 0],
-				positions[vertexIndex * 3 + 1],
-				positions[vertexIndex * 3 + 2],
-				1.0f
-			};
+		Vector2 texcoord = {
+			texcoords[vertexIndex * 2 + 0],
+			1.0f - texcoords[vertexIndex * 2 + 1]
+		};
 
-			Vector2 texcoord = {
-				texcoords[vertexIndex * 2 + 0],
-				1.0f - texcoords[vertexIndex * 2 + 1]
-			};
+		Vector3 normal = {
+			normals[vertexIndex * 3 + 0],
+			normals[vertexIndex * 3 + 1],
+			normals[vertexIndex * 3 + 2]
+		};
 
-			Vector3 normal = {
-				normals[vertexIndex * 3 + 0],
-				normals[vertexIndex * 3 + 1],
-				normals[vertexIndex * 3 + 2]
-			};
+		// 右手系から左手系へ変換する
+		position.x *= -1.0f;
+		normal.x *= -1.0f;
 
-			// 既存のobj読込と同じ向きに揃える
-			position.x *= -1.0f;
-			normal.x *= -1.0f;
+		float rad = 3.141592f;
+		float x = position.x;
+		float z = position.z;
+		position.x = x * cos(rad) - z * sin(rad);
+		position.z = x * sin(rad) + z * cos(rad);
 
-			float rad = 3.141592f;
-			float x = position.x;
-			float z = position.z;
-			position.x = x * cos(rad) - z * sin(rad);
-			position.z = x * sin(rad) + z * cos(rad);
-
-			triangle[faceVertex].position = position;
-			triangle[faceVertex].texcoord = texcoord;
-			triangle[faceVertex].normal = normal;
-			triangle[faceVertex].pad = 0.0f;
-		}
-
-		meshData.vertices.push_back(triangle[2]);
-		meshData.vertices.push_back(triangle[1]);
-		meshData.vertices.push_back(triangle[0]);
+		meshData.vertices[vertexIndex].position = position;
+		meshData.vertices[vertexIndex].texcoord = texcoord;
+		meshData.vertices[vertexIndex].normal = normal;
+		meshData.vertices[vertexIndex].pad = 0.0f;
 	}
+
+	// glTF の index をそのまま使う
+	meshData.indices.resize(indexAccessor.count);
+
+	for (uint32_t index = 0; index < indexAccessor.count; ++index) {
+		// いったん glTF の index をそのままコピーする
+		meshData.indices[index] = indices[index];
+	}
+
 
 	modelData.meshes.push_back(meshData);
 
@@ -736,17 +770,79 @@ void Model::InitializeMaterial()
 
 void Model::DrawInstanced(UINT instanceCount)
 {
-	assert(modelCommon_);
-	ID3D12GraphicsCommandList* commandList =
-		modelCommon_->GetDxCommon()->GetCommandList();
+	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
 
-	for (size_t i = 0; i < modelData_.meshes.size(); ++i) {
-		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[i]);
-		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-		commandList->DrawInstanced(
-			static_cast<UINT>(modelData_.meshes[i].vertices.size()),
-			instanceCount,
-			0, 0);
+		// 頂点バッファを設定する
+		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[meshIndex]);
+
+		if (!mesh.indices.empty()) {
+			// index バッファを設定する
+			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
+
+			// index を使ってインスタンシング描画する
+			commandList->DrawIndexedInstanced(
+				static_cast<UINT>(mesh.indices.size()),
+				instanceCount,
+				0,
+				0,
+				0);
+		} else {
+			// index が無い場合は従来の描画にフォールバックする
+			commandList->DrawInstanced(
+				static_cast<UINT>(mesh.vertices.size()),
+				instanceCount,
+				0,
+				0);
+		}
+	}
+}
+
+
+void Model::InitializeIndexBuffer()
+{
+	DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
+
+	// mesh 数に合わせて確保する
+	indexBuffers_.resize(modelData_.meshes.size());
+	indexBufferViews_.resize(modelData_.meshes.size());
+
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
+
+		// index が無ければ何もしない
+		if (mesh.indices.empty()) {
+			continue;
+		}
+
+		size_t bufferSize = sizeof(uint32_t) * mesh.indices.size();
+
+		// index buffer を作る
+		indexBuffers_[meshIndex] = dxCommon->CreateBufferResource(bufferSize);
+
+		uint32_t* mappedIndex = nullptr;
+
+		// 書き込み先を取得する
+		indexBuffers_[meshIndex]->Map(
+			0,
+			nullptr,
+			reinterpret_cast<void**>(&mappedIndex));
+
+		// index 配列の内容をコピーする
+		std::memcpy(mappedIndex, mesh.indices.data(), bufferSize);
+
+		// Map を閉じる
+		indexBuffers_[meshIndex]->Unmap(0, nullptr);
+
+		// index buffer view を設定する
+		indexBufferViews_[meshIndex].BufferLocation =
+			indexBuffers_[meshIndex]->GetGPUVirtualAddress();
+
+		indexBufferViews_[meshIndex].SizeInBytes =
+			static_cast<UINT>(bufferSize);
+
+		indexBufferViews_[meshIndex].Format = DXGI_FORMAT_R32_UINT;
 	}
 }

@@ -11,9 +11,16 @@ struct MaterialData
 };
 
 struct MeshData {
+    // メッシュ名
     std::string name;
+
+    // 頂点配列
     std::vector<VertexData> vertices;
+
+    // index 配列
+    std::vector<uint32_t> indices;
 };
+
 
 struct Node {
     // glTF から読んだ TRS
