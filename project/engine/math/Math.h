@@ -30,6 +30,19 @@ struct Transform {
 	Vector3 translate;
 };
 
+struct EulerTransform {
+	Vector3 scale;
+	Vector3 rotate;
+	Vector3 translate;
+};
+
+struct QuaternionTransform {
+	Vector3 scale;
+	Quaternion rotate;
+	Vector3 translate;
+};
+
+
 Matrix4x4 MakeIdentity4x4();
 Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate);
 Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearZ, float farZ);

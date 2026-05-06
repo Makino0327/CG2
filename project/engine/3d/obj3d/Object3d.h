@@ -8,27 +8,12 @@
 #include <sstream>
 #include "../../../game/camera/Camera.h"
 #include "../../animation/Animation.h"
+#include "../../animation/Skeleton.h"
+#include "../model/ModelStructs.h"
 
 class Object3dCommon;
 class Model;
 class Camera;
-
-struct MaterialData
-{
-	std::string textureFilePath;
-	uint32_t textureIndex = 0;
-};
-
-// 頂点データ構造体
-struct MeshData {
-	std::string name;
-	std::vector<VertexData> vertices;
-};
-// モデルデータ構造体
-struct ModelData {
-	MaterialData material;
-	std::vector<MeshData> meshes;
-};
 
 // Lightingの方式を定義する列挙型
 enum class LightingType {
@@ -105,6 +90,12 @@ public:
 	void ResetAnimationTime() { animationTime_ = 0.0f; }
 	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
 
+	const Skeleton& GetSkeleton() const { return skeleton_; } // Skeleton を参照する
+	bool HasSkeleton() const { return hasSkeleton_; }         // Skeleton を持つか返す
+	void SetSkeletonVisible(bool visible) { isSkeletonVisible_ = visible; } // Skeleton のデバッグ表示切替
+	bool IsSkeletonVisible() const { return isSkeletonVisible_; }           // 表示状態を返す
+
+
 private:
 	// 3Dオブジェクト共通処理
 	Object3dCommon* object3dCommon_ = nullptr;
@@ -136,6 +127,11 @@ private:
 	float animationTime_ = 0.0f;
 	bool isAnimationPlaying_ = false;
 	std::string animationNodeName_;
+
+	Skeleton skeleton_;              // この Object3d が持つ Skeleton
+	bool hasSkeleton_ = false;       // Skeleton を持っているかどうか
+	bool isSkeletonVisible_ = true;  // デバッグ表示を出すかどうか
+
 
 };
 

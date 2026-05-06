@@ -63,12 +63,18 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("plane.obj");
     ModelManager::GetInstance()->LoadModel("cube.obj");
 
-    // AnimatedCube の gltf モデルを読み込む
-    ModelManager::GetInstance()->LoadModel("AnimatedCube/AnimatedCube.gltf");
+    // simpleSkin を読む
+    ModelManager::GetInstance()->LoadModel("simpleSkin/simpleSkin.gltf");
+
+    // human を読む
+    ModelManager::GetInstance()->LoadModel("human/walk.gltf");
+
+    Animation humanWalkAnimation =
+        LoadAnimationFile("Resources/human", "walk.gltf");
 
     // AnimatedCube のアニメーションを読み込む
-    Animation animation =
-        LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
+    //Animation animation =
+    //    LoadAnimationFile("Resources/AnimatedCube", "AnimatedCube.gltf");
 
     // テクスチャ
     auto texMan = TextureManager::GetInstance();
@@ -150,24 +156,31 @@ void GamePlayScene::Initialize()
         sprites_.push_back(std::move(sprite));
     }
 
-    // 3D
+    // simpleSkin
     objA_ = std::make_unique<Object3d>();
     objA_->Initialize(context_.object3dCommon);
-    objA_->SetModel("AnimatedCube/AnimatedCube.gltf");
-
-    // 読み込んだアニメーションを Object3d に設定する
-    objA_->SetAnimation(animation);
-
-    // 今回の gltf の node 名を指定する
-    objA_->SetAnimationNodeName("AnimatedCube");
-
-    // アニメーション再生を開始する
-    objA_->SetIsAnimationPlaying(true);
-
+    objA_->SetModel("simpleSkin/simpleSkin.gltf");
     objA_->SetEnvironmentTexture("Resources/skybox.dds");
     objA_->SetEnvironmentCoefficient(0.35f);
-    objA_->SetScale({ 1.5f, 1.5f, 1.5f });
-    objA_->SetTranslate({ 0.0f, -5.0f, 20.0f });
+    objA_->SetScale({ 1.0f, 1.0f, 1.0f });
+    objA_->SetTranslate({ -1.0f, 0.0f,0.0f });
+
+    // human
+    objB_ = std::make_unique<Object3d>();
+    objB_->Initialize(context_.object3dCommon);
+    objB_->SetModel("human/walk.gltf");
+
+    // human に walk animation を設定する
+    objB_->SetAnimation(humanWalkAnimation);
+
+    // animation 再生を開始する
+    objB_->SetIsAnimationPlaying(true);
+
+    objB_->SetEnvironmentTexture("Resources/skybox.dds");
+    objB_->SetEnvironmentCoefficient(0.35f);
+    objB_->SetScale({ 1.0f, 1.0f, 1.0f });
+    objB_->SetTranslate({ 1.0f, 0.0f, 0.0f });
+
 
 
 	// Skybox
@@ -184,6 +197,27 @@ void GamePlayScene::Initialize()
 
 
     soundLoaded_ = true;
+
+    // 線描画共通を初期化する
+    line3dCommon_ = std::make_unique<Line3DCommon>();
+    line3dCommon_->Initialize(context_.dxCommon, context_.srvManager);
+
+    // simpleSkin 用の Skeleton デバッグ描画を初期化する
+    debugSkeletonRendererA_ = std::make_unique<DebugSkeletonRenderer>();
+    debugSkeletonRendererA_->Initialize(context_.dxCommon, line3dCommon_.get());
+
+    // simpleSkin は今まで通りの大きさ
+    debugSkeletonRendererA_->SetJointRadius(0.15f);
+
+    // human 用の Skeleton デバッグ描画を初期化する
+    debugSkeletonRendererB_ = std::make_unique<DebugSkeletonRenderer>();
+    debugSkeletonRendererB_->Initialize(context_.dxCommon, line3dCommon_.get());
+
+    // human は Joint 球を小さくする
+    debugSkeletonRendererB_->SetJointRadius(0.01f);
+
+
+
 }
 
 void GamePlayScene::Update()
@@ -205,6 +239,8 @@ void GamePlayScene::Update()
     //}
 
     if (objA_) { objA_->Update(); }
+    if (objB_) { objB_->Update(); }
+
 
     // ★ context_ 経由に変更
     if (context_.camera) { context_.camera->Update(); }
@@ -250,6 +286,44 @@ void GamePlayScene::Draw()
     // 3D
     context_.object3dCommon->CommonDrawSetting();
     if (objA_) { objA_->Draw(); }
+    if (objB_) { objB_->Draw(); }
+
+
+    if (objA_ && objA_->HasSkeleton() && debugSkeletonRendererA_ && context_.camera) {
+        Matrix4x4 objectWorldMatrix = MakeAffineMatrix(
+            objA_->GetScale(),
+            objA_->GetRotate(),
+            objA_->GetTranslate()
+        );
+
+        // simpleSkin 用の線データを組み立てる
+        debugSkeletonRendererA_->Build(
+            objA_->GetSkeleton(),
+            objectWorldMatrix,
+            context_.camera->GetViewProjectionMatrix());
+
+        // simpleSkin の Skeleton を描画する
+        debugSkeletonRendererA_->Draw();
+    }
+
+
+    if (objB_ && objB_->HasSkeleton() && debugSkeletonRendererB_ && context_.camera) {
+        Matrix4x4 objectWorldMatrix = MakeAffineMatrix(
+            objB_->GetScale(),
+            objB_->GetRotate(),
+            objB_->GetTranslate()
+        );
+
+        debugSkeletonRendererB_->Build(
+            objB_->GetSkeleton(),
+            objectWorldMatrix,
+            context_.camera->GetViewProjectionMatrix());
+
+        debugSkeletonRendererB_->Draw();
+    }
+
+
+
 
     // Particle
     context_.particleCommon->CommonDrawSetting();
@@ -271,6 +345,12 @@ void GamePlayScene::Finalize()
 
     sprites_.clear();
     objA_.reset();
+    objB_.reset();
+
+    debugSkeletonRendererA_.reset();
+    debugSkeletonRendererB_.reset();
+    line3dCommon_.reset();
+
     object3d_.reset();
     particleSystem_.reset();
     ringParticleSystem_.reset();

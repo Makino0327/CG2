@@ -159,11 +159,14 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="engine\3d\obj3d\DebugSkeletonRenderer.cpp" />
+    <ClCompile Include="engine\3d\obj3d\DebugLine3D.cpp" />
     <ClCompile Include="engine\animation\Animation.cpp" />
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
     <ClCompile Include="engine\particle\Ring.cpp" />
+    <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="game\camera\Camera.cpp" />
     <ClCompile Include="engine\base\leakchecker\D3DResourceLeakChecker.cpp" />
@@ -199,6 +202,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="engine\base\winapp\WinApp.cpp" />
     <ClCompile Include="engine\3d\skybox\Skybox.cpp" />
     <ClCompile Include="engine\3d\skybox\SkyboxCommon.cpp" />
+    <ClCompile Include="engine\animation\Skeleton.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\BoxFilter.PS.hlsl">
@@ -237,6 +241,22 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="Resources\shaders\Line3D.PS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Pixel</ShaderType>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="Resources\shaders\Line3D.VS.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Vertex</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Vertex</ShaderType>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </FxCompile>
     <FxCompile Include="Resources\shaders\Particle.PS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
@@ -295,11 +315,15 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="engine\3d\model\ModelStructs.h" />
+    <ClInclude Include="engine\3d\obj3d\DebugSkeletonRenderer.h" />
+    <ClInclude Include="engine\3d\obj3d\DebugLine3D.h" />
     <ClInclude Include="engine\animation\Animation.h" />
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
     <ClInclude Include="engine\particle\Ring.h" />
+    <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
     <ClInclude Include="scene\BaseScene.h" />
     <ClInclude Include="game\camera\Camera.h" />
     <ClInclude Include="engine\base\leakchecker\D3DResourceLeakChecker.h" />
@@ -332,6 +356,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\base\winapp\WinApp.h" />
     <ClInclude Include="engine\3d\skybox\Skybox.h" />
     <ClInclude Include="engine\3d\skybox\SkyboxCommon.h" />
+    <ClInclude Include="engine\animation\Skeleton.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="externals\DirectXTex\DirectXTex_Desktop_2022_Win10.vcxproj">

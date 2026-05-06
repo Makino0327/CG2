@@ -12,6 +12,8 @@
 #include "../engine/3d/skybox/Skybox.h"
 #include "../engine/3d/skybox/SkyboxCommon.h"
 #include "../engine/animation/Animation.h"
+#include "../../engine/3d/obj3d/Line3DCommon.h"
+#include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
 
 
 // ===== 前方宣言 =====
@@ -44,7 +46,12 @@ private:
 
     // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
+    // simpleSkin 用
     std::unique_ptr<Object3d> objA_;
+
+    // human 用
+    std::unique_ptr<Object3d> objB_;
+
 
     std::unique_ptr<SkyboxCommon> skyboxCommon_;
     std::unique_ptr<Skybox> skybox_;
@@ -66,4 +73,15 @@ private:
     std::unique_ptr<ParticleSystem> ringParticleSystem_;
 
     std::unique_ptr<ParticleSystem> cylinderParticleSystem_;
+
+    // 線描画共通
+    std::unique_ptr<Line3DCommon> line3dCommon_;
+
+    // simpleSkin 用 Skeleton デバッグ描画
+    std::unique_ptr<DebugSkeletonRenderer> debugSkeletonRendererA_;
+
+    // human 用 Skeleton デバッグ描画
+    std::unique_ptr<DebugSkeletonRenderer> debugSkeletonRendererB_;
+
+
 };

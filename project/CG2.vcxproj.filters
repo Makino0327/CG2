@@ -14,6 +14,8 @@
     <FxCompile Include="Resources\shaders\Vignette.PS.hlsl" />
     <FxCompile Include="Resources\shaders\BoxFilter.PS.hlsl" />
     <FxCompile Include="Resources\shaders\GaussianFilter.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\Line3D.VS.hlsl" />
+    <FxCompile Include="Resources\shaders\Line3D.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />
@@ -53,6 +55,10 @@
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\animation\Animation.cpp" />
+    <ClCompile Include="engine\animation\Skeleton.cpp" />
+    <ClCompile Include="engine\3d\obj3d\DebugLine3D.cpp" />
+    <ClCompile Include="engine\3d\obj3d\DebugSkeletonRenderer.cpp" />
+    <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -92,6 +98,11 @@
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\animation\Animation.h" />
+    <ClInclude Include="engine\animation\Skeleton.h" />
+    <ClInclude Include="engine\3d\obj3d\DebugLine3D.h" />
+    <ClInclude Include="engine\3d\obj3d\DebugSkeletonRenderer.h" />
+    <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
+    <ClInclude Include="engine\3d\model\ModelStructs.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

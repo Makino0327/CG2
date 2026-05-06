@@ -36,19 +36,56 @@ namespace {
 		assert(false);
 		return std::string::npos;
 	}
+	size_t FindTopLevelKey(const std::string& jsonText, const std::string& key)
+	{
+		std::string target = "\"" + key + "\"";
+
+		int objectDepth = 0;
+		bool inString = false;
+
+		for (size_t i = 0; i < jsonText.size(); ++i) {
+			char c = jsonText[i];
+
+			// 文字列の外でだけ深さを数える
+			if (!inString) {
+				if (c == '{') {
+					++objectDepth;
+				} else if (c == '}') {
+					--objectDepth;
+				}
+			}
+
+			// 最上位オブジェクト直下にあるキーだけ探す
+			if (!inString && objectDepth == 1) {
+				if (jsonText.compare(i, target.size(), target) == 0) {
+					return i;
+				}
+			}
+
+			// エスケープされていない " で文字列状態を切り替える
+			if (c == '"' && (i == 0 || jsonText[i - 1] != '\\')) {
+				inString = !inString;
+			}
+		}
+
+		return std::string::npos;
+	}
 
 	std::string ExtractArrayBlock(const std::string& jsonText, const std::string& key)
 	{
-		// "key": [ ... ] の配列部分だけを抜き出す
-		size_t keyPos = jsonText.find("\"" + key + "\"");
+		// 最上位オブジェクト直下の key を探す
+		size_t keyPos = FindTopLevelKey(jsonText, key);
 		assert(keyPos != std::string::npos);
 
+		// 対応する配列の開始位置を探す
 		size_t arrayBegin = jsonText.find('[', keyPos);
 		assert(arrayBegin != std::string::npos);
 
+		// 対応する配列の終端まで切り出す
 		size_t arrayEnd = FindMatchingBracket(jsonText, arrayBegin, '[', ']');
 		return jsonText.substr(arrayBegin, arrayEnd - arrayBegin + 1);
 	}
+
 
 	std::vector<std::string> SplitTopLevelObjects(const std::string& arrayBlock)
 	{
@@ -259,62 +296,107 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 	std::vector<GltfAnimationSampler> samplers = ParseAnimationSamplers(animationObject);
 	std::vector<GltfAnimationChannel> channels = ParseAnimationChannels(animationObject);
 
-	// 今は最初の channel を使う
 	assert(!channels.empty());
-	const GltfAnimationChannel& channel = channels[0];
 
-	// channel が参照する sampler を取る
-	assert(channel.sampler < samplers.size());
-	const GltfAnimationSampler& sampler = samplers[channel.sampler];
+	for (const GltfAnimationChannel& channel : channels) {
+		// channel が使う sampler を取得する
+		assert(channel.sampler < samplers.size());
+		const GltfAnimationSampler& sampler = samplers[channel.sampler];
 
-	// sampler の input はキーフレーム時刻の accessor を指している
-	const GltfAccessor& inputAccessor = accessors[sampler.input];
-	const GltfBufferView& inputBufferView = bufferViews[inputAccessor.bufferView];
+		// 入力時刻 accessor を取得する
+		const GltfAccessor& inputAccessor = accessors[sampler.input];
+		const GltfBufferView& inputBufferView = bufferViews[inputAccessor.bufferView];
+
+		// 入力時刻列へのポインタを取る
+		const float* inputTimes = reinterpret_cast<const float*>(
+			binary.data() + inputBufferView.byteOffset + inputAccessor.byteOffset);
+
+		// duration は最も長いものを採用する
+		animation.duration = std::max(animation.duration, inputTimes[inputAccessor.count - 1]);
+
+		// channel の対象 node 名を取得する
+		std::string nodeName = FindNodeName(jsonText, channel.targetNode);
+
+		// 出力値 accessor を取得する
+		const GltfAccessor& outputAccessor = accessors[sampler.output];
+		const GltfBufferView& outputBufferView = bufferViews[outputAccessor.bufferView];
+
+		// 出力値列へのポインタを取る
+		const float* outputValues = reinterpret_cast<const float*>(
+			binary.data() + outputBufferView.byteOffset + outputAccessor.byteOffset);
+
+		// node 名に対応する animation を取得する
+		NodeAnimation& nodeAnimation = animation.nodeAnimations[nodeName];
+
+		// ここで path ごとの分岐をする
+
+		if (channel.path == "rotation") {
+			for (uint32_t index = 0; index < inputAccessor.count; ++index) {
+				KeyframeQuaternion keyframe;
+
+				// キーフレーム時刻を入れる
+				keyframe.time = inputTimes[index];
+
+				Quaternion value;
+				value.x = outputValues[index * 4 + 0];
+				value.y = outputValues[index * 4 + 1];
+				value.z = outputValues[index * 4 + 2];
+				value.w = outputValues[index * 4 + 3];
+
+				// glTF 右手系からエンジン左手系へ合わせる
+				keyframe.value = Normalize({
+					 value.x,
+					-value.y,
+					-value.z,
+					 value.w
+					});
 
 
-	// 時刻配列の先頭アドレスを取る
-	const float* inputTimes = reinterpret_cast<const float*>(
-		binary.data() + inputBufferView.byteOffset + inputAccessor.byteOffset);
-
-	// 最後の時刻を Animation 全体の長さとして使う
-	animation.duration = inputTimes[inputAccessor.count - 1];
-
-	// channel の target node から node 名を取る
-	std::string nodeName = FindNodeName(jsonText, channel.targetNode);
-
-	// sampler の output はキーフレーム値の accessor を指している
-	const GltfAccessor& outputAccessor = accessors[sampler.output];
-	const GltfBufferView& outputBufferView = bufferViews[outputAccessor.bufferView];
-
-	// 今回の AnimatedCube は rotation の quaternion が入っている
-	const float* outputValues = reinterpret_cast<const float*>(
-		binary.data() + outputBufferView.byteOffset + outputAccessor.byteOffset);
-
-	// node 名で NodeAnimation を引けるようにする
-	NodeAnimation& nodeAnimation = animation.nodeAnimations[nodeName];
-
-	// 今は rotation だけ対応する
-	if (channel.path == "rotation") {
-		for (uint32_t index = 0; index < inputAccessor.count; ++index) {
-			KeyframeQuaternion keyframe;
-
-			// キーフレーム時刻はそのまま秒として扱う
-			keyframe.time = inputTimes[index];
-
-			// glTF の quaternion を読む
-			Quaternion value;
-			value.x = outputValues[index * 4 + 0];
-			value.y = outputValues[index * 4 + 1];
-			value.z = outputValues[index * 4 + 2];
-			value.w = outputValues[index * 4 + 3];
-
-			// 念のため正規化しておく
-			keyframe.value = Normalize(value);
-
-			nodeAnimation.rotate.keyframes.push_back(keyframe);
+				nodeAnimation.rotate.keyframes.push_back(keyframe);
+			}
 		}
-	}
+		else if (channel.path == "translation") {
+			for (uint32_t index = 0; index < inputAccessor.count; ++index) {
+				KeyframeVector3 keyframe;
 
+				// キーフレーム時刻を入れる
+				keyframe.time = inputTimes[index];
+
+				Vector3 value;
+				value.x = outputValues[index * 3 + 0];
+				value.y = outputValues[index * 3 + 1];
+				value.z = outputValues[index * 3 + 2];
+
+				// glTF 右手系からエンジン左手系へ合わせる
+				keyframe.value = {
+					-value.x,
+					 value.y,
+					 value.z
+				};
+
+				nodeAnimation.translate.keyframes.push_back(keyframe);
+			}
+		}
+		else if (channel.path == "scale") {
+			for (uint32_t index = 0; index < inputAccessor.count; ++index) {
+				KeyframeVector3 keyframe;
+
+				// キーフレーム時刻を入れる
+				keyframe.time = inputTimes[index];
+
+				Vector3 value;
+				value.x = outputValues[index * 3 + 0];
+				value.y = outputValues[index * 3 + 1];
+				value.z = outputValues[index * 3 + 2];
+
+				// scale はそのまま使う
+				keyframe.value = value;
+
+				nodeAnimation.scale.keyframes.push_back(keyframe);
+			}
+		}
+
+	}
 
 	return animation;
 }

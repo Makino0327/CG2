@@ -1,7 +1,8 @@
 #pragma once
 #include "../../base/DirectX/DirectXCommon.h"
-#include "../obj3d/Object3d.h"
+#include "ModelStructs.h"
 #include "ModelCommon.h"
+
 class Model
 {
 public:
@@ -19,6 +20,8 @@ public:
 
 	void SetTextureIndex(uint32_t index) { modelData_.material.textureIndex = index; }
 
+	// 読み込んだモデルデータを参照する
+	const ModelData& GetModelData() const { return modelData_; }
 
 private:
 	// 頂点バッファ作成

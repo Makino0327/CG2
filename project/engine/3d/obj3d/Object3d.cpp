@@ -22,8 +22,10 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
+
     Quaternion animationRotate = { 0.0f, 0.0f, 0.0f, 1.0f };
     bool hasAnimationRotate = false;
+
     if (isAnimationPlaying_ && animation_.duration > 0.0f) {
         // ひとまず 60fps 前提で時刻を進める
         animationTime_ += 1.0f / 60.0f;
@@ -32,38 +34,46 @@ void Object3d::Update()
         animationTime_ = std::fmod(animationTime_, animation_.duration);
     }
 
-    if (isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
-        
-        if (isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
-            auto it = animation_.nodeAnimations.find(animationNodeName_);
+    if (hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
+        // Skeleton に animation を適用する
+        ApplyAnimation(skeleton_, animation_, animationTime_);
+    }
 
-            // 指定した node 名の Animation があるときだけ再生する
-            if (it != animation_.nodeAnimations.end()) {
-                const NodeAnimation& nodeAnimation = it->second;
+    if (!hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
+        auto it = animation_.nodeAnimations.find(animationNodeName_);
 
-                // translate のキーがあれば現在時刻の値を反映する
-                if (!nodeAnimation.translate.keyframes.empty()) {
-                    transform.translate =
-                        CalculateValue(nodeAnimation.translate.keyframes, animationTime_);
-                }
+        // 指定した node 名の Animation があるときだけ再生する
+        if (it != animation_.nodeAnimations.end()) {
+            const NodeAnimation& nodeAnimation = it->second;
 
-                // scale のキーがあれば現在時刻の値を反映する
-                if (!nodeAnimation.scale.keyframes.empty()) {
-                    transform.scale =
-                        CalculateValue(nodeAnimation.scale.keyframes, animationTime_);
-                }
+            // translate のキーがあれば現在時刻の値を反映する
+            if (!nodeAnimation.translate.keyframes.empty()) {
+                transform.translate =
+                    CalculateValue(nodeAnimation.translate.keyframes, animationTime_);
+            }
 
-                // rotate のキーがあれば現在時刻の値を取得する
-                if (!nodeAnimation.rotate.keyframes.empty()) {
-                    animationRotate =
-                        CalculateValue(nodeAnimation.rotate.keyframes, animationTime_);
-                    hasAnimationRotate = true;
-                }
+            // scale のキーがあれば現在時刻の値を反映する
+            if (!nodeAnimation.scale.keyframes.empty()) {
+                transform.scale =
+                    CalculateValue(nodeAnimation.scale.keyframes, animationTime_);
+            }
+
+            // rotate のキーがあれば現在時刻の値を取得する
+            if (!nodeAnimation.rotate.keyframes.empty()) {
+                animationRotate =
+                    CalculateValue(nodeAnimation.rotate.keyframes, animationTime_);
+                hasAnimationRotate = true;
             }
         }
     }
 
+    if (hasSkeleton_) {
+        // animation 適用後の transform から Skeleton 行列を更新する
+        UpdateSkeleton(skeleton_);
+    }
+
     Matrix4x4 worldMatrix;
+
 
     if (hasAnimationRotate) {
         // アニメーション回転があるときは Quaternion 版を使う
@@ -188,8 +198,22 @@ void Object3d::InitializeCameraForGPU()
 
 void Object3d::SetModel(const std::string& filePath)
 {
-    model_ = ModelManager::GetInstance()->FindModel(filePath);
+    model_ = ModelManager::GetInstance()->FindModel(filePath); // // モデルを取得する
+
+    hasSkeleton_ = false; // // いったん Skeleton 無しに戻す
+
+    if (model_) {
+        const ModelData& modelData = model_->GetModelData(); // // モデルデータを参照する
+
+        // // rootNode に名前や子が入っていれば Skeleton を作る
+        if (!modelData.rootNode.name.empty() || !modelData.rootNode.children.empty()) {
+            skeleton_ = CreateSkeleton(modelData.rootNode); // // Node 階層から Skeleton を生成する
+            UpdateSkeleton(skeleton_);                      // // 初期姿勢の行列を計算する
+            hasSkeleton_ = true;                            // // Skeleton を持つ状態にする
+        }
+    }
 }
+
 
 void Object3d::SetTexture(const std::string& filePath)
 {
