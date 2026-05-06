@@ -344,7 +344,14 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 				value.w = outputValues[index * 4 + 3];
 
 				// まずは回転をそのまま使って確認する
-				keyframe.value = Normalize(value);
+				// bind pose の node 変換と同じ向きで animation 回転も左手系へ合わせる
+				keyframe.value = Normalize({
+					 value.x,
+					-value.y,
+					-value.z,
+					 value.w
+					});
+
 
 
 				nodeAnimation.rotate.keyframes.push_back(keyframe);
@@ -364,7 +371,13 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 
 				// glTF 右手系からエンジン左手系へ合わせる
 				// まずは移動をそのまま使って確認する
-				keyframe.value = value;
+				// glTF 右手系からエンジン左手系へ合わせる
+				keyframe.value = {
+					-value.x,
+					 value.y,
+					 value.z
+				};
+
 
 
 				nodeAnimation.translate.keyframes.push_back(keyframe);

@@ -162,8 +162,10 @@ void GamePlayScene::Initialize()
     objA_->SetModel("simpleSkin/simpleSkin.gltf");
     objA_->SetEnvironmentTexture("Resources/skybox.dds");
     objA_->SetEnvironmentCoefficient(0.35f);
-    objA_->SetScale({ 1.0f, 1.0f, 1.0f });
-    objA_->SetTranslate({ -1.0f, 0.0f,0.0f });
+    // 確認用の transform 初期値を適用する
+    objA_->SetScale(objAScale_);
+    objA_->SetRotate(objARotate_);
+    objA_->SetTranslate(objATranslate_);
 
     // human
     objB_ = std::make_unique<Object3d>();
@@ -174,12 +176,14 @@ void GamePlayScene::Initialize()
     objB_->SetAnimation(humanWalkAnimation);
 
     // animation 再生を開始する
-    objB_->SetIsAnimationPlaying(true);
+    objB_->SetIsAnimationPlaying(isHumanAnimationPlaying_);
 
     objB_->SetEnvironmentTexture("Resources/skybox.dds");
     objB_->SetEnvironmentCoefficient(0.35f);
-    objB_->SetScale({ 1.0f, 1.0f, 1.0f });
-    objB_->SetTranslate({ 1.0f, 0.0f, 0.0f });
+    // 確認用の transform 初期値を適用する
+    objB_->SetScale(objBScale_);
+    objB_->SetRotate(objBRotate_);
+    objB_->SetTranslate(objBTranslate_);
 
 
 
@@ -233,6 +237,23 @@ void GamePlayScene::Update()
     //    }
     //}
     const float dt = 1.0f / 60.0f;
+
+    if (objA_) {
+        // ImGui で変更した simpleSkin の transform を反映する
+        objA_->SetScale(objAScale_);
+        objA_->SetRotate(objARotate_);
+        objA_->SetTranslate(objATranslate_);
+    }
+
+    if (objB_) {
+        // ImGui で変更した human の transform を反映する
+        objB_->SetScale(objBScale_);
+        objB_->SetRotate(objBRotate_);
+        objB_->SetTranslate(objBTranslate_);
+
+        // human の animation 再生状態を反映する
+        objB_->SetIsAnimationPlaying(isHumanAnimationPlaying_);
+    }
 
     //for (auto& sprite : sprites_) {
     //    if (sprite) { sprite->Update(); }
@@ -314,16 +335,6 @@ void GamePlayScene::Draw()
             objB_->GetTranslate()
         );
 
-        Matrix4x4 skeletonCorrection = MakeAffineMatrix(
-            Vector3{ 1.0f, 1.0f, 1.0f },
-            Vector3{ 0.0f, 3.141592f, 0.0f },
-            Vector3{ 0.0f, 0.0f, 0.0f }
-        );
-
-
-        // 骨表示だけ mesh と同じ向きへ補正する
-        objectWorldMatrix = Multiply(skeletonCorrection, objectWorldMatrix);
-
         debugSkeletonRendererB_->Build(
             objB_->GetSkeleton(),
             objectWorldMatrix,
@@ -398,6 +409,45 @@ void GamePlayScene::DrawImGui()
         ImGui::SliderFloat("Reflection", &objA_->GetMaterial()->environmentCoefficient, 0.0f, 1.0f);
         ImGui::End();
     }
+
+    if (objA_) {
+        ImGui::Begin("SimpleSkin");
+
+        // simpleSkin の位置を確認しやすくする
+        ImGui::DragFloat3("Translate", &objATranslate_.x, 0.05f);
+
+        // simpleSkin の回転を確認しやすくする
+        ImGui::DragFloat3("Rotate", &objARotate_.x, 0.01f);
+
+        // simpleSkin の拡大率を確認しやすくする
+        ImGui::DragFloat3("Scale", &objAScale_.x, 0.01f);
+
+        ImGui::End();
+    }
+
+    if (objB_) {
+        ImGui::Begin("Human");
+
+        // human の位置を確認しやすくする
+        ImGui::DragFloat3("Translate", &objBTranslate_.x, 0.05f);
+
+        // human の回転を確認しやすくする
+        ImGui::DragFloat3("Rotate", &objBRotate_.x, 0.01f);
+
+        // human の拡大率を確認しやすくする
+        ImGui::DragFloat3("Scale", &objBScale_.x, 0.01f);
+
+        // animation の ON/OFF を切り替えて bind pose と比較しやすくする
+        ImGui::Checkbox("Play Animation", &isHumanAnimationPlaying_);
+
+        // animation の時刻を最初に戻して見比べやすくする
+        if (ImGui::Button("Reset Animation")) {
+            objB_->ResetAnimationTime();
+        }
+
+        ImGui::End();
+    }
+
     if (context_.offscreenRenderer) {
         ImGui::Begin("Post Effect");
 

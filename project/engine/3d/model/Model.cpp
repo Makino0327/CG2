@@ -431,6 +431,33 @@ namespace {
 		return rootNodes[0]; // // 最初の scene の最初の node を root とする
 	}
 
+	Matrix4x4 TransposeMatrix(const Matrix4x4& matrix)
+	{
+		Matrix4x4 result{};
+
+		for (int row = 0; row < 4; ++row) {
+			for (int column = 0; column < 4; ++column) {
+				result.m[row][column] = matrix.m[column][row];
+			}
+		}
+
+		return result;
+	}
+
+	Matrix4x4 ConvertGltfMatrixToEngineMatrix(const float* matrixValues)
+	{
+		Matrix4x4 gltfMatrix{};
+
+		for (int row = 0; row < 4; ++row) {
+			for (int column = 0; column < 4; ++column) {
+				gltfMatrix.m[row][column] = matrixValues[row * 4 + column];
+			}
+		}
+
+		// glTF の列優先行列をこのエンジンの行列表現へ合わせる
+		return TransposeMatrix(gltfMatrix);
+	}
+
 	
 }
 
@@ -770,11 +797,6 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 		position.x *= -1.0f;
 		normal.x *= -1.0f;
 
-		float rad = 3.141592f;
-		float x = position.x;
-		float z = position.z;
-		position.x = x * cos(rad) - z * sin(rad);
-		position.z = x * sin(rad) + z * cos(rad);
 
 		meshData.vertices[vertexIndex].position = position;
 		meshData.vertices[vertexIndex].texcoord = texcoord;
@@ -835,17 +857,15 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 
 		const float* matrixValues = inverseBindMatrices + jointIndex * 16;
 
-		Matrix4x4 inverseBindPoseMatrix{};
+		Matrix4x4 inverseBindPoseMatrix = ConvertGltfMatrixToEngineMatrix(matrixValues);
 
+		// glTF の 4x4 行列を読む
 		// glTF の 4x4 行列をいったんそのまま詰める
-		for (int row = 0; row < 4; ++row) {
-			for (int column = 0; column < 4; ++column) {
-				inverseBindPoseMatrix.m[row][column] = matrixValues[row * 4 + column];
-			}
-		}
 
 		// 今はまず読み込み結果をそのまま使う
 		jointWeightData.inverseBindPoseMatrix = inverseBindPoseMatrix;
+
+
 	}
 
 	// 各頂点の JOINTS_0 / WEIGHTS_0 を joint 単位へばらす

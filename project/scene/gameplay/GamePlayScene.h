@@ -84,4 +84,16 @@ private:
     std::unique_ptr<DebugSkeletonRenderer> debugSkeletonRendererB_;
 
 
+    // simpleSkin 確認用 transform
+    Vector3 objATranslate_ = { -1.0f, 0.0f, 0.0f };
+    Vector3 objARotate_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 objAScale_ = { 1.0f, 1.0f, 1.0f };
+
+    // human 確認用 transform
+    Vector3 objBTranslate_ = { 1.0f, 0.0f, 0.0f };
+    Vector3 objBRotate_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 objBScale_ = { 1.0f, 1.0f, 1.0f };
+
+    // human animation の再生確認用
+    bool isHumanAnimationPlaying_ = false;
 };

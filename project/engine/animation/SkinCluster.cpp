@@ -97,7 +97,8 @@ SkinCluster CreateSkinCluster(
     for (uint32_t vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex) {
         for (uint32_t influenceIndex = 0; influenceIndex < kNumMaxInfluence; ++influenceIndex) {
             skinCluster.mappedInfluence[vertexIndex].weights[influenceIndex] = 0.0f;
-            skinCluster.mappedInfluence[vertexIndex].jointIndices[influenceIndex] = -1;
+            // 重み 0 の要素でもシェーダは index を読みに行くので 0 で埋めて OOB を防ぐ
+            skinCluster.mappedInfluence[vertexIndex].jointIndices[influenceIndex] = 0;
         }
     }
 
@@ -130,7 +131,7 @@ SkinCluster CreateSkinCluster(
 
         // 対応 Joint の inverseBindPoseMatrix を保存する
         skinCluster.inverseBindPoseMatrices[jointIndex] =
-            jointWeight.second.inverseBindPoseMatrix;
+            Inverse(skeleton.joints[jointIndex].skeletonSpaceMatrix);
 
         // この Joint が影響を与える頂点群を反映する
         for (const VertexWeightData& vertexWeight : jointWeight.second.vertexWeights) {
