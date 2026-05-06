@@ -2,17 +2,21 @@
 #include <d3d12.h>
 #include "../../base/DirectX/DirectXCommon.h"
 #include "../../../game/camera/Camera.h"
+#include "../../base/srv/SrvManager.h"
 
 class Object3dCommon
 {
 public:
-    void Initialize(DirectXCommon* dxCommon);
+    void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
+
     void CommonDrawSetting();
+    void SkinningDrawSetting();
 
     DirectXCommon* GetDxCommon() const { return dxCommon_; }
 
     void SetDefaultCamera(Camera* camera) { defaultCamera_ = camera; }
     Camera* GetDefaultCamera() const { return defaultCamera_; }
+    SrvManager* GetSrvManager() const { return srvManager_; }
 
 
 private:
@@ -25,4 +29,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
     Camera* defaultCamera_ = nullptr;
+    SrvManager* srvManager_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
+
 };

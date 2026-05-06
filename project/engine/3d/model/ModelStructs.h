@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <string>
 #include <vector>
 #include "../../math/Math.h"
@@ -21,6 +22,21 @@ struct MeshData {
     std::vector<uint32_t> indices;
 };
 
+struct VertexWeightData {
+    // この Joint が頂点に与える重み
+    float weight;
+
+    // 影響を受ける頂点番号
+    uint32_t vertexIndex;
+};
+
+struct JointWeightData {
+    // この Joint の inverse bind pose matrix
+    Matrix4x4 inverseBindPoseMatrix;
+
+    // この Joint が影響を与える頂点一覧
+    std::vector<VertexWeightData> vertexWeights;
+};
 
 struct Node {
     // glTF から読んだ TRS
@@ -42,4 +58,7 @@ struct ModelData {
 
     // モデルの node 階層の根
     Node rootNode;
+
+    // Joint 名ごとの Skinning 情報
+    std::map<std::string, JointWeightData> skinClusterData;
 };

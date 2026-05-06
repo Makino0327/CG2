@@ -72,6 +72,12 @@ void Object3d::Update()
         UpdateSkeleton(skeleton_);
     }
 
+    if (hasSkinCluster_) {
+        // 現在の Skeleton 状態から SkinCluster を更新する
+        UpdateSkinCluster(skinCluster_, skeleton_);
+    }
+
+
     Matrix4x4 worldMatrix;
 
 
@@ -111,6 +117,13 @@ void Object3d::Draw()
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
+    if (hasSkinCluster_) {
+        // Skinning 用の PSO を設定する
+        object3dCommon_->SkinningDrawSetting();
+    } else {
+        // 通常描画用の PSO を設定する
+        object3dCommon_->CommonDrawSetting();
+    }
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
@@ -120,23 +133,39 @@ void Object3d::Draw()
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
 
-    if (model_) {
-        // モデルに設定されているテクスチャを t0 に設定する
+    if (hasSkinCluster_) {
+        // Skinning 用の MatrixPalette を t0 に設定する
         commandList->SetGraphicsRootDescriptorTable(
             4,
+            skinCluster_.paletteSrvHandle.second);
+    }
+
+    if (model_) {
+        // モデルに設定されているテクスチャを t1 に設定する
+        commandList->SetGraphicsRootDescriptorTable(
+            5,
             TextureManager::GetInstance()->GetSrvHandleGPU(
                 model_->GetModelData().material.textureFilePath));
     }
 
-    // 環境マップを t1 に設定する
+    // 環境マップを t2 に設定する
     commandList->SetGraphicsRootDescriptorTable(
-        5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
+        6,
+        TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
-        model_->Draw();
+        if (hasSkinCluster_) {
+            // Skinning 用の influence VBV も渡して描画する
+            model_->Draw(skinCluster_.influenceBufferView);
+        } else {
+            // 通常描画を行う
+            model_->Draw();
+        }
     }
-
 }
+
+
+
 
 MaterialData Object3d::LoadMaterialTemplateFile(
     const std::string& directoryPath,
@@ -208,22 +237,33 @@ void Object3d::InitializeCameraForGPU()
 
 void Object3d::SetModel(const std::string& filePath)
 {
-    model_ = ModelManager::GetInstance()->FindModel(filePath); // // モデルを取得する
+    model_ = ModelManager::GetInstance()->FindModel(filePath);
 
-    hasSkeleton_ = false; // // いったん Skeleton 無しに戻す
+    hasSkeleton_ = false;
+    hasSkinCluster_ = false;
 
     if (model_) {
-        const ModelData& modelData = model_->GetModelData(); // // モデルデータを参照する
+        const ModelData& modelData = model_->GetModelData();
 
-        // // rootNode に名前や子が入っていれば Skeleton を作る
+        // rootNode に名前や子が入っていれば Skeleton を作る
         if (!modelData.rootNode.name.empty() || !modelData.rootNode.children.empty()) {
-            skeleton_ = CreateSkeleton(modelData.rootNode); // // Node 階層から Skeleton を生成する
-            UpdateSkeleton(skeleton_);                      // // 初期姿勢の行列を計算する
-            hasSkeleton_ = true;                            // // Skeleton を持つ状態にする
+            skeleton_ = CreateSkeleton(modelData.rootNode);
+            UpdateSkeleton(skeleton_);
+            hasSkeleton_ = true;
+        }
+
+        // Skeleton と skinClusterData の両方があるなら SkinCluster を作る
+        if (hasSkeleton_ && !modelData.skinClusterData.empty()) {
+            skinCluster_ = CreateSkinCluster(
+                object3dCommon_->GetDxCommon(),
+                object3dCommon_->GetSrvManager(),
+                skeleton_,
+                modelData);
+
+            hasSkinCluster_ = true;
         }
     }
 }
-
 
 void Object3d::SetTexture(const std::string& filePath)
 {
@@ -274,6 +314,13 @@ void Object3d::DrawInstanced(UINT instanceCount)
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
+    if (hasSkinCluster_) {
+        // Skinning 用の PSO を設定する
+        object3dCommon_->SkinningDrawSetting();
+    } else {
+        // 通常描画用の PSO を設定する
+        object3dCommon_->CommonDrawSetting();
+    }
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
@@ -283,24 +330,36 @@ void Object3d::DrawInstanced(UINT instanceCount)
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
 
-    if (model_) {
-        // モデルに設定されているテクスチャを t0 に設定する
+    if (hasSkinCluster_) {
+        // Skinning 用の MatrixPalette を t0 に設定する
         commandList->SetGraphicsRootDescriptorTable(
             4,
+            skinCluster_.paletteSrvHandle.second);
+    }
+
+    if (model_) {
+        // モデルに設定されているテクスチャを t1 に設定する
+        commandList->SetGraphicsRootDescriptorTable(
+            5,
             TextureManager::GetInstance()->GetSrvHandleGPU(
                 model_->GetModelData().material.textureFilePath));
     }
 
-    // 環境マップを t1 に設定する
+    // 環境マップを t2 に設定する
     commandList->SetGraphicsRootDescriptorTable(
-        5, TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
+        6,
+        TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
-        model_->DrawInstanced(instanceCount);
-    }
-
-
-    if (model_) {
-        model_->DrawInstanced(instanceCount);
+        if (hasSkinCluster_) {
+            // Skinning 用の influence VBV も渡して描画する
+            model_->DrawInstanced(instanceCount, skinCluster_.influenceBufferView);
+        } else {
+            // 通常のインスタンシング描画を行う
+            model_->DrawInstanced(instanceCount);
+        }
     }
 }
+
+
+

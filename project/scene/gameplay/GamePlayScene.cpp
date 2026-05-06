@@ -284,7 +284,7 @@ void GamePlayScene::Draw()
     }
 
     // 3D
-    context_.object3dCommon->CommonDrawSetting();
+    
     if (objA_) { objA_->Draw(); }
     if (objB_) { objB_->Draw(); }
 
@@ -314,6 +314,16 @@ void GamePlayScene::Draw()
             objB_->GetTranslate()
         );
 
+        Matrix4x4 skeletonCorrection = MakeAffineMatrix(
+            Vector3{ 1.0f, 1.0f, 1.0f },
+            Vector3{ 0.0f, 3.141592f, 0.0f },
+            Vector3{ 0.0f, 0.0f, 0.0f }
+        );
+
+
+        // 骨表示だけ mesh と同じ向きへ補正する
+        objectWorldMatrix = Multiply(skeletonCorrection, objectWorldMatrix);
+
         debugSkeletonRendererB_->Build(
             objB_->GetSkeleton(),
             objectWorldMatrix,
@@ -321,6 +331,7 @@ void GamePlayScene::Draw()
 
         debugSkeletonRendererB_->Draw();
     }
+
 
 
 

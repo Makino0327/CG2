@@ -343,13 +343,8 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 				value.z = outputValues[index * 4 + 2];
 				value.w = outputValues[index * 4 + 3];
 
-				// glTF 右手系からエンジン左手系へ合わせる
-				keyframe.value = Normalize({
-					 value.x,
-					-value.y,
-					-value.z,
-					 value.w
-					});
+				// まずは回転をそのまま使って確認する
+				keyframe.value = Normalize(value);
 
 
 				nodeAnimation.rotate.keyframes.push_back(keyframe);
@@ -368,11 +363,9 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 				value.z = outputValues[index * 3 + 2];
 
 				// glTF 右手系からエンジン左手系へ合わせる
-				keyframe.value = {
-					-value.x,
-					 value.y,
-					 value.z
-				};
+				// まずは移動をそのまま使って確認する
+				keyframe.value = value;
+
 
 				nodeAnimation.translate.keyframes.push_back(keyframe);
 			}

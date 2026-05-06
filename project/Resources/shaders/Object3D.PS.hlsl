@@ -13,8 +13,9 @@ struct Material
 ConstantBuffer<Material> gMaterial : register(b0);
 ConstantBuffer<DirectionalLight> gDirectionalLight : register(b1);
 ConstantBuffer<CameraForGPU> gCamera : register(b3);
-Texture2D<float4> gTexture : register(t0);
-TextureCube<float4> gEnvironmentTexture : register(t1);
+Texture2D<float4> gTexture : register(t1);
+TextureCube<float4> gEnvironmentTexture : register(t2);
+
 SamplerState gSampler : register(s0);
 
 

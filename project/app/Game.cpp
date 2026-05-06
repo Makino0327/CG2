@@ -26,9 +26,10 @@ void Game::Initialize() {
     spriteCommon_ = std::make_unique<SpriteCommon>();
     spriteCommon_->Initialize(dxCommon_.get(), srvManager_.get());
 
-    // 3d オブジェクト共通処理
+    // 3d オブジェクト共通を初期化する
     object3dCommon_ = std::make_unique<Object3dCommon>();
-    object3dCommon_->Initialize(dxCommon_.get());
+    object3dCommon_->Initialize(dxCommon_.get(), srvManager_.get());
+
 
     // ★ カメラ生成 & デフォルトカメラに設定
     camera_ = std::make_unique<Camera>();

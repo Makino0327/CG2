@@ -10,6 +10,7 @@
 #include "../../animation/Animation.h"
 #include "../../animation/Skeleton.h"
 #include "../model/ModelStructs.h"
+#include "../../animation/SkinCluster.h"
 
 class Object3dCommon;
 class Model;
@@ -95,6 +96,10 @@ public:
 	void SetSkeletonVisible(bool visible) { isSkeletonVisible_ = visible; } // Skeleton のデバッグ表示切替
 	bool IsSkeletonVisible() const { return isSkeletonVisible_; }           // 表示状態を返す
 
+	SkinCluster& GetSkinCluster() { return skinCluster_; }
+	const SkinCluster& GetSkinCluster() const { return skinCluster_; }
+
+	bool HasSkinCluster() const { return hasSkinCluster_; }
 
 private:
 	// 3Dオブジェクト共通処理
@@ -132,6 +137,11 @@ private:
 	bool hasSkeleton_ = false;       // Skeleton を持っているかどうか
 	bool isSkeletonVisible_ = true;  // デバッグ表示を出すかどうか
 
+	// Skinning 用データ
+	SkinCluster skinCluster_;
+
+	// Skinning を持つモデルかどうか
+	bool hasSkinCluster_ = false;
 
 };
 

@@ -10,9 +10,12 @@ public:
 	void Initialize(ModelCommon* modelCommon,const std::string& directorypath,const std::string& filename);
 
 	void Draw();
+	void Draw(const D3D12_VERTEX_BUFFER_VIEW& influenceBufferView);
 
-	// ★★ インスタンシング用 ★★
+	// インスタンシング用
 	void DrawInstanced(UINT instanceCount);
+	void DrawInstanced(UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW& influenceBufferView);
+
 
 	static ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename);
 	static ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
