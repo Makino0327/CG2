@@ -45,6 +45,34 @@ struct ParticleData {
     bool      isAlive;
 };
 
+// ComputeShader で扱う Particle の本体データ
+struct ParticleCS {
+    Vector3 translate;
+    Vector3 scale;
+    float lifeTime;
+    Vector3 velocity;
+    float currentTime;
+    Vector4 color;
+};
+
+// GPUで発生処理に使うエミッター
+struct EmitterSphere {
+    Vector3 translate;      // 発生中心
+    float radius;           // 発生半径
+
+    uint32_t count;         // 1回で発生させる数
+    float frequency;        // 発生間隔
+    float frequencyTime;    // 経過時間
+    uint32_t emit;          // 今フレーム発生するか
+};
+
+// ComputeShaderへ毎フレーム送る時間情報
+struct PerFrame {
+    float time;             // 累積時間
+    float deltaTime;        // 1フレームの時間
+};
+
+
 // =============================
 // エミッターの設定値
 // =============================
@@ -66,6 +94,13 @@ struct ParticleForGPU {
     Matrix4x4 World;
     Vector4   color;
 };
+
+// VertexShader に渡すビュー用データ
+struct ParticlePerView {
+    Matrix4x4 viewProjection;
+    Matrix4x4 billboardMatrix;
+};
+
 
 // =============================
 // パーティクルのプリセット
@@ -113,7 +148,7 @@ public:
 
 private:
     // インスタンス数と SRV 関連
-    static const uint32_t kNumInstance = 10;
+    static const uint32_t kNumInstance = 1024;
     static const uint32_t kInstancingSrvIndex = 10;
 
     DirectXCommon* dxCommon_ = nullptr;
@@ -124,6 +159,28 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
     ParticleForGPU* instancingData_ = nullptr;
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_{};
+
+    // GPU Particle 本体を保持する Resource
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleResource_;
+
+    // GPU Particle 用の SRV index
+    uint32_t particleSrvIndex_ = 0;
+
+    // GPU Particle 用の UAV index
+    uint32_t particleUavIndex_ = 0;
+
+    // GPU Particle 用の SRV の GPU ハンドル
+    D3D12_GPU_DESCRIPTOR_HANDLE particleSrvHandleGPU_{};
+
+    // GPU Particle 用の UAV の GPU ハンドル
+    D3D12_GPU_DESCRIPTOR_HANDLE particleUavHandleGPU_{};
+
+    // VertexShader に渡す PerView 用定数バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> perViewResource_;
+
+    // PerView 用定数バッファの書き込み先
+    ParticlePerView* perViewData_ = nullptr;
+
 
     // 使用するテクスチャとモデル名
     std::string textureFilePath_;
@@ -156,8 +213,52 @@ private:
     // // Cylinder 描画用オブジェクト
     std::unique_ptr<Cylinder> cylinder_;
 
+    // GPU発生用エミッター本体
+    EmitterSphere emitterSphere_{};
+
+    // GPU発生用の時間情報
+    PerFrame perFrameForCS_{};
+
+    // Emitter用ConstantBuffer
+    Microsoft::WRL::ComPtr<ID3D12Resource> emitterResource_;
+    EmitterSphere* emitterData_ = nullptr;
+
+    // PerFrame用ConstantBuffer
+    Microsoft::WRL::ComPtr<ID3D12Resource> perFrameResourceForCS_;
+    PerFrame* perFrameDataForCS_ = nullptr;
+
+    // 空きindexを進めるためのCounter
+    Microsoft::WRL::ComPtr<ID3D12Resource> freeCounterResource_;
+    uint32_t freeCounterUavIndex_ = 0;
+    D3D12_GPU_DESCRIPTOR_HANDLE freeCounterUavHandleGPU_{};
+
 
 private:
     ParticleData MakeNewParticle();
     ParticleData MakeDeadParticle();
+
+    // GPU Particle 用 Resource と View を作る
+    void InitializeGPUParticleResource();
+
+    // VertexShader 用の PerView 定数バッファを作る
+    void InitializePerViewResource();
+
+    // ComputeShader で Particle を初期化する
+    void InitializeParticleCS();
+
+    // GPU発生用EmitterのConstantBufferを作る
+    void InitializeEmitterResource();
+
+    // GPU発生用PerFrameのConstantBufferを作る
+    void InitializePerFrameResourceForCS();
+
+    // GPU発生用CounterのUAVを作る
+    void InitializeFreeCounterResource();
+
+    // 毎フレームGPUでParticleを発生させる
+    void DispatchEmitParticleCS();
+
+    // 毎フレームGPUでParticleを更新する
+    void DispatchUpdateParticleCS();
+
 };

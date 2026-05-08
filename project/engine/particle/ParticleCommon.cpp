@@ -7,6 +7,13 @@ void ParticleCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
+    CreateInitializeParticleComputeRootSignature();
+    CreateInitializeParticleComputePipelineState();
+    CreateEmitParticleComputeRootSignature();
+    CreateEmitParticleComputePipelineState();
+    CreateUpdateParticleComputeRootSignature();
+    CreateUpdateParticleComputePipelineState();
+
 }
 
 void ParticleCommon::CommonDrawSetting()
@@ -42,7 +49,8 @@ void ParticleCommon::CreateRootSignature()
     ranges[1].NumDescriptors = 1;
     ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER params[2]{};
+    D3D12_ROOT_PARAMETER params[3]{};
+
 
     // param0 → t0 StructuredBuffer
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -55,6 +63,11 @@ void ParticleCommon::CreateRootSignature()
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     params[1].DescriptorTable.pDescriptorRanges = &ranges[1];
     params[1].DescriptorTable.NumDescriptorRanges = 1;
+
+    // param2 : b0 PerView
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    params[2].Descriptor.ShaderRegister = 0;
 
     // Sampler（s0）
     D3D12_STATIC_SAMPLER_DESC sampler{};
@@ -160,5 +173,288 @@ void ParticleCommon::CreateGraphicsPipelineState()
     desc.SampleDesc.Count = 1;
 
     HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// Particle 初期化用 ComputeShader の設定を commandList に入れる
+void ParticleCommon::InitializeParticleComputeSetting()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    commandList->SetComputeRootSignature(initializeParticleComputeRootSignature_.Get());
+    commandList->SetPipelineState(initializeParticleComputePipelineState_.Get());
+
+    // UAV を使うので DescriptorHeap を設定する
+    ID3D12DescriptorHeap* heaps[] = { srvManager_->GetDescriptorHeap() };
+    commandList->SetDescriptorHeaps(1, heaps);
+}
+
+// Particle初期化用ComputeShaderのRootSignatureを作る
+void ParticleCommon::CreateInitializeParticleComputeRootSignature()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    // u0 : Particle本体
+    D3D12_DESCRIPTOR_RANGE particleRange{};
+    particleRange.BaseShaderRegister = 0;
+    particleRange.NumDescriptors = 1;
+    particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    // u1 : 空きCounter
+    D3D12_DESCRIPTOR_RANGE counterRange{};
+    counterRange.BaseShaderRegister = 1;
+    counterRange.NumDescriptors = 1;
+    counterRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    counterRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[2]{};
+
+    // param0 : u0 Particle
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[0].DescriptorTable.pDescriptorRanges = &particleRange;
+
+    // param1 : u1 Counter
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = &counterRange;
+
+    D3D12_ROOT_SIGNATURE_DESC desc{};
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    desc.pParameters = rootParameters;
+    desc.NumParameters = _countof(rootParameters);
+    desc.pStaticSamplers = nullptr;
+    desc.NumStaticSamplers = 0;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+    HRESULT hr = D3D12SerializeRootSignature(
+        &desc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signatureBlob,
+        &errorBlob);
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        }
+        assert(false);
+    }
+
+    hr = device->CreateRootSignature(
+        0,
+        signatureBlob->GetBufferPointer(),
+        signatureBlob->GetBufferSize(),
+        IID_PPV_ARGS(initializeParticleComputeRootSignature_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// Particle 初期化用 ComputeShader の PipelineState を作る
+void ParticleCommon::CreateInitializeParticleComputePipelineState()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    auto cs = dxCommon_->CompileShader(
+        L"Resources/shaders/InitializeParticle.CS.hlsl",
+        L"cs_6_0");
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = initializeParticleComputeRootSignature_.Get();
+    desc.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
+
+    HRESULT hr = device->CreateComputePipelineState(
+        &desc,
+        IID_PPV_ARGS(initializeParticleComputePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// 毎フレームのParticle発生用ComputeShaderを設定する
+void ParticleCommon::InitializeEmitParticleComputeSetting()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    commandList->SetComputeRootSignature(emitParticleComputeRootSignature_.Get());
+    commandList->SetPipelineState(emitParticleComputePipelineState_.Get());
+
+    // UAVを使うのでDescriptorHeapも設定する
+    ID3D12DescriptorHeap* heaps[] = { srvManager_->GetDescriptorHeap() };
+    commandList->SetDescriptorHeaps(1, heaps);
+}
+
+// Particle発生用ComputeShaderのRootSignatureを作る
+void ParticleCommon::CreateEmitParticleComputeRootSignature()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    D3D12_DESCRIPTOR_RANGE particleRange{};
+    particleRange.BaseShaderRegister = 0;
+    particleRange.NumDescriptors = 1;
+    particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_DESCRIPTOR_RANGE counterRange{};
+    counterRange.BaseShaderRegister = 1;
+    counterRange.NumDescriptors = 1;
+    counterRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    counterRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[4]{};
+
+    // b0 : Emitter
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].Descriptor.ShaderRegister = 0;
+
+    // b1 : PerFrame
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].Descriptor.ShaderRegister = 1;
+
+    // u0 : Particle
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = &particleRange;
+
+    // u1 : Counter
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[3].DescriptorTable.pDescriptorRanges = &counterRange;
+
+    D3D12_ROOT_SIGNATURE_DESC desc{};
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    desc.pParameters = rootParameters;
+    desc.NumParameters = _countof(rootParameters);
+
+    Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+    HRESULT hr = D3D12SerializeRootSignature(
+        &desc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signatureBlob,
+        &errorBlob);
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        }
+        assert(false);
+    }
+
+    hr = device->CreateRootSignature(
+        0,
+        signatureBlob->GetBufferPointer(),
+        signatureBlob->GetBufferSize(),
+        IID_PPV_ARGS(emitParticleComputeRootSignature_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// Particle発生用ComputeShaderのPipelineStateを作る
+void ParticleCommon::CreateEmitParticleComputePipelineState()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    auto cs = dxCommon_->CompileShader(
+        L"Resources/shaders/EmitParticle.CS.hlsl",
+        L"cs_6_0");
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = emitParticleComputeRootSignature_.Get();
+    desc.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
+
+    HRESULT hr = device->CreateComputePipelineState(
+        &desc,
+        IID_PPV_ARGS(emitParticleComputePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// 毎フレームのParticle更新用ComputeShaderを設定する
+void ParticleCommon::InitializeUpdateParticleComputeSetting()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    commandList->SetComputeRootSignature(updateParticleComputeRootSignature_.Get());
+    commandList->SetPipelineState(updateParticleComputePipelineState_.Get());
+
+    // UAVを使うのでDescriptorHeapも設定する
+    ID3D12DescriptorHeap* heaps[] = { srvManager_->GetDescriptorHeap() };
+    commandList->SetDescriptorHeaps(1, heaps);
+}
+
+// Particle更新用ComputeShaderのRootSignatureを作る
+void ParticleCommon::CreateUpdateParticleComputeRootSignature()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    D3D12_DESCRIPTOR_RANGE particleRange{};
+    particleRange.BaseShaderRegister = 0;
+    particleRange.NumDescriptors = 1;
+    particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[2]{};
+
+    // b0 : PerFrame
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].Descriptor.ShaderRegister = 0;
+
+    // u0 : Particle
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = &particleRange;
+
+    D3D12_ROOT_SIGNATURE_DESC desc{};
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    desc.pParameters = rootParameters;
+    desc.NumParameters = _countof(rootParameters);
+
+    Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+    HRESULT hr = D3D12SerializeRootSignature(
+        &desc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signatureBlob,
+        &errorBlob);
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        }
+        assert(false);
+    }
+
+    hr = device->CreateRootSignature(
+        0,
+        signatureBlob->GetBufferPointer(),
+        signatureBlob->GetBufferSize(),
+        IID_PPV_ARGS(updateParticleComputeRootSignature_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// Particle更新用ComputeShaderのPipelineStateを作る
+void ParticleCommon::CreateUpdateParticleComputePipelineState()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    auto cs = dxCommon_->CompileShader(
+        L"Resources/shaders/UpdateParticle.CS.hlsl",
+        L"cs_6_0");
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = updateParticleComputeRootSignature_.Get();
+    desc.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
+
+    HRESULT hr = device->CreateComputePipelineState(
+        &desc,
+        IID_PPV_ARGS(updateParticleComputePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }

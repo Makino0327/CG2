@@ -18,6 +18,9 @@
     <FxCompile Include="Resources\shaders\Line3D.PS.hlsl" />
     <FxCompile Include="Resources\shaders\SkinningObject3d.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Skinning.CS.hlsl" />
+    <FxCompile Include="Resources\shaders\InitializeParticle.CS.hlsl" />
+    <FxCompile Include="Resources\shaders\EmitParticle.CS.hlsl" />
+    <FxCompile Include="Resources\shaders\UpdateParticle.CS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />

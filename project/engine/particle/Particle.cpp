@@ -78,6 +78,35 @@ void ParticleSystem::Initialize(
     instancingResource_ =
         dxCommon_->CreateBufferResource(sizeof(ParticleForGPU) * kNumInstance);
 
+    InitializeGPUParticleResource();
+    InitializePerViewResource();
+
+    // GPU発生用のEmitter情報を作る
+    InitializeEmitterResource();
+
+    // GPU発生用のPerFrame情報を作る
+    InitializePerFrameResourceForCS();
+
+    // GPU発生用の空きCounterを作る
+    InitializeFreeCounterResource();
+
+    // Particle本体とCounterを初期化する
+    InitializeParticleCS();
+
+
+    // Emitterの初期値を設定する
+    emitterSphere_.translate = { 0.0f, 0.0f, 0.0f };
+    emitterSphere_.radius = 1.0f;
+    emitterSphere_.count = 10;
+    emitterSphere_.frequency = 0.5f;
+    emitterSphere_.frequencyTime = 0.0f;
+    emitterSphere_.emit = 0;
+
+    // PerFrameの初期値を設定する
+    perFrameForCS_.time = 0.0f;
+    perFrameForCS_.deltaTime = 0.0f;
+
+
     instancingResource_->Map(
         0, nullptr,
         reinterpret_cast<void**>(&instancingData_));
@@ -271,6 +300,11 @@ void ParticleSystem::Update(float deltaTime)
 {
     if (!camera_) { return; }
 
+    // VertexShader で使うビュー情報を更新する
+    perViewData_->viewProjection = camera_->GetViewProjectionMatrix();
+    perViewData_->billboardMatrix = camera_->GetBillboardMatrix();
+
+
     // // Cylinder は動かさず、その場に1本だけ置く
     if (meshType_ == EffectMeshType::Cylinder) {
         for (uint32_t i = 0; i < kNumInstance; ++i) {
@@ -306,74 +340,95 @@ void ParticleSystem::Update(float deltaTime)
     }
 
 
-    // 同じ位置からまとめてパーティクルを発生させる
-    if (isEmitting_) {
-        emitTimer_ += deltaTime;
+    // ImGuiで動かした位置をEmitterにも反映する
+    emitterSphere_.translate = emitterPosition_;
 
-        if (emitTimer_ >= emitInterval_) {
-            emitTimer_ = 0.0f;
+    // GPUへ送る時間情報を更新する
+    perFrameForCS_.time += deltaTime;
+    perFrameForCS_.deltaTime = deltaTime;
 
-            for (int i = 0; i < emitCount_; ++i) {
-                particles_[emitCursor_] = MakeNewParticle();
-                emitCursor_ = (emitCursor_ + 1) % kNumInstance;
-            }
-        }
+    // Emitterの経過時間を進める
+    emitterSphere_.frequencyTime += deltaTime;
+
+    // 指定時間を超えたら今フレーム発生する
+    if (emitterSphere_.frequency <= emitterSphere_.frequencyTime) {
+        emitterSphere_.frequencyTime -= emitterSphere_.frequency;
+        emitterSphere_.emit = 1;
+    } else {
+        emitterSphere_.emit = 0;
     }
 
-    for (uint32_t i = 0; i < kNumInstance; ++i) {
-        ParticleData& p = particles_[i];
-
-        // 非アクティブなものは透明のままにする
-        if (!p.isAlive) {
-            instancingData_[i].World = MakeIdentity4x4();
-            instancingData_[i].WVP = MakeIdentity4x4();
-            instancingData_[i].color = { 1.0f, 1.0f, 1.0f, 0.0f };
-            continue;
-        }
-
-        // 寿命切れのものは非表示へ戻す
-        p.currentTime += deltaTime;
-        if (p.currentTime > p.lifeTime) {
-            p = MakeDeadParticle();
-            instancingData_[i].World = MakeIdentity4x4();
-            instancingData_[i].WVP = MakeIdentity4x4();
-            instancingData_[i].color = { 1.0f, 1.0f, 1.0f, 0.0f };
-            continue;
-        }
-
-        // 速度を持つプリセットだけ移動させる
-        p.transform.translate.x += p.velocity.x * deltaTime;
-        p.transform.translate.y += p.velocity.y * deltaTime;
-        p.transform.translate.z += p.velocity.z * deltaTime;
-
-        // 板ポリをカメラ正面へ向ける
-        Matrix4x4 backToFrontMatrix = MakeRotateYMatrix(std::numbers::pi_v<float>);
-        Matrix4x4 billboard = camera_->GetBillboardMatrix();
-
-        Matrix4x4 worldNoBillboard =
-            MakeAffineMatrix(
-                p.transform.scale,
-                p.transform.rotate,
-                p.transform.translate);
-
-        Matrix4x4 world = Multiply(worldNoBillboard, backToFrontMatrix);
-        world = Multiply(world, billboard);
-
-        Matrix4x4 viewProjection = camera_->GetViewProjectionMatrix();
-        Matrix4x4 wvp = Multiply(world, viewProjection);
-
-        // GPU へインスタンス情報を書き込む
-        instancingData_[i].World = world;
-        instancingData_[i].WVP = wvp;
-
-        float t = p.currentTime / p.lifeTime;
-        if (t > 1.0f) { t = 1.0f; }
-
-        // 生存時間に応じてフェードアウトさせる
-        float alpha = 1.0f - t;
-        instancingData_[i].color = p.color;
-        instancingData_[i].color.w = alpha;
+    // EmittingがOFFなら発生フラグを落とす
+    if (!isEmitting_) {
+        emitterSphere_.emit = 0;
     }
+
+    // CPU側の最新値をConstantBufferへ反映する
+    *emitterData_ = emitterSphere_;
+    *perFrameDataForCS_ = perFrameForCS_;
+
+    // 毎フレームGPUでParticleを発生させる
+    DispatchEmitParticleCS();
+
+    // 毎フレームGPUでParticleを移動・寿命更新する
+    DispatchUpdateParticleCS();
+
+
+
+    //for (uint32_t i = 0; i < kNumInstance; ++i) {
+    //    ParticleData& p = particles_[i];
+
+    //    // 非アクティブなものは透明のままにする
+    //    if (!p.isAlive) {
+    //        instancingData_[i].World = MakeIdentity4x4();
+    //        instancingData_[i].WVP = MakeIdentity4x4();
+    //        instancingData_[i].color = { 1.0f, 1.0f, 1.0f, 0.0f };
+    //        continue;
+    //    }
+
+    //    // 寿命切れのものは非表示へ戻す
+    //    p.currentTime += deltaTime;
+    //    if (p.currentTime > p.lifeTime) {
+    //        p = MakeDeadParticle();
+    //        instancingData_[i].World = MakeIdentity4x4();
+    //        instancingData_[i].WVP = MakeIdentity4x4();
+    //        instancingData_[i].color = { 1.0f, 1.0f, 1.0f, 0.0f };
+    //        continue;
+    //    }
+
+    //    // 速度を持つプリセットだけ移動させる
+    //    p.transform.translate.x += p.velocity.x * deltaTime;
+    //    p.transform.translate.y += p.velocity.y * deltaTime;
+    //    p.transform.translate.z += p.velocity.z * deltaTime;
+
+    //    // 板ポリをカメラ正面へ向ける
+    //    Matrix4x4 backToFrontMatrix = MakeRotateYMatrix(std::numbers::pi_v<float>);
+    //    Matrix4x4 billboard = camera_->GetBillboardMatrix();
+
+    //    Matrix4x4 worldNoBillboard =
+    //        MakeAffineMatrix(
+    //            p.transform.scale,
+    //            p.transform.rotate,
+    //            p.transform.translate);
+
+    //    Matrix4x4 world = Multiply(worldNoBillboard, backToFrontMatrix);
+    //    world = Multiply(world, billboard);
+
+    //    Matrix4x4 viewProjection = camera_->GetViewProjectionMatrix();
+    //    Matrix4x4 wvp = Multiply(world, viewProjection);
+
+    //    // GPU へインスタンス情報を書き込む
+    //    instancingData_[i].World = world;
+    //    instancingData_[i].WVP = wvp;
+
+    //    float t = p.currentTime / p.lifeTime;
+    //    if (t > 1.0f) { t = 1.0f; }
+
+    //    // 生存時間に応じてフェードアウトさせる
+    //    float alpha = 1.0f - t;
+    //    instancingData_[i].color = p.color;
+    //    instancingData_[i].color.w = alpha;
+    //}
 }
 
 void ParticleSystem::Draw()
@@ -382,13 +437,22 @@ void ParticleSystem::Draw()
     ID3D12GraphicsCommandList* cmd = dxCommon_->GetCommandList();
 
     // t0: インスタンシング用 StructuredBuffer
-    cmd->SetGraphicsRootDescriptorTable(0, instancingSrvHandleGPU_);
+       // t0 : GPU Particle 配列
+    cmd->SetGraphicsRootDescriptorTable(0, particleSrvHandleGPU_);
+
 
     // t1: パーティクル用テクスチャ
     TextureManager* texMan = TextureManager::GetInstance();
     D3D12_GPU_DESCRIPTOR_HANDLE texHandle =
         texMan->GetSrvHandleGPU(textureFilePath_);
+    // t1 : パーティクル用テクスチャ
     cmd->SetGraphicsRootDescriptorTable(1, texHandle);
+
+    // b0 : VertexShader 用の PerView
+    cmd->SetGraphicsRootConstantBufferView(
+        2,
+        perViewResource_->GetGPUVirtualAddress());
+
 
     // 形状の種類に応じて描画方法を切り替える
     if (meshType_ == EffectMeshType::Plane) {
@@ -424,11 +488,14 @@ void ParticleSystem::ShowImGui(const char* windowName)
 
     // // エミッター位置を調整する
     ImGui::DragFloat3("Emitter Pos", &emitterPosition_.x, 0.1f);
+    // GPU発生用Emitterの半径を調整する
+    ImGui::SliderFloat("Emitter Radius", &emitterSphere_.radius, 0.0f, 5.0f);
 
     // // 放出設定を調整する
     ImGui::Checkbox("Is Emitting", &isEmitting_);
-    ImGui::SliderFloat("Emit Interval", &emitInterval_, 0.01f, 1.0f);
-    ImGui::SliderInt("Emit Count", &emitCount_, 1, 10);
+    ImGui::SliderFloat("Emit Interval", &emitterSphere_.frequency, 0.01f, 1.0f);
+    ImGui::SliderInt("Emit Count", reinterpret_cast<int*>(&emitterSphere_.count), 1, 10);
+
 
     // // 速度を調整する
     ImGui::SliderFloat("Velocity Range", &emitterParam_.velocityRange, 0.0f, 10.0f);
@@ -487,4 +554,250 @@ void ParticleSystem::SetMeshType(EffectMeshType type)
     for (uint32_t i = 0; i < kNumInstance; ++i) {
         particles_[i] = MakeDeadParticle();
     }
+}
+
+// GPU Particle 用 Resource と View を作る
+void ParticleSystem::InitializeGPUParticleResource()
+{
+    // GPU が自由に読み書きできる Particle 配列を作る
+    particleResource_ =
+        dxCommon_->CreateUAVBufferResource(sizeof(ParticleCS) * kNumInstance);
+
+    // SRV と UAV の index を確保する
+    particleSrvIndex_ = srvManager_->Allocate();
+    particleUavIndex_ = srvManager_->Allocate();
+
+    // GPU ハンドルを保存しておく
+    particleSrvHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(particleSrvIndex_);
+    particleUavHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(particleUavIndex_);
+
+    // VertexShader から読むための SRV を作る
+    srvManager_->CreateSRVforStructuredBuffer(
+        particleSrvIndex_,
+        particleResource_.Get(),
+        kNumInstance,
+        sizeof(ParticleCS));
+
+    // ComputeShader から書くための UAV を作る
+    srvManager_->CreateUAVforStructuredBuffer(
+        particleUavIndex_,
+        particleResource_.Get(),
+        kNumInstance,
+        sizeof(ParticleCS));
+}
+
+// VertexShader 用の PerView 定数バッファを作る
+void ParticleSystem::InitializePerViewResource()
+{
+    perViewResource_ =
+        dxCommon_->CreateBufferResource(sizeof(ParticlePerView));
+
+    perViewResource_->Map(
+        0,
+        nullptr,
+        reinterpret_cast<void**>(&perViewData_));
+
+    perViewData_->viewProjection = MakeIdentity4x4();
+    perViewData_->billboardMatrix = MakeIdentity4x4();
+}
+
+// ComputeShader で Particle を初期化する
+void ParticleSystem::InitializeParticleCS()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    // ComputeShader 用の RootSignature と PSO を設定する
+    particleCommon_->InitializeParticleComputeSetting();
+
+    // Particle Resource を UAV 書き込み用状態へ遷移する
+    D3D12_RESOURCE_BARRIER barrierToUav{};
+    barrierToUav.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToUav.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToUav.Transition.pResource = particleResource_.Get();
+    barrierToUav.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barrierToUav.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToUav);
+
+    // u0 : Particle 配列
+        // u0 : Particleデータ
+    commandList->SetComputeRootDescriptorTable(0, particleUavHandleGPU_);
+
+    // u1 : 空きCounter
+    commandList->SetComputeRootDescriptorTable(1, freeCounterUavHandleGPU_);
+
+
+    // 10 個の Particle を初期化するので 1 グループだけ起動する
+    commandList->Dispatch((kNumInstance + 255) / 256, 1, 1);
+
+
+    // UAV 書き込み完了を保証する
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    uavBarrier.UAV.pResource = particleResource_.Get();
+    commandList->ResourceBarrier(1, &uavBarrier);
+
+    // VertexShader から読める状態へ戻す
+    D3D12_RESOURCE_BARRIER barrierToSrv{};
+    barrierToSrv.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToSrv.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToSrv.Transition.pResource = particleResource_.Get();
+    barrierToSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+    barrierToSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToSrv);
+}
+
+// GPU発生用EmitterのConstantBufferを作る
+void ParticleSystem::InitializeEmitterResource()
+{
+    emitterResource_ = dxCommon_->CreateBufferResource(sizeof(EmitterSphere));
+
+    emitterResource_->Map(
+        0,
+        nullptr,
+        reinterpret_cast<void**>(&emitterData_));
+
+    // 初期値を入れておく
+    *emitterData_ = emitterSphere_;
+}
+
+// GPU発生用PerFrameのConstantBufferを作る
+void ParticleSystem::InitializePerFrameResourceForCS()
+{
+    perFrameResourceForCS_ = dxCommon_->CreateBufferResource(sizeof(PerFrame));
+
+    perFrameResourceForCS_->Map(
+        0,
+        nullptr,
+        reinterpret_cast<void**>(&perFrameDataForCS_));
+
+    // 初期値を入れておく
+    *perFrameDataForCS_ = perFrameForCS_;
+}
+
+// GPU発生用CounterのUAVを作る
+void ParticleSystem::InitializeFreeCounterResource()
+{
+    // int32_tを1個だけ持つUAVバッファを作る
+    freeCounterResource_ = dxCommon_->CreateUAVBufferResource(sizeof(int32_t));
+
+    // Counter用のUAV indexを確保する
+    freeCounterUavIndex_ = srvManager_->Allocate();
+
+    // GPUハンドルを保存する
+    freeCounterUavHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(freeCounterUavIndex_);
+
+    // 要素数1、strideがint32_tのUAVを作る
+    srvManager_->CreateUAVforStructuredBuffer(
+        freeCounterUavIndex_,
+        freeCounterResource_.Get(),
+        1,
+        sizeof(int32_t));
+}
+
+// 毎フレームGPUでParticleを発生させる
+void ParticleSystem::DispatchEmitParticleCS()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    // 発生用ComputeShaderを使う設定にする
+    particleCommon_->InitializeEmitParticleComputeSetting();
+
+    // Particle ResourceをUAVとして使える状態へ遷移する
+    D3D12_RESOURCE_BARRIER barrierToUav{};
+    barrierToUav.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToUav.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToUav.Transition.pResource = particleResource_.Get();
+    barrierToUav.Transition.StateBefore = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+    barrierToUav.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToUav);
+
+    // b0 : Emitter
+    commandList->SetComputeRootConstantBufferView(
+        0,
+        emitterResource_->GetGPUVirtualAddress());
+
+    // b1 : PerFrame
+    commandList->SetComputeRootConstantBufferView(
+        1,
+        perFrameResourceForCS_->GetGPUVirtualAddress());
+
+    // u0 : Particle
+    commandList->SetComputeRootDescriptorTable(2, particleUavHandleGPU_);
+
+    // u1 : Counter
+    commandList->SetComputeRootDescriptorTable(3, freeCounterUavHandleGPU_);
+
+    // Emitterは1個だけなので1thread groupでよい
+    commandList->Dispatch(1, 1, 1);
+
+    // UAVの書き込み完了を保証する
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    uavBarrier.UAV.pResource = particleResource_.Get();
+    commandList->ResourceBarrier(1, &uavBarrier);
+
+    // 描画でSRVとして読むため戻す
+    D3D12_RESOURCE_BARRIER barrierToSrv{};
+    barrierToSrv.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToSrv.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToSrv.Transition.pResource = particleResource_.Get();
+    barrierToSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+    barrierToSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToSrv);
+}
+
+// 毎フレームGPUでParticleを更新する
+void ParticleSystem::DispatchUpdateParticleCS()
+{
+    ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+    // 更新用ComputeShaderを使う設定にする
+    particleCommon_->InitializeUpdateParticleComputeSetting();
+
+    // Particle ResourceをUAVとして使える状態へ遷移する
+    D3D12_RESOURCE_BARRIER barrierToUav{};
+    barrierToUav.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToUav.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToUav.Transition.pResource = particleResource_.Get();
+    barrierToUav.Transition.StateBefore = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+    barrierToUav.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToUav);
+
+    // b0 : PerFrame
+    commandList->SetComputeRootConstantBufferView(
+        0,
+        perFrameResourceForCS_->GetGPUVirtualAddress());
+
+    // u0 : Particle
+    commandList->SetComputeRootDescriptorTable(1, particleUavHandleGPU_);
+
+    // 1024個を256threadずつで更新する
+    commandList->Dispatch((kNumInstance + 255) / 256, 1, 1);
+
+    // UAVの書き込み完了を保証する
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    uavBarrier.UAV.pResource = particleResource_.Get();
+    commandList->ResourceBarrier(1, &uavBarrier);
+
+    // 描画でSRVとして読むため戻す
+    D3D12_RESOURCE_BARRIER barrierToSrv{};
+    barrierToSrv.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrierToSrv.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrierToSrv.Transition.pResource = particleResource_.Get();
+    barrierToSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    barrierToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+    barrierToSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &barrierToSrv);
 }
