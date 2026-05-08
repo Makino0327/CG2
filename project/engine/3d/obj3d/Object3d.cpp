@@ -318,13 +318,6 @@ void Object3d::DrawInstanced(UINT instanceCount)
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
 
-    if (hasSkinCluster_) {
-        // Skinning 用の MatrixPalette を t0 に設定する
-        commandList->SetGraphicsRootDescriptorTable(
-            4,
-            skinCluster_.paletteSrvHandle.second);
-    }
-
     if (model_) {
         // モデルに設定されているテクスチャを t1 に設定する
         commandList->SetGraphicsRootDescriptorTable(
@@ -386,6 +379,11 @@ void Object3d::ApplySkinningCompute()
 
     const ModelData& modelData = model_->GetModelData();
     uint32_t vertexCount = GetSkinClusterVertexCount(modelData);
+
+    // 頂点が無い場合は ComputeShader を起動しない
+    if (vertexCount == 0) {
+        return;
+    }
 
     // ComputeShader に渡す頂点数を更新する
     skinningInformationData_->numVertices = vertexCount;

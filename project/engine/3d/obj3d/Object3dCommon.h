@@ -10,7 +10,6 @@ public:
     void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
 
     void CommonDrawSetting();
-    void SkinningDrawSetting();
 
     DirectXCommon* GetDxCommon() const { return dxCommon_; }
 
@@ -38,7 +37,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
     Camera* defaultCamera_ = nullptr;
     SrvManager* srvManager_ = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningComputeRootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningComputePipelineState_;
 

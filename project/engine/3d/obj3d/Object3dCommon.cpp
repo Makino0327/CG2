@@ -169,35 +169,6 @@ void Object3dCommon::CreateGraphicsPipelineState()
     inputLayout.pInputElementDescs = inputElementDescs;
     inputLayout.NumElements = _countof(inputElementDescs);
 
-    // Skinning 用の入力レイアウト
-    D3D12_INPUT_ELEMENT_DESC skinningInputElementDescs[] =
-    {
-        // POSITION
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0,
-          D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-
-          // TEXCOORD
-          { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
-            D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-
-            // NORMAL
-            { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0,
-              D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-
-              // WEIGHT
-              { "WEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1,
-                D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-
-                // INDEX
-                { "INDEX", 0, DXGI_FORMAT_R32G32B32A32_SINT, 1,
-                  D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-
-    D3D12_INPUT_LAYOUT_DESC skinningInputLayout{};
-    skinningInputLayout.pInputElementDescs = skinningInputElementDescs;
-    skinningInputLayout.NumElements = _countof(skinningInputElementDescs);
-
-
     // --- ブレンド ---
     D3D12_BLEND_DESC blendDesc{};
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
@@ -218,10 +189,6 @@ void Object3dCommon::CreateGraphicsPipelineState()
         // 通常描画用 shader
     auto vs = dxCommon_->CompileShader(L"Resources/shaders/Object3D.VS.hlsl", L"vs_6_0");
     auto ps = dxCommon_->CompileShader(L"Resources/shaders/Object3D.PS.hlsl", L"ps_6_0");
-
-    // Skinning 描画用 shader
-    auto skinningVs = dxCommon_->CompileShader(L"Resources/shaders/SkinningObject3d.VS.hlsl", L"vs_6_0");
-
 
     // --- PSO 設定 ---
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
@@ -249,20 +216,6 @@ void Object3dCommon::CreateGraphicsPipelineState()
     desc.SampleDesc.Count = 1;
 
     HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
-    assert(SUCCEEDED(hr));
-
-    // Skinning 用 PSO を作る
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC skinningDesc = desc;
-
-    // Skinning 用の InputLayout を使う
-    skinningDesc.InputLayout = skinningInputLayout;
-
-    // Skinning 用の VS を使う
-    skinningDesc.VS = { skinningVs->GetBufferPointer(), skinningVs->GetBufferSize() };
-
-    hr = device->CreateGraphicsPipelineState(
-        &skinningDesc,
-        IID_PPV_ARGS(skinningPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
 }

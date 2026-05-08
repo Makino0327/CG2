@@ -10,11 +10,9 @@ public:
 	void Initialize(ModelCommon* modelCommon,const std::string& directorypath,const std::string& filename);
 
 	void Draw();
-	void Draw(const D3D12_VERTEX_BUFFER_VIEW& influenceBufferView);
 
 	// インスタンシング用
 	void DrawInstanced(UINT instanceCount);
-	void DrawInstanced(UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW& influenceBufferView);
 
 
 	static ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename);
@@ -26,7 +24,6 @@ public:
 	// 読み込んだモデルデータを参照する
 	const ModelData& GetModelData() const { return modelData_; }
 	// ComputeShader で使う元頂点バッファ SRV の GPU ハンドルを返す
-	D3D12_GPU_DESCRIPTOR_HANDLE GetVertexSrvHandleGPU(size_t meshIndex) const { return vertexSrvHandlesGPU_[meshIndex]; }
 
 	// ComputeShader で作った変形済み頂点バッファを使って描画する
 	void DrawWithSkinnedVertexBuffer(const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView);

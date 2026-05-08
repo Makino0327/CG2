@@ -961,6 +961,11 @@ void Model::InitializeVertexBuffer()
 			mesh.vertices.end());
 	}
 
+	// 頂点が無い場合は ComputeShader 用バッファを作らない
+	if (combinedVertices.empty()) {
+		return;
+	}
+
 	size_t combinedBufferSize = sizeof(VertexData) * combinedVertices.size();
 
 	combinedVertexBuffer_ = dxCommon->CreateBufferResource(combinedBufferSize);
@@ -1078,6 +1083,7 @@ void Model::InitializeIndexBuffer()
 	}
 }
 
+#if 0
 void Model::Draw(const D3D12_VERTEX_BUFFER_VIEW& influenceBufferView)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
@@ -1153,6 +1159,7 @@ void Model::DrawInstanced(UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW& in
 }
 
 // ComputeShader で作った変形済み頂点バッファを使って描画する
+#endif
 void Model::DrawWithSkinnedVertexBuffer(const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
