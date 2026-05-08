@@ -91,6 +91,23 @@ SkinCluster CreateSkinCluster(
         nullptr,
         reinterpret_cast<void**>(&mappedInfluence));
 
+    // influence 用の SRV index を確保する
+    skinCluster.influenceSrvIndex = srvManager->Allocate();
+
+    // influence 用の CPU / GPU ハンドルを取得する
+    skinCluster.influenceSrvHandle.first =
+        srvManager->GetCPUDescriptorHandle(skinCluster.influenceSrvIndex);
+    skinCluster.influenceSrvHandle.second =
+        srvManager->GetGPUDescriptorHandle(skinCluster.influenceSrvIndex);
+
+    // influence を StructuredBuffer の SRV として作成する
+    srvManager->CreateSRVforStructuredBuffer(
+        skinCluster.influenceSrvIndex,
+        skinCluster.influenceResource.Get(),
+        vertexCount,
+        sizeof(VertexInfluence));
+
+
     skinCluster.mappedInfluence = { mappedInfluence, vertexCount };
 
     // まず全部を空にする
@@ -108,6 +125,34 @@ SkinCluster CreateSkinCluster(
     skinCluster.influenceBufferView.SizeInBytes =
         UINT(sizeof(VertexInfluence) * vertexCount);
     skinCluster.influenceBufferView.StrideInBytes = sizeof(VertexInfluence);
+
+    // ComputeShader が書き込む変形済み頂点バッファを作る
+    skinCluster.skinnedVertexResource =
+        dxCommon->CreateUAVBufferResource(sizeof(VertexData) * vertexCount);
+
+    // 変形済み頂点バッファ用の UAV index を確保する
+    skinCluster.skinnedVertexUavIndex = srvManager->Allocate();
+
+    // UAV の CPU / GPU ハンドルを取得する
+    skinCluster.skinnedVertexUavHandle.first =
+        srvManager->GetCPUDescriptorHandle(skinCluster.skinnedVertexUavIndex);
+    skinCluster.skinnedVertexUavHandle.second =
+        srvManager->GetGPUDescriptorHandle(skinCluster.skinnedVertexUavIndex);
+
+    // StructuredBuffer として UAV を作成する
+    srvManager->CreateUAVforStructuredBuffer(
+        skinCluster.skinnedVertexUavIndex,
+        skinCluster.skinnedVertexResource.Get(),
+        vertexCount,
+        sizeof(VertexData));
+
+    // 描画時に使う VertexBufferView を設定する
+    skinCluster.skinnedVertexBufferView.BufferLocation =
+        skinCluster.skinnedVertexResource->GetGPUVirtualAddress();
+    skinCluster.skinnedVertexBufferView.SizeInBytes =
+        UINT(sizeof(VertexData) * vertexCount);
+    skinCluster.skinnedVertexBufferView.StrideInBytes = sizeof(VertexData);
+
 
     // inverseBindPoseMatrix を Joint 数ぶん確保して単位行列で初期化する
     skinCluster.inverseBindPoseMatrices.resize(jointCount);

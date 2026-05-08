@@ -102,6 +102,19 @@ public:
 	bool HasSkinCluster() const { return hasSkinCluster_; }
 
 private:
+	// ComputeShader に渡す頂点数情報
+	struct SkinningInformationForGPU {
+		uint32_t numVertices;
+		uint32_t padding[3];
+	};
+
+	// ComputeShader 用の定数バッファを初期化する
+	void InitializeSkinningInformation();
+
+	// ComputeShader でスキニングを実行する
+	void ApplySkinningCompute();
+
+private:
 	// 3Dオブジェクト共通処理
 	Object3dCommon* object3dCommon_ = nullptr;
 
@@ -142,6 +155,11 @@ private:
 
 	// Skinning を持つモデルかどうか
 	bool hasSkinCluster_ = false;
+	// ComputeShader に渡す頂点数情報の定数バッファ
+	Microsoft::WRL::ComPtr<ID3D12Resource> skinningInformationResource_;
+
+	// ComputeShader に渡す頂点数情報の書き込み先
+	SkinningInformationForGPU* skinningInformationData_ = nullptr;
 
 };
 

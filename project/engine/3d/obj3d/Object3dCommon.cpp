@@ -11,6 +11,10 @@ void Object3dCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
+
+    CreateSkinningComputeRootSignature();
+    CreateSkinningComputePipelineState();
+
 }
 
 
@@ -263,17 +267,132 @@ void Object3dCommon::CreateGraphicsPipelineState()
 
 }
 
-void Object3dCommon::SkinningDrawSetting()
+// ComputeShader 用の設定を commandList に入れる
+void Object3dCommon::SkinningComputeSetting()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-    commandList->SetGraphicsRootSignature(rootSignature_.Get());
-    commandList->SetPipelineState(skinningPipelineState_.Get());
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    commandList->SetComputeRootSignature(skinningComputeRootSignature_.Get());
+    commandList->SetPipelineState(skinningComputePipelineState_.Get());
 
-    // 共有 SRV ヒープを設定する
+    // SRV / UAV を使うので DescriptorHeap を設定する
     ID3D12DescriptorHeap* heaps[] = {
         TextureManager::GetInstance()->GetSrvManager()->GetDescriptorHeap()
     };
     commandList->SetDescriptorHeaps(1, heaps);
+}
+
+// ComputeShader 用の RootSignature を作る
+void Object3dCommon::CreateSkinningComputeRootSignature()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    // t0 : MatrixPalette
+    D3D12_DESCRIPTOR_RANGE matrixPaletteRange{};
+    matrixPaletteRange.BaseShaderRegister = 0;
+    matrixPaletteRange.NumDescriptors = 1;
+    matrixPaletteRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    matrixPaletteRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    // t1 : InputVertices
+    D3D12_DESCRIPTOR_RANGE inputVertexRange{};
+    inputVertexRange.BaseShaderRegister = 1;
+    inputVertexRange.NumDescriptors = 1;
+    inputVertexRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    inputVertexRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    // t2 : Influences
+    D3D12_DESCRIPTOR_RANGE influenceRange{};
+    influenceRange.BaseShaderRegister = 2;
+    influenceRange.NumDescriptors = 1;
+    influenceRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    influenceRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    // u0 : OutputVertices
+    D3D12_DESCRIPTOR_RANGE outputVertexRange{};
+    outputVertexRange.BaseShaderRegister = 0;
+    outputVertexRange.NumDescriptors = 1;
+    outputVertexRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    outputVertexRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[5]{};
+
+    // t0
+    rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[0].DescriptorTable.pDescriptorRanges = &matrixPaletteRange;
+
+    // t1
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = &inputVertexRange;
+
+    // t2
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = &influenceRange;
+
+    // u0
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[3].DescriptorTable.pDescriptorRanges = &outputVertexRange;
+
+    // b0
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[4].Descriptor.ShaderRegister = 0;
+
+    D3D12_ROOT_SIGNATURE_DESC desc{};
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    desc.pParameters = rootParameters;
+    desc.NumParameters = _countof(rootParameters);
+    desc.pStaticSamplers = nullptr;
+    desc.NumStaticSamplers = 0;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+
+    HRESULT hr = D3D12SerializeRootSignature(
+        &desc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signatureBlob,
+        &errorBlob);
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+        }
+        assert(false);
+    }
+
+    hr = device->CreateRootSignature(
+        0,
+        signatureBlob->GetBufferPointer(),
+        signatureBlob->GetBufferSize(),
+        IID_PPV_ARGS(skinningComputeRootSignature_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+}
+
+// ComputeShader 用の PipelineState を作る
+void Object3dCommon::CreateSkinningComputePipelineState()
+{
+    ID3D12Device* device = dxCommon_->GetDevice();
+
+    // ComputeShader をコンパイルする
+    auto cs = dxCommon_->CompileShader(
+        L"Resources/shaders/Skinning.CS.hlsl",
+        L"cs_6_0");
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
+    desc.pRootSignature = skinningComputeRootSignature_.Get();
+    desc.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
+
+    HRESULT hr = device->CreateComputePipelineState(
+        &desc,
+        IID_PPV_ARGS(skinningComputePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
 }

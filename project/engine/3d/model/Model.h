@@ -25,6 +25,18 @@ public:
 
 	// 読み込んだモデルデータを参照する
 	const ModelData& GetModelData() const { return modelData_; }
+	// ComputeShader で使う元頂点バッファ SRV の GPU ハンドルを返す
+	D3D12_GPU_DESCRIPTOR_HANDLE GetVertexSrvHandleGPU(size_t meshIndex) const { return vertexSrvHandlesGPU_[meshIndex]; }
+
+	// ComputeShader で作った変形済み頂点バッファを使って描画する
+	void DrawWithSkinnedVertexBuffer(const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView);
+
+	// ComputeShader で作った変形済み頂点バッファを使って instancing 描画する
+	void DrawInstancedWithSkinnedVertexBuffer(
+		UINT instanceCount,
+		const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView);
+	// ComputeShader 用の全頂点連結バッファの SRV を返す
+	D3D12_GPU_DESCRIPTOR_HANDLE GetCombinedVertexSrvHandleGPU() const { return combinedVertexSrvHandleGPU_; }
 
 private:
 	// 頂点バッファ作成
@@ -57,6 +69,20 @@ private:
 
 	// 各 mesh 用の index buffer view
 	std::vector<D3D12_INDEX_BUFFER_VIEW> indexBufferViews_;
+
+	// 各 mesh の元頂点バッファ用 SRV index
+	std::vector<uint32_t> vertexSrvIndices_;
+
+	// 各 mesh の元頂点バッファ用 SRV の GPU ハンドル
+	std::vector<D3D12_GPU_DESCRIPTOR_HANDLE> vertexSrvHandlesGPU_;
+	// ComputeShader 用の全頂点連結バッファ
+	Microsoft::WRL::ComPtr<ID3D12Resource> combinedVertexBuffer_;
+
+	// ComputeShader 用の全頂点連結バッファの SRV index
+	uint32_t combinedVertexSrvIndex_ = 0;
+
+	// ComputeShader 用の全頂点連結バッファの GPU ハンドル
+	D3D12_GPU_DESCRIPTOR_HANDLE combinedVertexSrvHandleGPU_{};
 
 };
 

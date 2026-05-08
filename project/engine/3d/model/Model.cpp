@@ -906,6 +906,9 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 
 void Model::InitializeVertexBuffer()
 {
+	vertexSrvIndices_.resize(modelData_.meshes.size());
+	vertexSrvHandlesGPU_.resize(modelData_.meshes.size());
+
 	DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
 
 	vertexBuffers_.clear();
@@ -930,7 +933,57 @@ void Model::InitializeVertexBuffer()
 		vertexBufferViews_[i].BufferLocation = vertexBuffers_[i]->GetGPUVirtualAddress();
 		vertexBufferViews_[i].SizeInBytes = static_cast<UINT>(bufferSize);
 		vertexBufferViews_[i].StrideInBytes = sizeof(VertexData);
+
+		// 元頂点バッファ用の SRV index を確保する
+		vertexSrvIndices_[i] = modelCommon_->GetSrvManager()->Allocate();
+
+		// 元頂点バッファ用の GPU ハンドルを保存する
+		vertexSrvHandlesGPU_[i] =
+			modelCommon_->GetSrvManager()->GetGPUDescriptorHandle(vertexSrvIndices_[i]);
+
+		// 元頂点バッファを StructuredBuffer の SRV として作成する
+		modelCommon_->GetSrvManager()->CreateSRVforStructuredBuffer(
+			vertexSrvIndices_[i],
+			vertexBuffers_[i].Get(),
+			static_cast<UINT>(vertices.size()),
+			sizeof(VertexData));
+
+
 	}
+
+	// ComputeShader 用に全 mesh の頂点を 1 本へ連結する
+	std::vector<VertexData> combinedVertices;
+
+	for (const auto& mesh : modelData_.meshes) {
+		combinedVertices.insert(
+			combinedVertices.end(),
+			mesh.vertices.begin(),
+			mesh.vertices.end());
+	}
+
+	size_t combinedBufferSize = sizeof(VertexData) * combinedVertices.size();
+
+	combinedVertexBuffer_ = dxCommon->CreateBufferResource(combinedBufferSize);
+
+	VertexData* mappedCombined = nullptr;
+	combinedVertexBuffer_->Map(0, nullptr, reinterpret_cast<void**>(&mappedCombined));
+	std::memcpy(mappedCombined, combinedVertices.data(), combinedBufferSize);
+	combinedVertexBuffer_->Unmap(0, nullptr);
+
+	// 全頂点連結バッファ用の SRV index を確保する
+	combinedVertexSrvIndex_ = modelCommon_->GetSrvManager()->Allocate();
+
+	// 全頂点連結バッファ用の GPU ハンドルを保存する
+	combinedVertexSrvHandleGPU_ =
+		modelCommon_->GetSrvManager()->GetGPUDescriptorHandle(combinedVertexSrvIndex_);
+
+	// 全頂点連結バッファを StructuredBuffer の SRV として作成する
+	modelCommon_->GetSrvManager()->CreateSRVforStructuredBuffer(
+		combinedVertexSrvIndex_,
+		combinedVertexBuffer_.Get(),
+		static_cast<UINT>(combinedVertices.size()),
+		sizeof(VertexData));
+
 }
 
 void Model::InitializeMaterial()
@@ -1090,6 +1143,68 @@ void Model::DrawInstanced(UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW& in
 				0);
 		} else {
 			// index が無い場合は通常描画にフォールバックする
+			commandList->DrawInstanced(
+				static_cast<UINT>(mesh.vertices.size()),
+				instanceCount,
+				0,
+				0);
+		}
+	}
+}
+
+// ComputeShader で作った変形済み頂点バッファを使って描画する
+void Model::DrawWithSkinnedVertexBuffer(const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView)
+{
+	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
+
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
+
+		// ComputeShader が書いた変形済み頂点バッファを使う
+		commandList->IASetVertexBuffers(0, 1, &skinnedVertexBufferView);
+
+		if (!mesh.indices.empty()) {
+			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
+
+			commandList->DrawIndexedInstanced(
+				static_cast<UINT>(mesh.indices.size()),
+				1,
+				0,
+				0,
+				0);
+		} else {
+			commandList->DrawInstanced(
+				static_cast<UINT>(mesh.vertices.size()),
+				1,
+				0,
+				0);
+		}
+	}
+}
+
+// ComputeShader で作った変形済み頂点バッファを使って instancing 描画する
+void Model::DrawInstancedWithSkinnedVertexBuffer(
+	UINT instanceCount,
+	const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView)
+{
+	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
+
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
+
+		// ComputeShader が書いた変形済み頂点バッファを使う
+		commandList->IASetVertexBuffers(0, 1, &skinnedVertexBufferView);
+
+		if (!mesh.indices.empty()) {
+			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
+
+			commandList->DrawIndexedInstanced(
+				static_cast<UINT>(mesh.indices.size()),
+				instanceCount,
+				0,
+				0,
+				0);
+		} else {
 			commandList->DrawInstanced(
 				static_cast<UINT>(mesh.vertices.size()),
 				instanceCount,

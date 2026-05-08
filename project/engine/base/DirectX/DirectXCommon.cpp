@@ -810,3 +810,39 @@ Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateRenderTextureResourc
 
     return resource;
 }
+
+// ComputeShader で書き込み可能な UAV 用バッファを作る
+Microsoft::WRL::ComPtr<ID3D12Resource> DirectXCommon::CreateUAVBufferResource(size_t sizeInBytes)
+{
+    // DefaultHeap は GPU から高速に読めて UAV にも使える
+    D3D12_HEAP_PROPERTIES heapProperties{};
+    heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    // バッファリソースとして作成する
+    D3D12_RESOURCE_DESC resourceDesc{};
+    resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resourceDesc.Width = sizeInBytes;
+    resourceDesc.Height = 1;
+    resourceDesc.DepthOrArraySize = 1;
+    resourceDesc.MipLevels = 1;
+    resourceDesc.SampleDesc.Count = 1;
+    resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    // UAV として使うためのフラグを立てる
+    resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+
+    // 初期状態は COMMON にしておく
+    HRESULT hr = device->CreateCommittedResource(
+        &heapProperties,
+        D3D12_HEAP_FLAG_NONE,
+        &resourceDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(&resource));
+
+    assert(SUCCEEDED(hr));
+
+    return resource;
+}

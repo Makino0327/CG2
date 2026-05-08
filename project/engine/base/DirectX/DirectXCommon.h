@@ -46,6 +46,9 @@ public:
         const Microsoft::WRL::ComPtr<ID3D12Resource>& texture,
         const DirectX::ScratchImage& mipImages);
 
+    // ComputeShader で書き込み可能な DefaultHeap のバッファを作る
+    Microsoft::WRL::ComPtr<ID3D12Resource> CreateUAVBufferResource(size_t sizeInBytes);
+
     static DirectX::ScratchImage LoadTexture(const std::string& filePath);
 
     void Initialize(WinApp* winApp);

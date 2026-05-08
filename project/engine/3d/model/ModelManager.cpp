@@ -2,10 +2,11 @@
 
 std::unique_ptr<ModelManager> ModelManager::instance = nullptr;
 
-void ModelManager::Initialize(DirectXCommon* dxCommon)
+void ModelManager::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
     modelCommon = std::make_unique<ModelCommon>();
-    modelCommon->Initialize(dxCommon);
+    modelCommon->Initialize(dxCommon, srvManager);
+
 }
 
 ModelManager* ModelManager::GetInstance()

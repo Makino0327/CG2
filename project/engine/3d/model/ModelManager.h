@@ -7,7 +7,8 @@
 class ModelManager
 {
 public:
-    void Initialize(DirectXCommon* dxCommon);
+    void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
+
     // インスタンス取得（シングルトン）
     static ModelManager* GetInstance();
 

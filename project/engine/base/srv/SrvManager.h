@@ -40,6 +40,13 @@ public:
 		ID3D12Resource* pResource,
 		DXGI_FORMAT format);
 
+	// StructuredBuffer を UAV として使うための View を作る
+	void CreateUAVforStructuredBuffer(
+		uint32_t uavIndex,
+		ID3D12Resource* pResource,
+		UINT numElements,
+		UINT structureByteStride);
+
 private:
 	DirectXCommon* directXCommon_ = nullptr;	
 

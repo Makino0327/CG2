@@ -49,7 +49,8 @@ void Game::Initialize() {
 
     // モデル共通処理
     modelCommon_ = std::make_unique<ModelCommon>();
-    modelCommon_->Initialize(dxCommon_.get());
+    modelCommon_->Initialize(dxCommon_.get(), srvManager_.get());
+
 
     // ★ ParticleCommon 初期化
     particleCommon_ = std::make_unique<ParticleCommon>();
@@ -66,7 +67,7 @@ void Game::Initialize() {
 #endif
 
     // 3Dモデルマネージャー（Initializeは共通なのでGameに残す）
-    ModelManager::GetInstance()->Initialize(dxCommon_.get());
+    ModelManager::GetInstance()->Initialize(dxCommon_.get(), srvManager_.get());
 
     // 入力の初期化（共通なのでGameに残す）
     input_ = std::make_unique<Input>();

@@ -18,10 +18,18 @@ public:
     Camera* GetDefaultCamera() const { return defaultCamera_; }
     SrvManager* GetSrvManager() const { return srvManager_; }
 
+    // ComputeShader 用の設定を commandList に入れる
+    void SkinningComputeSetting();
 
 private:
     void CreateRootSignature();
     void CreateGraphicsPipelineState();
+
+    // ComputeShader 用の RootSignature を作る
+    void CreateSkinningComputeRootSignature();
+
+    // ComputeShader 用の PipelineState を作る
+    void CreateSkinningComputePipelineState();
 
 private:
     DirectXCommon* dxCommon_ = nullptr;
@@ -31,5 +39,7 @@ private:
     Camera* defaultCamera_ = nullptr;
     SrvManager* srvManager_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningPipelineState_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> skinningComputeRootSignature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> skinningComputePipelineState_;
 
 };

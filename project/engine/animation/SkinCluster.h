@@ -41,6 +41,12 @@ struct SkinCluster {
     // influence を頂点入力として渡すための VBV
     D3D12_VERTEX_BUFFER_VIEW influenceBufferView{};
 
+    // influence 用 SRV の index
+    uint32_t influenceSrvIndex = 0;
+
+    // influence 用 SRV の CPU / GPU ハンドル
+    std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> influenceSrvHandle{};
+
     // CPU から influence 情報を書き込むための span
     std::span<VertexInfluence> mappedInfluence;
 
@@ -55,6 +61,22 @@ struct SkinCluster {
 
     // palette 用 SRV の CPU / GPU ハンドル
     std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> paletteSrvHandle{};
+
+        // ComputeShader が書き込む変形済み頂点バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> skinnedVertexResource;
+
+    // 描画で使う変形済み頂点バッファの VBV
+    D3D12_VERTEX_BUFFER_VIEW skinnedVertexBufferView{};
+
+    // 変形済み頂点バッファの現在の ResourceState
+    D3D12_RESOURCE_STATES skinnedVertexCurrentState = D3D12_RESOURCE_STATE_COMMON;
+
+    // ComputeShader 用の UAV index
+    uint32_t skinnedVertexUavIndex = 0;
+
+    // ComputeShader 用の UAV の CPU / GPU ハンドル
+    std::pair<D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_GPU_DESCRIPTOR_HANDLE> skinnedVertexUavHandle{};
+
 };
 
 // ModelData 全体から Skinning 対象頂点数を数える
