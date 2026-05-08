@@ -367,10 +367,22 @@ void ParticleSystem::Update(float deltaTime)
     *emitterData_ = emitterSphere_;
     *perFrameDataForCS_ = perFrameForCS_;
 
-    // 毎フレームGPUでParticleを発生させる
+    // GPUでParticleを発生させる
     DispatchEmitParticleCS();
 
-    // 毎フレームGPUでParticleを移動・寿命更新する
+    // Emitの書き込み結果をUpdateが正しく読めるようにする
+    {
+        ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.UAV.pResource = particleResource_.Get();
+
+        commandList->ResourceBarrier(1, &barrier);
+    }
+
+    // GPUでParticleを更新する
     DispatchUpdateParticleCS();
 
 
@@ -736,23 +748,6 @@ void ParticleSystem::DispatchEmitParticleCS()
 
     // Emitterは1個だけなので1thread groupでよい
     commandList->Dispatch(1, 1, 1);
-
-    // UAVの書き込み完了を保証する
-    D3D12_RESOURCE_BARRIER uavBarrier{};
-    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    uavBarrier.UAV.pResource = particleResource_.Get();
-    commandList->ResourceBarrier(1, &uavBarrier);
-
-    // 描画でSRVとして読むため戻す
-    D3D12_RESOURCE_BARRIER barrierToSrv{};
-    barrierToSrv.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrierToSrv.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrierToSrv.Transition.pResource = particleResource_.Get();
-    barrierToSrv.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    barrierToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
-    barrierToSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &barrierToSrv);
 }
 
 // 毎フレームGPUでParticleを更新する
@@ -763,16 +758,6 @@ void ParticleSystem::DispatchUpdateParticleCS()
     // 更新用ComputeShaderを使う設定にする
     particleCommon_->InitializeUpdateParticleComputeSetting();
 
-    // Particle ResourceをUAVとして使える状態へ遷移する
-    D3D12_RESOURCE_BARRIER barrierToUav{};
-    barrierToUav.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrierToUav.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrierToUav.Transition.pResource = particleResource_.Get();
-    barrierToUav.Transition.StateBefore = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
-    barrierToUav.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &barrierToUav);
-
     // b0 : PerFrame
     commandList->SetComputeRootConstantBufferView(
         0,
@@ -781,8 +766,10 @@ void ParticleSystem::DispatchUpdateParticleCS()
     // u0 : Particle
     commandList->SetComputeRootDescriptorTable(1, particleUavHandleGPU_);
 
-    // 1024個を256threadずつで更新する
+    // 1024個をまとめて更新する
+        // 256threadずつ4グループで1024個を更新する
     commandList->Dispatch((kNumInstance + 255) / 256, 1, 1);
+
 
     // UAVの書き込み完了を保証する
     D3D12_RESOURCE_BARRIER uavBarrier{};

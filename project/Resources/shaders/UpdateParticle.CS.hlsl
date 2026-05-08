@@ -24,54 +24,31 @@ cbuffer PerFrameBuffer : register(b0)
 RWStructuredBuffer<Particle> gParticles : register(u0);
 
 [numthreads(256, 1, 1)]
+
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     uint particleIndex = DTid.x;
 
-    // 範囲外のthreadは何もしない
-    if (particleIndex >= kMaxParticles)
+    if (particleIndex < kMaxParticles)
     {
-        return;
+        // alphaが0のparticleは死んでいるとみなして更新しない
+        if (gParticles[particleIndex].color.a != 0.0f)
+        {
+            gParticles[particleIndex].translate +=
+                gParticles[particleIndex].velocity * gPerFrame.deltaTime;
+
+            gParticles[particleIndex].currentTime += gPerFrame.deltaTime;
+
+            float alpha =
+                1.0f - (gParticles[particleIndex].currentTime / gParticles[particleIndex].lifeTime);
+
+            gParticles[particleIndex].color.a = saturate(alpha);
+
+            // 完全に消えたらscaleも0にして未使用扱いに寄せる
+            if (gParticles[particleIndex].color.a == 0.0f)
+            {
+                gParticles[particleIndex].scale = float3(0.0f, 0.0f, 0.0f);
+            }
+        }
     }
-
-    // 今使っているParticleを取り出す
-    Particle particle = gParticles[particleIndex];
-
-    // scaleが0なら未使用扱いにして更新しない
-    if (particle.scale.x == 0.0f &&
-        particle.scale.y == 0.0f &&
-        particle.scale.z == 0.0f)
-    {
-        return;
-    }
-
-    // 経過時間を進める
-    particle.currentTime += gPerFrame.deltaTime;
-
-    // 寿命を超えたら消す
-    if (particle.currentTime >= particle.lifeTime)
-    {
-        particle.translate = float3(0.0f, 0.0f, 0.0f);
-        particle.scale = float3(0.0f, 0.0f, 0.0f);
-        particle.lifeTime = 0.0f;
-        particle.velocity = float3(0.0f, 0.0f, 0.0f);
-        particle.currentTime = 0.0f;
-        particle.color = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-        gParticles[particleIndex] = particle;
-        return;
-    }
-
-    // 位置を進める
-    particle.translate += particle.velocity * gPerFrame.deltaTime;
-
-    // 寿命に応じて少しずつ透明にする
-    {
-        float t = particle.currentTime / particle.lifeTime;
-        t = saturate(t);
-        particle.color.a = 1.0f - t;
-    }
-
-    // 更新結果を書き戻す
-    gParticles[particleIndex] = particle;
 }
