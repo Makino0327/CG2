@@ -227,11 +227,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> perFrameResourceForCS_;
     PerFrame* perFrameDataForCS_ = nullptr;
 
-    // 空きindexを進めるためのCounter
-    Microsoft::WRL::ComPtr<ID3D12Resource> freeCounterResource_;
-    uint32_t freeCounterUavIndex_ = 0;
-    D3D12_GPU_DESCRIPTOR_HANDLE freeCounterUavHandleGPU_{};
+    // FreeListの先頭Indexを保持する
+    Microsoft::WRL::ComPtr<ID3D12Resource> freeListIndexResource_;
+    uint32_t freeListIndexUavIndex_ = 0;
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListIndexUavHandleGPU_{};
 
+    // 空いているParticleIndexそのものを並べて保持する
+    Microsoft::WRL::ComPtr<ID3D12Resource> freeListResource_;
+    uint32_t freeListUavIndex_ = 0;
+    D3D12_GPU_DESCRIPTOR_HANDLE freeListUavHandleGPU_{};
 
 private:
     ParticleData MakeNewParticle();
@@ -252,8 +256,8 @@ private:
     // GPU発生用PerFrameのConstantBufferを作る
     void InitializePerFrameResourceForCS();
 
-    // GPU発生用CounterのUAVを作る
-    void InitializeFreeCounterResource();
+    // GPU発生用FreeListのUAVを作る
+    void InitializeFreeListResource();
 
     // 毎フレームGPUでParticleを発生させる
     void DispatchEmitParticleCS();

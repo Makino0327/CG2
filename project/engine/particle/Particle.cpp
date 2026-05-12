@@ -87,8 +87,8 @@ void ParticleSystem::Initialize(
     // GPU発生用のPerFrame情報を作る
     InitializePerFrameResourceForCS();
 
-    // GPU発生用の空きCounterを作る
-    InitializeFreeCounterResource();
+    // GPU発生用のFreeListを作る
+    InitializeFreeListResource();
 
     // Particle本体とCounterを初期化する
     InitializeParticleCS();
@@ -370,17 +370,30 @@ void ParticleSystem::Update(float deltaTime)
     // GPUでParticleを発生させる
     DispatchEmitParticleCS();
 
-    // Emitの書き込み結果をUpdateが正しく読めるようにする
+    // Emitの書き込み結果をUpdateが正しく読めるようにUAVバリアを張る
     {
         ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.UAV.pResource = particleResource_.Get();
+        D3D12_RESOURCE_BARRIER barriers[3]{};
 
-        commandList->ResourceBarrier(1, &barrier);
+        // Particle本体
+        barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barriers[0].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barriers[0].UAV.pResource = particleResource_.Get();
+
+        // FreeListの先頭Index
+        barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barriers[1].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barriers[1].UAV.pResource = freeListIndexResource_.Get();
+
+        // FreeList本体
+        barriers[2].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barriers[2].Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barriers[2].UAV.pResource = freeListResource_.Get();
+
+        commandList->ResourceBarrier(3, barriers);
     }
+
 
     // GPUでParticleを更新する
     DispatchUpdateParticleCS();
@@ -633,12 +646,14 @@ void ParticleSystem::InitializeParticleCS()
     barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &barrierToUav);
 
-    // u0 : Particle 配列
-        // u0 : Particleデータ
+    // u0 : Particleデータ
     commandList->SetComputeRootDescriptorTable(0, particleUavHandleGPU_);
 
-    // u1 : 空きCounter
-    commandList->SetComputeRootDescriptorTable(1, freeCounterUavHandleGPU_);
+    // u1 : FreeListの先頭Index
+    commandList->SetComputeRootDescriptorTable(1, freeListIndexUavHandleGPU_);
+
+    // u2 : FreeList本体
+    commandList->SetComputeRootDescriptorTable(2, freeListUavHandleGPU_);
 
 
     // 10 個の Particle を初期化するので 1 グループだけ起動する
@@ -691,24 +706,39 @@ void ParticleSystem::InitializePerFrameResourceForCS()
     *perFrameDataForCS_ = perFrameForCS_;
 }
 
-// GPU発生用CounterのUAVを作る
-void ParticleSystem::InitializeFreeCounterResource()
+// GPU発生用FreeListのUAVを作る
+void ParticleSystem::InitializeFreeListResource()
 {
-    // int32_tを1個だけ持つUAVバッファを作る
-    freeCounterResource_ = dxCommon_->CreateUAVBufferResource(sizeof(int32_t));
+    // FreeListの現在位置だけを保持する1要素のUAVを作る
+    freeListIndexResource_ = dxCommon_->CreateUAVBufferResource(sizeof(int32_t));
 
-    // Counter用のUAV indexを確保する
-    freeCounterUavIndex_ = srvManager_->Allocate();
+    // 空いているParticleIndexを全件保持するUAVを作る
+    freeListResource_ = dxCommon_->CreateUAVBufferResource(sizeof(int32_t) * kNumInstance);
 
-    // GPUハンドルを保存する
-    freeCounterUavHandleGPU_ =
-        srvManager_->GetGPUDescriptorHandle(freeCounterUavIndex_);
+    // FreeListIndex用のUAV indexを確保する
+    freeListIndexUavIndex_ = srvManager_->Allocate();
 
-    // 要素数1、strideがint32_tのUAVを作る
+    // FreeList本体用のUAV indexを確保する
+    freeListUavIndex_ = srvManager_->Allocate();
+
+    // GPUハンドルを取得する
+    freeListIndexUavHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(freeListIndexUavIndex_);
+    freeListUavHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(freeListUavIndex_);
+
+    // 先頭Index用のUAVを作る
     srvManager_->CreateUAVforStructuredBuffer(
-        freeCounterUavIndex_,
-        freeCounterResource_.Get(),
+        freeListIndexUavIndex_,
+        freeListIndexResource_.Get(),
         1,
+        sizeof(int32_t));
+
+    // FreeList本体のUAVを作る
+    srvManager_->CreateUAVforStructuredBuffer(
+        freeListUavIndex_,
+        freeListResource_.Get(),
+        kNumInstance,
         sizeof(int32_t));
 }
 
@@ -743,8 +773,12 @@ void ParticleSystem::DispatchEmitParticleCS()
     // u0 : Particle
     commandList->SetComputeRootDescriptorTable(2, particleUavHandleGPU_);
 
-    // u1 : Counter
-    commandList->SetComputeRootDescriptorTable(3, freeCounterUavHandleGPU_);
+    // u1 : FreeListの先頭Index
+    commandList->SetComputeRootDescriptorTable(3, freeListIndexUavHandleGPU_);
+
+    // u2 : FreeList本体
+    commandList->SetComputeRootDescriptorTable(4, freeListUavHandleGPU_);
+
 
     // Emitterは1個だけなので1thread groupでよい
     commandList->Dispatch(1, 1, 1);
@@ -765,6 +799,13 @@ void ParticleSystem::DispatchUpdateParticleCS()
 
     // u0 : Particle
     commandList->SetComputeRootDescriptorTable(1, particleUavHandleGPU_);
+
+    // u1 : FreeListの先頭Index
+    commandList->SetComputeRootDescriptorTable(2, freeListIndexUavHandleGPU_);
+
+    // u2 : FreeList本体
+    commandList->SetComputeRootDescriptorTable(3, freeListUavHandleGPU_);
+
 
     // 1024個をまとめて更新する
         // 256threadずつ4グループで1024個を更新する

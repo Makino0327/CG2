@@ -189,45 +189,52 @@ void ParticleCommon::InitializeParticleComputeSetting()
     commandList->SetDescriptorHeaps(1, heaps);
 }
 
-// Particle初期化用ComputeShaderのRootSignatureを作る
 void ParticleCommon::CreateInitializeParticleComputeRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
 
-    // u0 : Particle本体
     D3D12_DESCRIPTOR_RANGE particleRange{};
     particleRange.BaseShaderRegister = 0;
     particleRange.NumDescriptors = 1;
     particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    // u1 : 空きCounter
-    D3D12_DESCRIPTOR_RANGE counterRange{};
-    counterRange.BaseShaderRegister = 1;
-    counterRange.NumDescriptors = 1;
-    counterRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    counterRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE freeListIndexRange{};
+    freeListIndexRange.BaseShaderRegister = 1;
+    freeListIndexRange.NumDescriptors = 1;
+    freeListIndexRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListIndexRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[2]{};
+    D3D12_DESCRIPTOR_RANGE freeListRange{};
+    freeListRange.BaseShaderRegister = 2;
+    freeListRange.NumDescriptors = 1;
+    freeListRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    // param0 : u0 Particle
+    D3D12_ROOT_PARAMETER rootParameters[3]{};
+
+    // u0 : Particle
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[0].DescriptorTable.pDescriptorRanges = &particleRange;
 
-    // param1 : u1 Counter
+    // u1 : FreeListIndex
     rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
-    rootParameters[1].DescriptorTable.pDescriptorRanges = &counterRange;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = &freeListIndexRange;
+
+    // u2 : FreeList
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = &freeListRange;
 
     D3D12_ROOT_SIGNATURE_DESC desc{};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
     desc.pParameters = rootParameters;
     desc.NumParameters = _countof(rootParameters);
-    desc.pStaticSamplers = nullptr;
-    desc.NumStaticSamplers = 0;
 
     Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -252,6 +259,7 @@ void ParticleCommon::CreateInitializeParticleComputeRootSignature()
         IID_PPV_ARGS(initializeParticleComputeRootSignature_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }
+
 
 // Particle 初期化用 ComputeShader の PipelineState を作る
 void ParticleCommon::CreateInitializeParticleComputePipelineState()
@@ -296,13 +304,19 @@ void ParticleCommon::CreateEmitParticleComputeRootSignature()
     particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_DESCRIPTOR_RANGE counterRange{};
-    counterRange.BaseShaderRegister = 1;
-    counterRange.NumDescriptors = 1;
-    counterRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    counterRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE freeListIndexRange{};
+    freeListIndexRange.BaseShaderRegister = 1;
+    freeListIndexRange.NumDescriptors = 1;
+    freeListIndexRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListIndexRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[4]{};
+    D3D12_DESCRIPTOR_RANGE freeListRange{};
+    freeListRange.BaseShaderRegister = 2;
+    freeListRange.NumDescriptors = 1;
+    freeListRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[5]{};
 
     // b0 : Emitter
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -320,11 +334,18 @@ void ParticleCommon::CreateEmitParticleComputeRootSignature()
     rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[2].DescriptorTable.pDescriptorRanges = &particleRange;
 
-    // u1 : Counter
+    // u1 : FreeListIndex
     rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
-    rootParameters[3].DescriptorTable.pDescriptorRanges = &counterRange;
+    rootParameters[3].DescriptorTable.pDescriptorRanges = &freeListIndexRange;
+
+    // u2 : FreeList
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[4].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[4].DescriptorTable.pDescriptorRanges = &freeListRange;
+
 
     D3D12_ROOT_SIGNATURE_DESC desc{};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
@@ -387,7 +408,6 @@ void ParticleCommon::InitializeUpdateParticleComputeSetting()
     commandList->SetDescriptorHeaps(1, heaps);
 }
 
-// Particle更新用ComputeShaderのRootSignatureを作る
 void ParticleCommon::CreateUpdateParticleComputeRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
@@ -398,7 +418,19 @@ void ParticleCommon::CreateUpdateParticleComputeRootSignature()
     particleRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     particleRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[2]{};
+    D3D12_DESCRIPTOR_RANGE freeListIndexRange{};
+    freeListIndexRange.BaseShaderRegister = 1;
+    freeListIndexRange.NumDescriptors = 1;
+    freeListIndexRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListIndexRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_DESCRIPTOR_RANGE freeListRange{};
+    freeListRange.BaseShaderRegister = 2;
+    freeListRange.NumDescriptors = 1;
+    freeListRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    freeListRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[4]{};
 
     // b0 : PerFrame
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -410,6 +442,18 @@ void ParticleCommon::CreateUpdateParticleComputeRootSignature()
     rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[1].DescriptorTable.pDescriptorRanges = &particleRange;
+
+    // u1 : FreeListIndex
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = &freeListIndexRange;
+
+    // u2 : FreeList
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[3].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[3].DescriptorTable.pDescriptorRanges = &freeListRange;
 
     D3D12_ROOT_SIGNATURE_DESC desc{};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;

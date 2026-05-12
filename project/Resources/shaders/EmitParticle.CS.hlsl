@@ -38,9 +38,10 @@ cbuffer PerFrameBuffer : register(b1)
 };
 
 RWStructuredBuffer<Particle> gParticles : register(u0);
-RWStructuredBuffer<int> gFreeCounter : register(u1);
+RWStructuredBuffer<int> gFreeListIndex : register(u1);
+RWStructuredBuffer<int> gFreeList : register(u2);
 
-// 0.0f～1.0f の乱数を返す
+// 0.0fから1.0fの乱数を返す
 float rand1dTo1d(float value)
 {
     return frac(sin(value) * 43758.5453f);
@@ -56,7 +57,7 @@ float3 rand1dTo3d(float value)
     );
 }
 
-// float3をseedにして0.0f～1.0fの乱数float3を返す
+// float3 seedから0.0fから1.0fの乱数float3を作る
 float3 rand3dTo3d(float3 value)
 {
     float x = dot(value, float3(127.1f, 311.7f, 74.7f));
@@ -78,56 +79,62 @@ void main(uint3 DTid : SV_DispatchThreadID)
     // 時間とthread idからベースseedを作る
     float3 seed = rand1dTo3d(gPerFrame.time + DTid.x * 0.1234f);
 
-    // count個ぶんParticleを発生させる
+    // count個のParticleを発生させる
     for (uint countIndex = 0; countIndex < gEmitter.count; ++countIndex)
     {
-        int particleIndex;
+        int freeListIndex;
 
-        // Counterを安全に進めて、進める前の値を受け取る
-        InterlockedAdd(gFreeCounter[0], 1, particleIndex);
+        // FreeListの先頭を1つ消費して現在のIndexを取得する
+        InterlockedAdd(gFreeListIndex[0], -1, freeListIndex);
 
-        // 最大数を超えたら何もしない
-        if (particleIndex >= (int) kMaxParticles)
+        // FreeListに有効な空きがあるときだけ使う
+        if (0 <= freeListIndex && freeListIndex < (int) kMaxParticles)
         {
-            continue;
+            uint particleIndex = gFreeList[freeListIndex];
+
+            // countIndexごとに少し別のseedになるようにずらす
+            float3 localSeed = seed + float3(
+                (float) countIndex * 0.11f,
+                (float) countIndex * 0.17f,
+                (float) countIndex * 0.23f
+            );
+
+            // 位置用乱数
+            float3 randomPos = rand3dTo3d(localSeed);
+            randomPos = randomPos * 2.0f - 1.0f;
+
+            // 速度用乱数
+            float3 randomVelocity = rand3dTo3d(randomPos + 1.234f);
+            randomVelocity = randomVelocity * 2.0f - 1.0f;
+
+            // 色用乱数
+            float3 randomColor = rand3dTo3d(randomVelocity + 2.345f);
+
+            // scale用乱数
+            float randomScale = 0.1f + rand1dTo1d(localSeed.x + 3.456f) * 0.4f;
+
+            // lifeTime用乱数
+            float randomLifeTime = 0.5f + rand1dTo1d(localSeed.y + 4.567f) * 1.5f;
+
+            // 発生位置を半径内でずらす
+            float3 spawnOffset = randomPos * gEmitter.radius;
+
+            // 少し上方向に飛びやすくする
+            randomVelocity.y = abs(randomVelocity.y) + 0.5f;
+
+            // Particleを初期化する
+            gParticles[particleIndex].translate = gEmitter.translate + spawnOffset;
+            gParticles[particleIndex].scale = float3(randomScale, randomScale, randomScale);
+            gParticles[particleIndex].lifeTime = randomLifeTime;
+            gParticles[particleIndex].velocity = randomVelocity;
+            gParticles[particleIndex].currentTime = 0.0f;
+            gParticles[particleIndex].color = float4(randomColor, 1.0f);
         }
-
-        // countIndexごとに別のseedになるように少し混ぜる
-        float3 localSeed = seed + float3(
-            (float) countIndex * 0.11f,
-            (float) countIndex * 0.17f,
-            (float) countIndex * 0.23f
-        );
-
-        // 発生位置用乱数
-        float3 randomPos = rand3dTo3d(localSeed);
-        randomPos = randomPos * 2.0f - 1.0f;
-
-        // 速度用乱数
-        float3 randomVelocity = rand3dTo3d(randomPos + 1.234f);
-        randomVelocity = randomVelocity * 2.0f - 1.0f;
-
-        // 色用乱数
-        float3 randomColor = rand3dTo3d(randomVelocity + 2.345f);
-
-        // scale用乱数
-        float randomScale = 0.1f + rand1dTo1d(localSeed.x + 3.456f) * 0.4f;
-
-        // lifeTime用乱数
-        float randomLifeTime = 0.5f + rand1dTo1d(localSeed.y + 4.567f) * 1.5f;
-
-        // 発生位置を半径で広げる
-        float3 spawnOffset = randomPos * gEmitter.radius;
-
-        // 上方向に少し持ち上げる
-        randomVelocity.y = abs(randomVelocity.y) + 0.5f;
-
-        // Particleを初期化する
-        gParticles[particleIndex].translate = gEmitter.translate + spawnOffset;
-        gParticles[particleIndex].scale = float3(randomScale, randomScale, randomScale);
-        gParticles[particleIndex].lifeTime = randomLifeTime;
-        gParticles[particleIndex].velocity = randomVelocity;
-        gParticles[particleIndex].currentTime = 0.0f;
-        gParticles[particleIndex].color = float4(randomColor, 1.0f);
+        else
+        {
+            // 空きが無かったのでIndexを戻してこのフレームのEmitを打ち切る
+            InterlockedAdd(gFreeListIndex[0], 1);
+            break;
+        }
     }
 }
