@@ -10,7 +10,9 @@ enum class PostEffectType {
     Vignette,
     BoxFilter,
     GaussianFilter,
+    DepthOutline,
 };
+
 
 class OffscreenRenderer {
 public:
@@ -44,7 +46,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> boxFilterPipelineState_;
     // ガウシアンフィルタ用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> gaussianFilterPipelineState_;
+    // アウトライン
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
+
+    uint32_t depthSrvIndex_ = 0; // // DepthTextureを読むためのSRV番号
+    Microsoft::WRL::ComPtr<ID3D12Resource> outlineParameterResource_; // // Outline用定数バッファ
 
 };

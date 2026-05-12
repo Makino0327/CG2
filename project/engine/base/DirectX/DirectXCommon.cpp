@@ -22,7 +22,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(
     resourceDesc.Height = height; // Textureの高さ
     resourceDesc.MipLevels = 1; // MipMapの数
     resourceDesc.DepthOrArraySize = 1; // 奥行きor配列Textureの配列数
-    resourceDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // DepthStencilとして利用可能なフォーマット
+    resourceDesc.Format = DXGI_FORMAT_R32_TYPELESS; // // DepthをDSV/SRVの両方で使えるようにする
     resourceDesc.SampleDesc.Count = 1; // サンプリングカウント。1固定
     resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; // 2次元
     resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; // DepthStencilとして使う通知
@@ -34,7 +34,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(
     // 深度値のクリア設定
     D3D12_CLEAR_VALUE depthClearValue{};
     depthClearValue.DepthStencil.Depth = 1.0f; // 深度値のクリア値
-    depthClearValue.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; // 深度値のフォーマット
+    depthClearValue.Format = DXGI_FORMAT_D32_FLOAT; // // DSV側で使うDepthのクリア形式
 
     // Resourceの生成
     Microsoft::WRL::ComPtr<ID3D12Resource> resource;
@@ -329,7 +329,7 @@ void DirectXCommon::InitializeRenderTargetView() {
 void DirectXCommon::InitializeDepthStencilView()
 {
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT; // // Depthをfloat1として扱うDSV形式
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 
     device->CreateDepthStencilView(

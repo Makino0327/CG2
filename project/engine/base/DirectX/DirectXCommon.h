@@ -100,6 +100,10 @@ public:
         return swapChainResources_.size();
     }
 
+    ID3D12Resource* GetDepthStencilResource() const {
+        return depthStencilResource_.Get(); // // Outline用にDepthResourceを参照できるようにする
+    }
+
     ~DirectXCommon();
 
     static const uint32_t kMaxSRVCount;

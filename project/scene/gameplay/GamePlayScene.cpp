@@ -452,13 +452,16 @@ void GamePlayScene::DrawImGui()
         ImGui::Begin("Post Effect");
 
         const char* items[] = {
-            "Copy",
-            "Grayscale",
-            "Sepia",
-             "Vignette",
-             "BoxFilter",
-             "GaussianFilter",
+    "Copy",
+    "Grayscale",
+    "Sepia",
+    "Vignette",
+    "BoxFilter",
+    "GaussianFilter",
+    "DepthOutline",
         };
+
+
 
         int current =
             static_cast<int>(context_.offscreenRenderer->GetPostEffectType());

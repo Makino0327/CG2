@@ -177,7 +177,7 @@ void SpriteCommon::CreateGraphicsPipelineState() {
     depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     desc.DepthStencilState = depthStencilDesc;
-    desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    desc.DSVFormat = DXGI_FORMAT_D32_FLOAT; // // DepthBufferの形式とPSOのDSV形式を合わせる
 
     // 形状タイプ
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;

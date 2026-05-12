@@ -40,6 +40,10 @@ public:
 		ID3D12Resource* pResource,
 		DXGI_FORMAT format);
 
+	void CreateSRVForDepthTexture(
+		uint32_t srvIndex,
+		ID3D12Resource* pResource);
+
 	// StructuredBuffer を UAV として使うための View を作る
 	void CreateUAVforStructuredBuffer(
 		uint32_t uavIndex,

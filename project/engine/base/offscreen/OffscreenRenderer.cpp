@@ -15,6 +15,11 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
         DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         Vector4(1.0f, 0.0f, 0.0f, 1.0f));
 
+    depthSrvIndex_ = srvManager_->Allocate(); // DepthTexture用のSRV番号を確保する
+    srvManager_->CreateSRVForDepthTexture(
+        depthSrvIndex_,
+        dxCommon_->GetDepthStencilResource()); // DepthBufferをPixelShaderから読めるようにする
+
     CreateRootSignature();
     CreateGraphicsPipelineState();
 }
@@ -48,6 +53,8 @@ void OffscreenRenderer::DrawToBackBuffer()
     assert(commandList);
     assert(renderTexture_);
 
+    ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource(); // // Outlineで読むDepthResource
+
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTVHandle = dxCommon_->GetCurrentBackBufferRTVHandle();
 
     D3D12_VIEWPORT viewport{};
@@ -63,6 +70,17 @@ void OffscreenRenderer::DrawToBackBuffer()
     scissorRect.top = 0;
     scissorRect.right = WinApp::kClientWidth;
     scissorRect.bottom = WinApp::kClientHeight;
+
+    if (postEffectType_ == PostEffectType::DepthOutline) {
+        D3D12_RESOURCE_BARRIER depthBarrier{};
+        depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        depthBarrier.Transition.pResource = depthResource;
+        depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        commandList->ResourceBarrier(1, &depthBarrier); // // Depthを書き込み用から読み込み用へ切り替える
+    }
 
     commandList->OMSetRenderTargets(1, &backBufferRTVHandle, FALSE, nullptr);
     commandList->RSSetViewports(1, &viewport);
@@ -92,6 +110,10 @@ void OffscreenRenderer::DrawToBackBuffer()
         // ガウシアンフィルタ用のパイプラインステートを設定する
         commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
         break;
+    case PostEffectType::DepthOutline:
+        commandList->SetPipelineState(depthOutlinePipelineState_.Get()); // DepthベースのOutlineを使う
+        break;
+
 
     }
 
@@ -100,7 +122,20 @@ void OffscreenRenderer::DrawToBackBuffer()
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
     commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex());
+    srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex()); // t0にカラーを渡す
+    srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1にDepthを渡す
+
+    if (postEffectType_ == PostEffectType::DepthOutline) {
+        D3D12_RESOURCE_BARRIER depthBarrier{};
+        depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        depthBarrier.Transition.pResource = depthResource;
+        depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        commandList->ResourceBarrier(1, &depthBarrier); // // 次フレームでDepthを書ける状態に戻す
+    }
+
 
     commandList->DrawInstanced(3, 1, 0, 0);
 }
@@ -110,34 +145,55 @@ void OffscreenRenderer::CreateRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
 
-    D3D12_DESCRIPTOR_RANGE descriptorRange{};
-    descriptorRange.BaseShaderRegister = 0;
-    descriptorRange.NumDescriptors = 1;
-    descriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    descriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE textureRange{};
+    textureRange.BaseShaderRegister = 0;
+    textureRange.NumDescriptors = 1;
+    textureRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    textureRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[1]{};
+    D3D12_DESCRIPTOR_RANGE depthRange{};
+    depthRange.BaseShaderRegister = 1;
+    depthRange.NumDescriptors = 1;
+    depthRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    depthRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[2]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
-    rootParameters[0].DescriptorTable.pDescriptorRanges = &descriptorRange;
+    rootParameters[0].DescriptorTable.pDescriptorRanges = &textureRange;
 
-    D3D12_STATIC_SAMPLER_DESC staticSampler{};
-    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-    staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
-    staticSampler.ShaderRegister = 0;
-    staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[1].DescriptorTable.pDescriptorRanges = &depthRange;
+
+    D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
+
+    staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+    staticSamplers[0].ShaderRegister = 0;
+    staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    staticSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT; // // Depthは補間しない
+    staticSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    staticSamplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    staticSamplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+    staticSamplers[1].ShaderRegister = 1;
+    staticSamplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc{};
     rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     rootSignatureDesc.pParameters = rootParameters;
     rootSignatureDesc.NumParameters = _countof(rootParameters);
-    rootSignatureDesc.pStaticSamplers = &staticSampler;
-    rootSignatureDesc.NumStaticSamplers = 1;
+    rootSignatureDesc.pStaticSamplers = staticSamplers;
+    rootSignatureDesc.NumStaticSamplers = _countof(staticSamplers);
 
     Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -190,7 +246,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto gaussianFilterPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/GaussianFilter.PS.hlsl",
         L"ps_6_0");
-
+    auto depthOutlinePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/DepthBasedOutline.PS.hlsl",
+        L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
     inputLayout.pInputElementDescs = nullptr;
@@ -283,6 +341,16 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(gaussianFilterPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+    // アウトライン用のピクセルシェーダ
+    desc.PS = {
+    depthOutlinePixelShaderBlob->GetBufferPointer(),
+    depthOutlinePixelShaderBlob->GetBufferSize()
+    };
+
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(depthOutlinePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
 }

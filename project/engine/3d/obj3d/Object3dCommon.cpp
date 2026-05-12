@@ -208,7 +208,7 @@ void Object3dCommon::CreateGraphicsPipelineState()
     depthDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     depthDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     desc.DepthStencilState = depthDesc;
-    desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    desc.DSVFormat = DXGI_FORMAT_D32_FLOAT; // // DepthBufferの形式とPSOのDSV形式を合わせる
 
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;  // = 0xFFFFFFFF
