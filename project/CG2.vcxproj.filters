@@ -22,6 +22,7 @@
     <FxCompile Include="Resources\shaders\EmitParticle.CS.hlsl" />
     <FxCompile Include="Resources\shaders\UpdateParticle.CS.hlsl" />
     <FxCompile Include="Resources\shaders\DepthBasedOutline.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\RadialBlur.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />

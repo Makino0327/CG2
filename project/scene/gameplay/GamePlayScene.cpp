@@ -452,14 +452,16 @@ void GamePlayScene::DrawImGui()
         ImGui::Begin("Post Effect");
 
         const char* items[] = {
-    "Copy",
-    "Grayscale",
-    "Sepia",
-    "Vignette",
-    "BoxFilter",
-    "GaussianFilter",
-    "DepthOutline",
+     "Copy",
+     "Grayscale",
+     "Sepia",
+     "Vignette",
+     "BoxFilter",
+     "GaussianFilter",
+     "RadialBlur",
+     "DepthOutline",
         };
+
 
 
 

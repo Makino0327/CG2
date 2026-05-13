@@ -22,6 +22,16 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
+
+    // ラジアルブラー用の定数バッファを作成する
+    radialBlurResource_ = dxCommon_->CreateBufferResource(sizeof(RadialBlurData));
+    radialBlurResource_->Map(0, nullptr, reinterpret_cast<void**>(&radialBlurData_));
+
+    // 初期値として画面中央を中心にして弱めにぼかす
+    radialBlurData_->center = { 0.5f, 0.5f };
+    radialBlurData_->blurWidth = 0.01f;
+    radialBlurData_->padding = 0.0f;
+
 }
 
 void OffscreenRenderer::PreDrawScene()
@@ -114,6 +124,10 @@ void OffscreenRenderer::DrawToBackBuffer()
         commandList->SetPipelineState(depthOutlinePipelineState_.Get()); // DepthベースのOutlineを使う
         break;
 
+    case PostEffectType::RadialBlur:
+        // ラジアルブラー用のパイプラインステートを設定する
+        commandList->SetPipelineState(radialBlurPipelineState_.Get());
+        break;
 
     }
 
@@ -124,6 +138,11 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex()); // t0にカラーを渡す
     srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1にDepthを渡す
+    // b0にラジアルブラー用の定数バッファを渡す
+    commandList->SetGraphicsRootConstantBufferView(
+        2,
+        radialBlurResource_->GetGPUVirtualAddress());
+
 
     if (postEffectType_ == PostEffectType::DepthOutline) {
         D3D12_RESOURCE_BARRIER depthBarrier{};
@@ -157,7 +176,7 @@ void OffscreenRenderer::CreateRootSignature()
     depthRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     depthRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[2]{};
+    D3D12_ROOT_PARAMETER rootParameters[3]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -167,6 +186,11 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[1].DescriptorTable.pDescriptorRanges = &depthRange;
+
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[2].Descriptor.ShaderRegister = 0;
+
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
 
@@ -248,6 +272,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         L"ps_6_0");
     auto depthOutlinePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/DepthBasedOutline.PS.hlsl",
+        L"ps_6_0");
+    auto radialBlurPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/RadialBlur.PS.hlsl",
         L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -352,6 +379,19 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         &desc,
         IID_PPV_ARGS(depthOutlinePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
+
+    // ラジアルブラー用のピクセルシェーダを設定する
+    desc.PS = {
+        radialBlurPixelShaderBlob->GetBufferPointer(),
+        radialBlurPixelShaderBlob->GetBufferSize()
+    };
+
+    // ラジアルブラー用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(radialBlurPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
 
 }
 
