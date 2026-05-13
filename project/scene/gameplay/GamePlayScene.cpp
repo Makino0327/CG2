@@ -459,8 +459,10 @@ void GamePlayScene::DrawImGui()
      "BoxFilter",
      "GaussianFilter",
      "RadialBlur",
+     "Dissolve",
      "DepthOutline",
         };
+
 
 
 
@@ -471,6 +473,40 @@ void GamePlayScene::DrawImGui()
         if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
             context_.offscreenRenderer->SetPostEffectType(
                 static_cast<PostEffectType>(current));
+        }
+
+        if (context_.offscreenRenderer->GetPostEffectType() == PostEffectType::Dissolve) {
+            int maskType = context_.offscreenRenderer->GetDissolveMaskType();
+            const char* maskItems[] = {
+                "noise0",
+                "noise1",
+            };
+
+            if (ImGui::Combo("Mask", &maskType, maskItems, IM_ARRAYSIZE(maskItems))) {
+                context_.offscreenRenderer->SetDissolveMaskType(maskType);
+            }
+
+            float durationSeconds = context_.offscreenRenderer->GetDissolveDuration();
+            if (ImGui::DragFloat("Duration", &durationSeconds, 0.1f, 0.1f, 10.0f)) {
+                context_.offscreenRenderer->SetDissolveDuration(durationSeconds);
+            }
+
+            float elapsedSeconds = context_.offscreenRenderer->GetDissolveElapsedTime();
+            float maxSeconds = context_.offscreenRenderer->GetDissolveDuration();
+
+            if (ImGui::SliderFloat("Current Time", &elapsedSeconds, 0.0f, maxSeconds)) {
+                context_.offscreenRenderer->SetDissolveElapsedTime(elapsedSeconds);
+            }
+
+
+            if (ImGui::Button("Start")) {
+                context_.offscreenRenderer->StartDissolve();
+            }
+
+            ImGui::Text("Playing: %s",
+                context_.offscreenRenderer->IsDissolvePlaying() ? "true" : "false");
+            ImGui::Text("Threshold: %.2f",
+                context_.offscreenRenderer->GetDissolveThreshold());
         }
 
         ImGui::End();

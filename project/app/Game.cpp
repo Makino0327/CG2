@@ -119,6 +119,11 @@ void Game::Update() {
         }
     }
 
+    if (offscreenRenderer_) {
+        offscreenRenderer_->Update(1.0f / 60.0f);
+    }
+
+
     if (sceneManager_) {
         sceneManager_->Update();
     }

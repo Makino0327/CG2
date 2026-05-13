@@ -1,5 +1,8 @@
 #include "OffscreenRenderer.h"
 #include <cassert>
+#include "../../2d/texture/TextureManager.h"
+#include <algorithm>
+
 
 void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
@@ -31,6 +34,25 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     radialBlurData_->center = { 0.5f, 0.5f };
     radialBlurData_->blurWidth = 0.01f;
     radialBlurData_->padding = 0.0f;
+
+    TextureManager* textureManager = TextureManager::GetInstance();
+
+    // ディゾルブ用のマスクテクスチャを読み込む
+    textureManager->LoadTexture("Resources/noise0.png");
+    textureManager->LoadTexture("Resources/noise1.png");
+
+    dissolveMaskSrvIndex0_ = textureManager->GetSrvIndex("Resources/noise0.png");
+    dissolveMaskSrvIndex1_ = textureManager->GetSrvIndex("Resources/noise1.png");
+
+    // ディゾルブ用の定数バッファを作成する
+    dissolveResource_ = dxCommon_->CreateBufferResource(sizeof(DissolveData));
+    dissolveResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveData_));
+
+    dissolveData_->threshold = 0.0f;
+    dissolveData_->edgeWidth = 0.03f;
+    dissolveData_->padding = { 0.0f, 0.0f };
+    dissolveData_->edgeColor = { 1.0f, 0.4f, 0.3f, 1.0f };
+
 
 }
 
@@ -93,6 +115,9 @@ void OffscreenRenderer::DrawToBackBuffer()
     }
 
     commandList->OMSetRenderTargets(1, &backBufferRTVHandle, FALSE, nullptr);
+    const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    commandList->ClearRenderTargetView(backBufferRTVHandle, clearColor, 0, nullptr);
+
     commandList->RSSetViewports(1, &viewport);
     commandList->RSSetScissorRects(1, &scissorRect);
 
@@ -128,6 +153,10 @@ void OffscreenRenderer::DrawToBackBuffer()
         // ラジアルブラー用のパイプラインステートを設定する
         commandList->SetPipelineState(radialBlurPipelineState_.Get());
         break;
+    case PostEffectType::Dissolve:
+        // ディゾルブ用のパイプラインステートを設定する
+        commandList->SetPipelineState(dissolvePipelineState_.Get());
+        break;
 
     }
 
@@ -136,12 +165,19 @@ void OffscreenRenderer::DrawToBackBuffer()
     ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
     commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex()); // t0にカラーを渡す
-    srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1にDepthを渡す
-    // b0にラジアルブラー用の定数バッファを渡す
+    srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex()); // t0
+    srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1
+
+    uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
+    srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2
+
     commandList->SetGraphicsRootConstantBufferView(
-        2,
-        radialBlurResource_->GetGPUVirtualAddress());
+        3,
+        radialBlurResource_->GetGPUVirtualAddress()); // b0
+
+    commandList->SetGraphicsRootConstantBufferView(
+        4,
+        dissolveResource_->GetGPUVirtualAddress()); // b4
 
 
     if (postEffectType_ == PostEffectType::DepthOutline) {
@@ -176,7 +212,13 @@ void OffscreenRenderer::CreateRootSignature()
     depthRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     depthRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[3]{};
+    D3D12_DESCRIPTOR_RANGE maskRange{};
+    maskRange.BaseShaderRegister = 2;
+    maskRange.NumDescriptors = 1;
+    maskRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    maskRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER rootParameters[5]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -187,9 +229,19 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[1].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[1].DescriptorTable.pDescriptorRanges = &depthRange;
 
-    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    rootParameters[2].Descriptor.ShaderRegister = 0;
+    rootParameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[2].DescriptorTable.pDescriptorRanges = &maskRange;
+
+    rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[3].Descriptor.ShaderRegister = 0;
+
+    rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[4].Descriptor.ShaderRegister = 1;
+
 
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
@@ -275,6 +327,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         L"ps_6_0");
     auto radialBlurPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/RadialBlur.PS.hlsl",
+        L"ps_6_0");
+    auto dissolvePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Dissolve.PS.hlsl",
         L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -392,6 +447,55 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         IID_PPV_ARGS(radialBlurPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
+    // ディゾルブ用のピクセルシェーダを設定する
+    desc.PS = {
+        dissolvePixelShaderBlob->GetBufferPointer(),
+        dissolvePixelShaderBlob->GetBufferSize()
+    };
+
+    // ディゾルブ用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(dissolvePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
 
 }
 
+void OffscreenRenderer::Update(float deltaTime)
+{
+    if (!isDissolvePlaying_) {
+        return;
+    }
+
+    dissolveElapsedTime_ += deltaTime;
+
+    float duration = std::max(dissolveDuration_, 0.1f);
+    float progress = std::clamp(dissolveElapsedTime_ / duration, 0.0f, 1.0f);
+
+    dissolveData_->threshold = progress;
+
+    if (progress >= 1.0f) {
+        isDissolvePlaying_ = false;
+    }
+}
+
+void OffscreenRenderer::StartDissolve()
+{
+    dissolveElapsedTime_ = 0.0f;
+    dissolveData_->threshold = 0.0f;
+    isDissolvePlaying_ = true;
+}
+
+void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
+{
+    float duration = std::max(dissolveDuration_, 0.1f);
+
+    // 現在秒数が 0 未満や最大秒数超えにならないようにする
+    dissolveElapsedTime_ = std::clamp(seconds, 0.0f, duration);
+
+    // 現在秒数に合わせて threshold も更新する
+    dissolveData_->threshold = dissolveElapsedTime_ / duration;
+
+    // 最後まで行っていれば停止、それ以外は再生中扱いにする
+    isDissolvePlaying_ = dissolveElapsedTime_ < duration;
+}

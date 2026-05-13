@@ -1,4 +1,5 @@
 #pragma once
+#define NOMINMAX
 #include "../DirectX/DirectXCommon.h"
 #include "../srv/SrvManager.h"
 #include "../renderTexture/RenderTexture.h"
@@ -11,8 +12,10 @@ enum class PostEffectType {
     BoxFilter,
     GaussianFilter,
     RadialBlur,
+    Dissolve,
     DepthOutline,
 };
+
 
 class OffscreenRenderer {
 public:
@@ -26,11 +29,35 @@ public:
     void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
     PostEffectType GetPostEffectType() const { return postEffectType_; }
 
+    void Update(float deltaTime);
+
+    void StartDissolve();
+
+    void SetDissolveDuration(float seconds) { dissolveDuration_ = seconds; }
+    float GetDissolveDuration() const { return dissolveDuration_; }
+
+    void SetDissolveMaskType(int type) { dissolveMaskType_ = type; }
+    int GetDissolveMaskType() const { return dissolveMaskType_; }
+
+    void SetDissolveElapsedTime(float seconds);
+    float GetDissolveElapsedTime() const { return dissolveElapsedTime_; }
+
+    bool IsDissolvePlaying() const { return isDissolvePlaying_; }
+    float GetDissolveThreshold() const { return dissolveData_ ? dissolveData_->threshold : 0.0f; }
+
+
 private:
     struct RadialBlurData {
         Vector2 center;   // ブラーの中心UV
         float blurWidth;  // ブラーの強さ
         float padding;    // 16byte揃え
+    };
+
+    struct DissolveData {
+        float threshold;   // ディゾルブの進行度
+        float edgeWidth;   // 境界の幅
+        Vector2 padding;   // 16byte揃え
+        Vector4 edgeColor; // 境界色
     };
 
 
@@ -58,6 +85,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
     // ラジアルブラー用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
+    // ディゾルブ用のパイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
 
@@ -66,5 +95,16 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> radialBlurResource_; // ラジアルブラー用定数バッファ
     RadialBlurData* radialBlurData_ = nullptr; // ラジアルブラー用定数データ
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> dissolveResource_; // ディゾルブ用定数バッファ
+    DissolveData* dissolveData_ = nullptr; // ディゾルブ用定数データ
+
+    uint32_t dissolveMaskSrvIndex0_ = 0; // noise0用SRV
+    uint32_t dissolveMaskSrvIndex1_ = 0; // noise1用SRV
+    int dissolveMaskType_ = 0; // 0: noise0 1: noise1
+
+    float dissolveDuration_ = 2.0f; // 何秒で終わるか
+    float dissolveElapsedTime_ = 0.0f; // 経過時間
+    bool isDissolvePlaying_ = false; // 再生中かどうか
 
 };
