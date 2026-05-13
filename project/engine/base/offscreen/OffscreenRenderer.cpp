@@ -3,6 +3,9 @@
 #include "../../2d/texture/TextureManager.h"
 #include <algorithm>
 
+#ifdef USE_IMGUI
+#include "../../../externals/imgui/imgui.h"
+#endif
 
 void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
@@ -52,6 +55,15 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     dissolveData_->edgeWidth = 0.03f;
     dissolveData_->padding = { 0.0f, 0.0f };
     dissolveData_->edgeColor = { 1.0f, 0.4f, 0.3f, 1.0f };
+
+    // ランダムノイズ用の定数バッファを作成する
+    randomNoiseResource_ = dxCommon_->CreateBufferResource(sizeof(RandomNoiseData));
+    randomNoiseResource_->Map(0, nullptr, reinterpret_cast<void**>(&randomNoiseData_));
+
+    randomNoiseData_->intensity = 0.3f;
+    randomNoiseData_->time = 0.0f;
+    randomNoiseData_->speed = 1.0f;
+    randomNoiseData_->padding = 0.0f;
 
 
 }
@@ -157,6 +169,10 @@ void OffscreenRenderer::DrawToBackBuffer()
         // ディゾルブ用のパイプラインステートを設定する
         commandList->SetPipelineState(dissolvePipelineState_.Get());
         break;
+    case PostEffectType::RandomNoise:
+        // ランダムノイズ用のパイプラインステートを設定する
+        commandList->SetPipelineState(randomNoisePipelineState_.Get());
+        break;
 
     }
 
@@ -179,6 +195,9 @@ void OffscreenRenderer::DrawToBackBuffer()
         4,
         dissolveResource_->GetGPUVirtualAddress()); // b4
 
+    commandList->SetGraphicsRootConstantBufferView(
+        5,
+        randomNoiseResource_->GetGPUVirtualAddress()); // b2
 
     if (postEffectType_ == PostEffectType::DepthOutline) {
         D3D12_RESOURCE_BARRIER depthBarrier{};
@@ -218,7 +237,7 @@ void OffscreenRenderer::CreateRootSignature()
     maskRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     maskRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[5]{};
+    D3D12_ROOT_PARAMETER rootParameters[6]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -242,6 +261,9 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[4].Descriptor.ShaderRegister = 1;
 
+    rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[5].Descriptor.ShaderRegister = 2;
 
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
@@ -330,6 +352,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         L"ps_6_0");
     auto dissolvePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Dissolve.PS.hlsl",
+        L"ps_6_0");
+    auto randomNoisePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/RandomNoise.PS.hlsl",
         L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -459,10 +484,27 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         IID_PPV_ARGS(dissolvePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
+    // ランダムノイズ用のピクセルシェーダを設定する
+    desc.PS = {
+        randomNoisePixelShaderBlob->GetBufferPointer(),
+        randomNoisePixelShaderBlob->GetBufferSize()
+    };
+
+    // ランダムノイズ用のパイプラインステートを作成する
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(randomNoisePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
 }
 
 void OffscreenRenderer::Update(float deltaTime)
 {
+    // ノイズの見た目が毎フレーム変わるように時間を進める
+    if (randomNoiseData_) {
+        randomNoiseData_->time += deltaTime * randomNoiseData_->speed;
+    }
+
     if (!isDissolvePlaying_) {
         return;
     }
@@ -498,4 +540,57 @@ void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
 
     // 最後まで行っていれば停止、それ以外は再生中扱いにする
     isDissolvePlaying_ = dissolveElapsedTime_ < duration;
+}
+
+void OffscreenRenderer::DrawImGui()
+{
+#ifdef USE_IMGUI
+    ImGui::Begin("Post Effect");
+
+    const char* items[] = {
+        "Copy",
+        "Grayscale",
+        "Sepia",
+        "Vignette",
+        "BoxFilter",
+        "GaussianFilter",
+        "RadialBlur",
+        "Dissolve",
+        "RandomNoise",
+        "DepthOutline",
+    };
+
+    int current = static_cast<int>(postEffectType_);
+    if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
+        postEffectType_ = static_cast<PostEffectType>(current);
+    }
+
+    if (postEffectType_ == PostEffectType::Dissolve) {
+        const char* maskItems[] = { "noise0", "noise1" };
+        if (ImGui::Combo("Mask", &dissolveMaskType_, maskItems, IM_ARRAYSIZE(maskItems))) {
+        }
+
+        ImGui::DragFloat("Duration", &dissolveDuration_, 0.1f, 0.1f, 10.0f);
+
+        float maxSeconds = std::max(dissolveDuration_, 0.1f);
+        if (ImGui::SliderFloat("Current Time", &dissolveElapsedTime_, 0.0f, maxSeconds)) {
+            SetDissolveElapsedTime(dissolveElapsedTime_);
+        }
+
+        if (ImGui::Button("Start")) {
+            StartDissolve();
+        }
+
+        ImGui::Text("Playing: %s", isDissolvePlaying_ ? "true" : "false");
+        ImGui::Text("Threshold: %.2f", dissolveData_ ? dissolveData_->threshold : 0.0f);
+    }
+
+    if (postEffectType_ == PostEffectType::RandomNoise) {
+        ImGui::DragFloat("Intensity", &randomNoiseData_->intensity, 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat("Speed", &randomNoiseData_->speed, 0.01f, 0.0f, 10.0f);
+    }
+
+
+    ImGui::End();
+#endif
 }

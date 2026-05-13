@@ -24,6 +24,7 @@
     <FxCompile Include="Resources\shaders\DepthBasedOutline.PS.hlsl" />
     <FxCompile Include="Resources\shaders\RadialBlur.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Dissolve.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\RandomNoise.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />

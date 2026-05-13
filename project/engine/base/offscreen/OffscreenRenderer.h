@@ -13,9 +13,9 @@ enum class PostEffectType {
     GaussianFilter,
     RadialBlur,
     Dissolve,
+    RandomNoise,
     DepthOutline,
 };
-
 
 class OffscreenRenderer {
 public:
@@ -45,6 +45,7 @@ public:
     bool IsDissolvePlaying() const { return isDissolvePlaying_; }
     float GetDissolveThreshold() const { return dissolveData_ ? dissolveData_->threshold : 0.0f; }
 
+    void DrawImGui();
 
 private:
     struct RadialBlurData {
@@ -59,6 +60,15 @@ private:
         Vector2 padding;   // 16byte揃え
         Vector4 edgeColor; // 境界色
     };
+
+    struct RandomNoiseData {
+        float intensity;  // ノイズの濃さ
+        float time;       // 乱数変化用の時間
+        float speed;      // ノイズ変化の速さ
+        float padding;    // 16byte揃え
+    };
+
+
 
 
 private:
@@ -87,6 +97,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
     // ディゾルブ用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
+    // ランダムノイズ用のパイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> randomNoisePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
 
@@ -106,5 +118,9 @@ private:
     float dissolveDuration_ = 2.0f; // 何秒で終わるか
     float dissolveElapsedTime_ = 0.0f; // 経過時間
     bool isDissolvePlaying_ = false; // 再生中かどうか
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> randomNoiseResource_; // ランダムノイズ用定数バッファ
+    RandomNoiseData* randomNoiseData_ = nullptr; // ランダムノイズ用定数データ
+
 
 };
