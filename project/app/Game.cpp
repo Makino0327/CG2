@@ -33,11 +33,6 @@ void Game::Initialize() {
 
     // ★ カメラ生成 & デフォルトカメラに設定
     camera_ = std::make_unique<Camera>();
-    // カメラを下向きにして上から見る
-    camera_->SetRotate({ 1.2f, 0.0f, 0.0f });
-
-    // 高い位置から少し手前に置く
-    camera_->SetTranslate({ 0.0f, 12.0f, -6.0f });
 
     object3dCommon_->SetDefaultCamera(camera_.get());
 
@@ -45,7 +40,7 @@ void Game::Initialize() {
     Vector3 camRotate = { 1.2f, 0.0f, 0.0f };
 
     // ImGui用の初期位置も合わせる
-    Vector3 camTranslate = { 0.0f, 12.0f, -6.0f };
+    Vector3 camTranslate = { 0.0f, 20.0f, -6.0f };
 
     camera_->SetRotate(camRotate);
     camera_->SetTranslate(camTranslate);
