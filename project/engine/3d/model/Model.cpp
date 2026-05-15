@@ -519,7 +519,12 @@ void Model::Draw()
 
 ModelData Model::LoadModelFile(const std::string& directoryPath, const std::string& filename)
 {
-	std::string extension = std::filesystem::path(filename).extension().string();
+	std::string extension;
+
+	// 拡張子を取り出す
+	if (size_t dotPos = filename.find_last_of('.'); dotPos != std::string::npos) {
+		extension = filename.substr(dotPos);
+	}
 
 	if (extension == ".obj") {
 		return LoadObjFile(directoryPath, filename);
@@ -532,6 +537,7 @@ ModelData Model::LoadModelFile(const std::string& directoryPath, const std::stri
 	assert(false);
 	return ModelData{};
 }
+
 
 ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string& filename)
 {
@@ -574,8 +580,17 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 	std::string line;
 
 	std::ifstream file(directoryPath + "/" + filename);
+
+	std::string fileNameOnly = filename;
+
+	// ファイル名だけを取り出す
+	if (size_t slashPos = fileNameOnly.find_last_of("/\\"); slashPos != std::string::npos) {
+		fileNameOnly = fileNameOnly.substr(slashPos + 1);
+	}
+
 	// plane.obj だけは今まで通り反転しない
-	bool flipY = (std::filesystem::path(filename).filename().string() != "plane.obj");
+	bool flipY = (fileNameOnly != "plane.obj");
+
 
 	assert(file.is_open());
 
