@@ -538,6 +538,12 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 	ModelData modelData;
 
 	std::string mtlFileName;
+	std::string modelDirectoryPath = directoryPath;
+
+	// objファイルが入っているフォルダを作る
+	if (size_t slashPos = filename.find_last_of("/\\"); slashPos != std::string::npos) {
+		modelDirectoryPath += "/" + filename.substr(0, slashPos);
+	}
 
 	{
 		std::ifstream file(directoryPath + "/" + filename);
@@ -556,9 +562,10 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 
 	if (!mtlFileName.empty()) {
 		Object3d::LoadMaterialTemplateFile(
-			directoryPath,
+			modelDirectoryPath,
 			mtlFileName,
 			modelData.material);
+
 	}
 
 	std::vector<Vector4> positions;
@@ -567,7 +574,9 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 	std::string line;
 
 	std::ifstream file(directoryPath + "/" + filename);
-	bool flipY = (filename != "plane.obj");
+	// plane.obj だけは今まで通り反転しない
+	bool flipY = (std::filesystem::path(filename).filename().string() != "plane.obj");
+
 	assert(file.is_open());
 
 	MeshData currentMesh;
