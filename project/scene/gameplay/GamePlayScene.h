@@ -42,17 +42,9 @@ public:
     // ★ SetContext は BaseScene で共通化されたため、ここからは削除！
 
 private:
-    // ★ 個別のポインタ群（dxCommon_ など）もすべて削除！
-    // 親クラス BaseScene の context_ を使います。
 
     // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
-    // simpleSkin 用
-    std::unique_ptr<Object3d> objA_;
-
-    // human 用
-    std::unique_ptr<Object3d> objB_;
-
 
     std::unique_ptr<SkyboxCommon> skyboxCommon_;
     std::unique_ptr<Skybox> skybox_;
@@ -63,40 +55,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 
-    Vector2 spritePos_ = { 0.0f, 0.0f };
-
     bool initialized_ = false; // 二重初期化防止
-
-    SoundData seSelect_;
-    bool soundLoaded_ = false;
-
-    // Ring 用パーティクル
-    std::unique_ptr<ParticleSystem> ringParticleSystem_;
-
-    std::unique_ptr<ParticleSystem> cylinderParticleSystem_;
-
-    // 線描画共通
-    std::unique_ptr<Line3DCommon> line3dCommon_;
-
-    // simpleSkin 用 Skeleton デバッグ描画
-    std::unique_ptr<DebugSkeletonRenderer> debugSkeletonRendererA_;
-
-    // human 用 Skeleton デバッグ描画
-    std::unique_ptr<DebugSkeletonRenderer> debugSkeletonRendererB_;
-
-
-    // simpleSkin 確認用 transform
-    Vector3 objATranslate_ = { -1.0f, 0.0f, 0.0f };
-    Vector3 objARotate_ = { 0.0f, 0.0f, 0.0f };
-    Vector3 objAScale_ = { 1.0f, 1.0f, 1.0f };
-
-    // human 確認用 transform
-    Vector3 objBTranslate_ = { 1.0f, 0.0f, 0.0f };
-    Vector3 objBRotate_ = { 0.0f, 0.0f, 0.0f };
-    Vector3 objBScale_ = { 1.0f, 1.0f, 1.0f };
-
-    // human animation の再生確認用
-    bool isHumanAnimationPlaying_ = false;
 
     std::unique_ptr<DebugCamera> debugCamera_;
 
