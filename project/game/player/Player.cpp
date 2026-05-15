@@ -5,17 +5,24 @@ void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 {
     input_ = input;
 
+    // プレイヤーのモデルを作る
     object_ = std::make_unique<Object3d>();
+
+    // 3D描画の共通設定を渡す
     object_->Initialize(object3dCommon);
-    object_->SetModel("cube.obj");
-    object_->SetTexture("Resources/cube.jpg");
-    object_->SetScale({ 1.0f, 1.0f, 1.0f });
 
-    // とりあえず箱の内側あたりに置く（好きな値で OK）
-    object_->SetTranslate({ 4.0f, 4.0f, 0.0f });
+    // プレイヤーモデルを使う
+    object_->SetModel("player/player.obj");
 
-    velocityY_ = 0.0f;
-    onGround_ = false;
+    // プレイヤーの大きさを設定する
+    object_->SetScale(scale_);
+
+    // プレイヤーの回転を設定する
+    object_->SetRotate(rotate_);
+
+    // プレイヤーの位置を設定する
+    object_->SetTranslate(translate_);
+
 }
 
 void Player::Update()
@@ -26,30 +33,26 @@ void Player::Update()
 
     prevPos_ = pos;
 
-    // ==== 左右移動 ====
-    if (input_->PushKey(DIK_A)) { pos.x -= moveSpeed_; }
-    if (input_->PushKey(DIK_D)) { pos.x += moveSpeed_; }
-
-    // ==== ジャンプ ====
-    if (onGround_ && input_->TriggerKey(DIK_SPACE)) {
-        velocityY_ = jumpPower_;
-        onGround_ = false;
+    // 左に動く
+    if (input_->PushKey(DIK_A)) {
+        pos.x -= moveSpeed_;
     }
 
-    // ==== 重力 ====
-    velocityY_ += gravity_;
+    // 右に動く
+    if (input_->PushKey(DIK_D)) {
+        pos.x += moveSpeed_;
+    }
 
-    // いったん速度をそのまま足す
-    pos.y += velocityY_;
+    // 前に動く
+    if (input_->PushKey(DIK_W)) {
+        pos.z += moveSpeed_;
+    }
 
-    // ==== マップとの下方向当たり判定 ====
-    ResolveBottomCollisionWithMap(pos);
+    // 後ろに動く
+    if (input_->PushKey(DIK_S)) {
+        pos.z -= moveSpeed_;
+    }
 
-	ResolveLeftCollisionWithMap(pos);
-
-	ResolveTopCollisionWithMap(pos);
-
-	ResolveRightCollisionWithMap(pos);
 
     object_->SetTranslate(pos);
     object_->Update();

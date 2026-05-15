@@ -42,4 +42,14 @@ private:
     float tileSize_ = 2.0f; // main の kTileSize と同じにする
 
     Vector3 prevPos_{};
+
+    // プレイヤーの初期位置
+    Vector3 translate_ = { 0.0f, 0.5f, 0.0f };
+
+    // プレイヤーの初期回転
+    Vector3 rotate_ = { 0.0f, 0.0f, 0.0f };
+
+    // プレイヤーの大きさ
+    Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
+
 };

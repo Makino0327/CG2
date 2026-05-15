@@ -55,6 +55,9 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
     ModelManager::GetInstance()->LoadModel("cube.obj");
+    // プレイヤーモデルを読み込む
+    ModelManager::GetInstance()->LoadModel("player/player.obj");
+
 
     // テクスチャ
     auto texMan = TextureManager::GetInstance();
@@ -96,6 +99,12 @@ void GamePlayScene::Initialize()
     // デバッグ画面でカメラを操作するクラスを生成する
     debugCamera_ = std::make_unique<DebugCamera>();
 
+    /// プレイヤー
+    player_ = std::make_unique<Player>();
+    // プレイヤーを初期化する
+    player_->Initialize(context_.object3dCommon, context_.input);
+
+
 }
 
 void GamePlayScene::Update()
@@ -105,9 +114,8 @@ void GamePlayScene::Update()
 
     // ★ context_ 経由に変更
     if (context_.camera) { context_.camera->Update(); }
-
-
     if (skybox_) { skybox_->Update(); }
+
 
     // Particleを毎フレーム更新する
     if (particleSystem_) { particleSystem_->Update(dt); }
@@ -120,6 +128,16 @@ void GamePlayScene::Update()
             context_.offscreenRenderer,
             *context_.isDebugMode);
     }
+
+    /// =============================
+    /// プレイヤー
+    /// =============================
+    // プレイヤー
+    if (player_) {
+        player_->Update();
+    }
+
+
 
 
 }
@@ -142,14 +160,17 @@ void GamePlayScene::Draw()
         skybox_->Draw();
     }
 
-
-
     // Particle
     context_.particleCommon->CommonDrawSetting();
 
     // Particleを描画する
     if (particleSystem_) { particleSystem_->Draw(); }
     
+    // プレイヤーを描画する
+    if (player_) {
+        player_->Draw();
+    }
+
 }
 
 void GamePlayScene::Finalize()
@@ -168,6 +189,9 @@ void GamePlayScene::Finalize()
     initialized_ = false;
 
     debugCamera_.reset();
+
+    // プレイヤーを解放する
+    player_.reset();
 
 }
 

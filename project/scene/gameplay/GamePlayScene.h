@@ -16,6 +16,8 @@
 #include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
 #include "../../game/camera/DebugCamera.h"
 
+#include "../../game/player/Player.h"
+
 
 // ===== 前方宣言 =====
 // SceneContext.h を BaseScene.h がインクルードしている前提なので、
@@ -58,5 +60,13 @@ private:
     bool initialized_ = false; // 二重初期化防止
 
     std::unique_ptr<DebugCamera> debugCamera_;
+
+private:
+
+    // プレイヤー
+    std::unique_ptr<Player> player_;
+    Vector3 playerTranslate_ = { 0.0f, 0.5f, 0.0f };
+    Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
 
 };

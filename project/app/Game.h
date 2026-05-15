@@ -86,5 +86,10 @@ private:
     // デバッグUIを表示するかどうか
     bool isDebugMode_ = false;
 #endif
+    // カメラの回転
+    Vector3 cameraRotate_ = { 1.2f, 0.0f, 0.0f };
+
+    // カメラの位置
+    Vector3 cameraTranslate_ = { 0.0f, 12.0f, -6.0f };
 
 };
