@@ -29,7 +29,8 @@ public:
     void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
     PostEffectType GetPostEffectType() const { return postEffectType_; }
 
-    void Update(float deltaTime);
+    // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
+    void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
 
     void StartDissolve();
 
@@ -45,7 +46,29 @@ public:
     bool IsDissolvePlaying() const { return isDissolvePlaying_; }
     float GetDissolveThreshold() const { return dissolveData_ ? dissolveData_->threshold : 0.0f; }
 
+    // Game View 内でのローカル座標を返す
+    Vector2 GetGameViewMousePosition() const { return gameViewMousePosition_; }
+
+    // Game View 内で 0.0f ～ 1.0f に正規化した座標を返す
+    Vector2 GetGameViewMouseUV() const { return gameViewMouseUV_; }
+
     void DrawImGui();
+
+    // デバッグ用にゲーム画面をImGuiへ表示する
+    void DrawDebugGameViewImGui();
+
+    // Game Viewがホバー中か
+    bool IsGameViewHovered() const { return isGameViewHovered_; }
+
+    // Game View が選択中かどうか
+    bool IsGameViewSelected() const { return isGameViewSelected_; }
+
+    // Game View上で右ドラッグ中か
+    bool IsGameViewRotating() const { return isGameViewRotating_; }
+
+    // Game View上でのマウス移動量
+    Vector2 GetGameViewMouseDelta() const { return gameViewMouseDelta_; }
+
 
 private:
     struct RadialBlurData {
@@ -121,6 +144,25 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> randomNoiseResource_; // ランダムノイズ用定数バッファ
     RandomNoiseData* randomNoiseData_ = nullptr; // ランダムノイズ用定数データ
+
+    // Game Viewの入力状態
+    bool isGameViewHovered_ = false;
+    bool isGameViewSelected_ = false;
+    bool isGameViewRotating_ = false;
+    Vector2 gameViewMouseDelta_ = { 0.0f, 0.0f };
+
+    // Game View の表示矩形
+    Vector2 gameViewTopLeft_ = { 0.0f, 0.0f };
+    Vector2 gameViewSize_ = { 0.0f, 0.0f };
+
+    // Game View 内でのマウス座標
+    Vector2 gameViewMousePosition_ = { 0.0f, 0.0f };
+
+    // Game View 内での正規化マウス座標
+    Vector2 gameViewMouseUV_ = { 0.0f, 0.0f };
+
+    // 前フレームの Game View 内マウス座標
+    Vector2 prevGameViewMousePosition_ = { 0.0f, 0.0f };
 
 
 };

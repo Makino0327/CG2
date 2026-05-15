@@ -27,6 +27,23 @@ void Input::Update()
 	keyboard->Acquire();
 	// 全キーの入力情報を取得する
 	keyboard->GetDeviceState(sizeof(key), key);
+
+	// マウス座標を取得する
+	POINT cursorPos{};
+	GetCursorPos(&cursorPos);
+	ScreenToClient(winApp_->GetHwnd(), &cursorPos);
+
+	// 前フレームとの差分を計算する
+	prevMousePosition_ = mousePosition_;
+	mousePosition_.x = static_cast<float>(cursorPos.x);
+	mousePosition_.y = static_cast<float>(cursorPos.y);
+
+	mouseDelta_.x = mousePosition_.x - prevMousePosition_.x;
+	mouseDelta_.y = mousePosition_.y - prevMousePosition_.y;
+
+	// 右ボタン押下状態を更新する
+	isMouseRightPressed_ = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+
 }
 
 bool Input::PushKey(BYTE keyNumber)

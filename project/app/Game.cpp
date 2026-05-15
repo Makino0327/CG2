@@ -93,6 +93,9 @@ void Game::Initialize() {
     context.input = input_.get();
     context.sound = sound_.get();
     context.offscreenRenderer = offscreenRenderer_.get();
+#ifdef USE_IMGUI
+    context.isDebugMode = &isDebugMode_;
+#endif
 
     // 2. SceneManager を作り、Context を「1回だけ」預ける
     sceneManager_ = std::make_unique<SceneManager>();
@@ -119,9 +122,20 @@ void Game::Update() {
         }
     }
 
-    if (offscreenRenderer_) {
-        offscreenRenderer_->Update(1.0f / 60.0f);
+    if (offscreenRenderer_ && input_) {
+        offscreenRenderer_->Update(
+            1.0f / 60.0f,
+            input_->GetMousePosition(),
+            input_->PushMouseRight());
     }
+
+
+#ifdef USE_IMGUI
+    // F1を押した瞬間にデバッグモードを切り替える
+    if (input_->TriggerKey(DIK_F1)) {
+        isDebugMode_ = !isDebugMode_;
+    }
+#endif
 
 
     if (sceneManager_) {
@@ -133,13 +147,19 @@ void Game::Draw() {
     if (!dxCommon_) { return; }
 
 #ifdef USE_IMGUI
+    // ImGuiを初期化している間は毎フレーム開始処理を行う
     if (imguiManager_) {
         imguiManager_->Begin();
-        if (sceneManager_) {
+
+        // デバッグモードのときだけ各種デバッグUIを描画する
+        if (isDebugMode_ && sceneManager_) {
             sceneManager_->DrawImGui();
         }
+
+        imguiManager_->End();
     }
 #endif
+
 
     if (offscreenRenderer_) {
         offscreenRenderer_->PreDrawScene();
@@ -154,8 +174,8 @@ void Game::Draw() {
     }
 
 #ifdef USE_IMGUI
+    // ImGuiを実際に描画する
     if (imguiManager_) {
-        imguiManager_->End();
         imguiManager_->Draw();
     }
 #endif

@@ -82,5 +82,9 @@ private:
     std::unique_ptr<SceneManager> sceneManager_;
     std::unique_ptr<OffscreenRenderer> offscreenRenderer_;
 
+#ifdef USE_IMGUI
+    // デバッグUIを表示するかどうか
+    bool isDebugMode_ = false;
+#endif
 
 };

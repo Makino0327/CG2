@@ -220,6 +220,8 @@ void GamePlayScene::Initialize()
     // human は Joint 球を小さくする
     debugSkeletonRendererB_->SetJointRadius(0.01f);
 
+    // デバッグ用カメラ操作クラスを作る
+    debugCamera_ = std::make_unique<DebugCamera>();
 
 
 }
@@ -281,6 +283,17 @@ void GamePlayScene::Update()
     //if (!sprites_.empty() && sprites_[0]) {
     //    sprites_[0]->SetPosition(spritePos_);
     //}
+
+       // デバッグ用のカメラ操作を更新する
+    if (debugCamera_ && context_.isDebugMode) {
+        debugCamera_->Update(
+            context_.camera,
+            context_.input,
+            context_.offscreenRenderer,
+            *context_.isDebugMode);
+    }
+
+
 }
 
 void GamePlayScene::Draw()
@@ -387,6 +400,9 @@ void GamePlayScene::Finalize()
 
     soundLoaded_ = false;
     initialized_ = false;
+
+    debugCamera_.reset();
+
 }
 
 void GamePlayScene::DrawImGui()
@@ -449,9 +465,12 @@ void GamePlayScene::DrawImGui()
     }
 
     // ポストエフェクト
+    // オフスクリーン描画結果をデバッグ表示する
     if (context_.offscreenRenderer) {
+        context_.offscreenRenderer->DrawDebugGameViewImGui();
         context_.offscreenRenderer->DrawImGui();
     }
+
 
     // 通常パーティクルの ImGui
     if (particleSystem_) {

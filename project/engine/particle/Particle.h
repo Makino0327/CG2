@@ -134,6 +134,7 @@ public:
 
     // ImGui の編集UIを表示する
     void ShowImGui(const char* windowName);
+    void SetCamera(Camera* camera) { camera_ = camera; }
 
 
     // エミッターのワールド座標を設定する

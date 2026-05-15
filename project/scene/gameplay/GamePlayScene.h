@@ -14,6 +14,7 @@
 #include "../engine/animation/Animation.h"
 #include "../../engine/3d/obj3d/Line3DCommon.h"
 #include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
+#include "../../game/camera/DebugCamera.h"
 
 
 // ===== 前方宣言 =====
@@ -96,4 +97,7 @@ private:
 
     // human animation の再生確認用
     bool isHumanAnimationPlaying_ = false;
+
+    std::unique_ptr<DebugCamera> debugCamera_;
+
 };

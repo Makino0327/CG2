@@ -497,12 +497,50 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     assert(SUCCEEDED(hr));
 
 }
-
-void OffscreenRenderer::Update(float deltaTime)
+void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed)
 {
-    // ノイズの見た目が毎フレーム変わるように時間を進める
+    // ランダムノイズの時間を進める
     if (randomNoiseData_) {
         randomNoiseData_->time += deltaTime * randomNoiseData_->speed;
+    }
+
+    // Game View の矩形内にマウスがあるか判定する
+    const float left = gameViewTopLeft_.x;
+    const float top = gameViewTopLeft_.y;
+    const float right = gameViewTopLeft_.x + gameViewSize_.x;
+    const float bottom = gameViewTopLeft_.y + gameViewSize_.y;
+
+    isGameViewHovered_ =
+        mousePosition.x >= left &&
+        mousePosition.x <= right &&
+        mousePosition.y >= top &&
+        mousePosition.y <= bottom &&
+        gameViewSize_.x > 0.0f &&
+        gameViewSize_.y > 0.0f;
+
+    // Game View 内ローカル座標を更新する
+    prevGameViewMousePosition_ = gameViewMousePosition_;
+
+    if (isGameViewHovered_) {
+        gameViewMousePosition_.x = mousePosition.x - gameViewTopLeft_.x;
+        gameViewMousePosition_.y = mousePosition.y - gameViewTopLeft_.y;
+
+        // 0.0f ～ 1.0f の範囲に正規化する
+        gameViewMouseUV_.x = gameViewMousePosition_.x / gameViewSize_.x;
+        gameViewMouseUV_.y = gameViewMousePosition_.y / gameViewSize_.y;
+    } else {
+        gameViewMousePosition_ = { 0.0f, 0.0f };
+        gameViewMouseUV_ = { 0.0f, 0.0f };
+    }
+
+    // 右クリック中だけ回転状態にする
+    isGameViewRotating_ = isGameViewHovered_ && isMouseRightPressed;
+
+    if (isGameViewRotating_) {
+        gameViewMouseDelta_.x = gameViewMousePosition_.x - prevGameViewMousePosition_.x;
+        gameViewMouseDelta_.y = gameViewMousePosition_.y - prevGameViewMousePosition_.y;
+    } else {
+        gameViewMouseDelta_ = { 0.0f, 0.0f };
     }
 
     if (!isDissolvePlaying_) {
@@ -520,6 +558,7 @@ void OffscreenRenderer::Update(float deltaTime)
         isDissolvePlaying_ = false;
     }
 }
+
 
 void OffscreenRenderer::StartDissolve()
 {
@@ -560,6 +599,8 @@ void OffscreenRenderer::DrawImGui()
         "DepthOutline",
     };
 
+
+
     int current = static_cast<int>(postEffectType_);
     if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
         postEffectType_ = static_cast<PostEffectType>(current);
@@ -590,6 +631,43 @@ void OffscreenRenderer::DrawImGui()
         ImGui::DragFloat("Speed", &randomNoiseData_->speed, 0.01f, 0.0f, 10.0f);
     }
 
+
+    ImGui::End();
+#endif
+}
+
+void OffscreenRenderer::DrawDebugGameViewImGui()
+{
+#ifdef USE_IMGUI
+    if (!renderTexture_) {
+        return;
+    }
+
+
+    ImGui::Begin("Game View");
+
+    ImVec2 availSize = ImGui::GetContentRegionAvail();
+    float aspect = 16.0f / 9.0f;
+
+    ImVec2 imageSize = availSize;
+    imageSize.y = imageSize.x / aspect;
+
+    if (imageSize.y > availSize.y) {
+        imageSize.y = availSize.y;
+        imageSize.x = imageSize.y * aspect;
+    }
+
+    ImTextureID textureId =
+        static_cast<ImTextureID>(renderTexture_->GetSRVGPUHandle().ptr);
+
+    ImGui::Image(textureId, imageSize);
+
+        // Game View の表示位置とサイズだけを保存しておく
+    ImVec2 imageMin = ImGui::GetItemRectMin();
+    ImVec2 imageSizeImGui = ImGui::GetItemRectSize();
+
+    gameViewTopLeft_ = { imageMin.x, imageMin.y };
+    gameViewSize_ = { imageSizeImGui.x, imageSizeImGui.y };
 
     ImGui::End();
 #endif

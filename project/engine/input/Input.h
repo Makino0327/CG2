@@ -34,6 +34,15 @@ public:
 	/// <returns>トリガーか</returns>
 	bool TriggerKey(BYTE keyNumber);
 
+	// マウスの現在座標を取得する
+	Vector2 GetMousePosition() const { return mousePosition_; }
+
+	// マウスの移動量を取得する
+	Vector2 GetMouseDelta() const { return mouseDelta_; }
+
+	// 右ボタンを押しているか
+	bool PushMouseRight() const { return isMouseRightPressed_; }
+
 public:
 	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
@@ -46,5 +55,18 @@ private:
 
 	// WindowsAPI
 	WinApp* winApp_ = nullptr;
+
+	// マウスの現在座標
+	Vector2 mousePosition_ = { 0.0f, 0.0f };
+
+	// 1フレーム分のマウス移動量
+	Vector2 mouseDelta_ = { 0.0f, 0.0f };
+
+	// 前フレームのマウス座標
+	Vector2 prevMousePosition_ = { 0.0f, 0.0f };
+
+	// 右ボタン押下中か
+	bool isMouseRightPressed_ = false;
+
 };
 

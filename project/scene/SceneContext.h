@@ -25,4 +25,6 @@ struct SceneContext {
     SoundManager* sound = nullptr;
     OffscreenRenderer* offscreenRenderer = nullptr;
 
+    bool* isDebugMode = nullptr;
+
 };
