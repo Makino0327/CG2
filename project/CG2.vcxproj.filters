@@ -73,6 +73,9 @@
     <ClCompile Include="game\player\PlayerBullet.cpp" />
     <ClCompile Include="game\camera\FollowCamera.cpp" />
     <ClCompile Include="game\enemy\Enemy.cpp" />
+    <ClCompile Include="game\collision\Collision.cpp" />
+    <ClCompile Include="scene\clear\ClearScene.cpp" />
+    <ClCompile Include="scene\gameover\GameOverScene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -122,6 +125,9 @@
     <ClInclude Include="game\player\PlayerBullet.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
+    <ClInclude Include="game\collision\Collision.h" />
+    <ClInclude Include="scene\clear\ClearScene.h" />
+    <ClInclude Include="scene\gameover\GameOverScene.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

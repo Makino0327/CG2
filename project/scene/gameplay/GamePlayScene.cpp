@@ -29,6 +29,10 @@
 
 #include "../engine/input/Input.h"
 #include "../scene/SceneManager.h"
+
+#include "../clear/ClearScene.h"
+#include "../gameover/GameOverScene.h"
+
 #ifdef USE_IMGUI
 #include "../externals/imgui/imgui.h"
 #endif
@@ -213,6 +217,18 @@ void GamePlayScene::Update()
 
     // プレイヤーと敵と弾の当たり判定を処理する
     CheckCollisions();
+
+    // 敵を全部倒したらクリアへ切り替える
+    if (enemies_.empty()) {
+        sceneManager_->SetNextScene(std::make_unique<ClearScene>());
+        return;
+    }
+
+    // プレイヤーが死んだらゲームオーバーへ切り替える
+    if (player_ && player_->IsDead()) {
+        sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
+        return;
+    }
 
 }
 

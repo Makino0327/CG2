@@ -61,11 +61,6 @@ void TitleScene::Initialize()
     texMan->LoadTexture("Resources/circle.png");
     texMan->LoadTexture("Resources/fence.png");
 
-    // -------- パーティクル --------
-    particleSystem_ = std::make_unique<ParticleSystem>();
-    // ★ 引数を context_ 経由に変更
-    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
-    particleSystem_->SetPosition({ 0.0f, 0.0f, 0.0f });
 
     // -------- ライトCB --------
     directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
@@ -75,36 +70,6 @@ void TitleScene::Initialize()
     light->direction = Vector3(0.0f, -1.0f, 0.0f);
     light->intensity = 4.0f;
 
-    // -------- スプライト --------
-    sprites_.clear();
-    sprites_.reserve(5);
-
-    for (uint32_t i = 0; i < 5; ++i) {
-        auto sprite = std::make_unique<Sprite>();
-
-        std::string texPath = (i % 2 == 0)
-            ? "Resources/uvChecker.png"
-            : "Resources/monsterBall.png";
-
-        // ★ 引数を context_ 経由に変更
-        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texPath);
-
-        Vector2 pos = { 100.0f + 150.0f * i, 200.0f };
-        sprite->SetPosition(pos);
-
-        sprites_.push_back(std::move(sprite));
-    }
-
-    // -------- 3D --------
-    objA_ = std::make_unique<Object3d>();
-    // ★ 引数を context_ 経由に変更
-    objA_->Initialize(context_.object3dCommon);
-    objA_->SetModel("fence.obj");
-    objA_->SetTexture("Resources/circle.png");
-    objA_->SetTranslate({ 0.0f, 0.0f, 0.0f });
-
-    // ついでに初期位置
-    spritePos_ = { 100.0f, 200.0f };
 }
 
 void TitleScene::Update()
@@ -118,24 +83,8 @@ void TitleScene::Update()
     // dt固定
     const float dt = 1.0f / 60.0f;
 
-    // Sprite Update
-    for (auto& sprite : sprites_) {
-        if (sprite) { sprite->Update(); }
-    }
-
-    // 3D Update
-    if (objA_) { objA_->Update(); }
-
     // Camera (★ context_ 経由に変更)
     if (context_.camera) { context_.camera->Update(); }
-
-    // Particle
-    if (particleSystem_) { particleSystem_->Update(dt); }
-
-    // 例：スプライト0だけ座標反映
-    if (!sprites_.empty() && sprites_[0]) {
-        sprites_[0]->SetPosition(spritePos_);
-    }
 }
 
 void TitleScene::Draw()
@@ -151,26 +100,17 @@ void TitleScene::Draw()
 
     // ===== Sprite =====
     context_.spriteCommon->CommonDrawSetting();
-    for (auto& sprite : sprites_) {
-        if (sprite) { sprite->Draw(); }
-    }
+
 
     // ===== 3D =====
     context_.object3dCommon->CommonDrawSetting();
-    if (objA_) { objA_->Draw(); }
-
+ 
     // ===== Particle =====
     context_.particleCommon->CommonDrawSetting();
-    if (particleSystem_) { particleSystem_->Draw(); }
 }
 
 void TitleScene::Finalize()
 {
-    // ここは変更なしでOK
-    sprites_.clear();
-    objA_.reset();
-    particleSystem_.reset();
-
     directionalLightResource_.Reset();
     materialResource_.Reset();
 
