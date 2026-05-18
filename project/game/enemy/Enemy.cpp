@@ -22,7 +22,7 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, const Vector3& position)
 
 void Enemy::Update()
 {
-    if (!object_) {
+    if (!object_ || isDead_) {
         return;
     }
 
@@ -35,7 +35,7 @@ void Enemy::Update()
 
 void Enemy::Draw()
 {
-    if (!object_) {
+    if (!object_ || isDead_) {
         return;
     }
 
@@ -53,4 +53,15 @@ Vector3 Enemy::GetWorldPosition() const
 {
     // 現在の座標を返す
     return position_;
+}
+SphereCollider Enemy::GetCollider() const
+{
+    // 敵の現在位置を球の当たり判定として返す
+    return { position_, colliderRadius_ };
+}
+
+void Enemy::OnHit()
+{
+    // 弾が当たった敵は倒された扱いにする
+    isDead_ = true;
 }

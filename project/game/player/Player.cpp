@@ -91,6 +91,22 @@ void Player::Draw()
     }
 }
 
+SphereCollider Player::GetCollider() const
+{
+    // プレイヤーの現在位置を球の当たり判定として返す
+    return { GetWorldPosition(), colliderRadius_ };
+}
+
+void Player::OnHit()
+{
+    // 被弾したことが分かるように状態を保存する
+    isHit_ = true;
+
+    // HPが残っている時だけ1減らす
+    if (hp_ > 0) {
+        hp_ -= 1;
+    }
+}
 
 // ----------------------------
 // 下方向のマップ当たり判定

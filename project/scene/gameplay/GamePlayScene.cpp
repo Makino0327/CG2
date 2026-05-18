@@ -1,5 +1,6 @@
 #include "GamePlayScene.h"
 
+#include <algorithm>
 #include <cassert>
 #include <string>
 #include <memory>
@@ -193,6 +194,9 @@ void GamePlayScene::Update()
         enemy->Update();
     }
 
+    // プレイヤーと敵と弾の当たり判定を処理する
+    CheckCollisions();
+
 }
 
 void GamePlayScene::Draw()
@@ -254,6 +258,58 @@ void GamePlayScene::Finalize()
     // 敵を全て解放する
     enemies_.clear();
 
+}
+
+void GamePlayScene::CheckCollisions()
+{
+    if (!player_) {
+        return;
+    }
+
+    // プレイヤーと敵の当たり判定を処理する
+    for (auto& enemy : enemies_) {
+        if (enemy->IsDead()) {
+            continue;
+        }
+
+        if (Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
+            // プレイヤーに敵が触れたことを通知する
+            player_->OnHit();
+        }
+    }
+
+    // プレイヤーが持っている弾と敵の当たり判定を処理する
+    const auto& bullets = player_->GetBullets();
+    for (const auto& bullet : bullets) {
+        if (bullet->IsDead()) {
+            continue;
+        }
+
+        for (auto& enemy : enemies_) {
+            if (enemy->IsDead()) {
+                continue;
+            }
+
+            if (Collision::IsHit(bullet->GetCollider(), enemy->GetCollider())) {
+                // 当たった弾を消す
+                bullet->OnHit();
+
+                // 当たった敵を倒す
+                enemy->OnHit();
+                break;
+            }
+        }
+    }
+
+    // 倒された敵を配列から取り除く
+    enemies_.erase(
+        std::remove_if(
+            enemies_.begin(),
+            enemies_.end(),
+            [](const std::unique_ptr<Enemy>& enemy) {
+                return enemy->IsDead();
+            }),
+        enemies_.end());
 }
 
 void GamePlayScene::DrawImGui()

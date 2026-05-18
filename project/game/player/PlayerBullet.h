@@ -2,6 +2,7 @@
 #include <memory>
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
+#include "../collision/Collision.h"
 
 class Camera;
 class Input;
@@ -16,6 +17,12 @@ public:
 
     void Update();
     void Draw();
+
+    // 弾の当たり判定を返す
+    SphereCollider GetCollider() const;
+
+    // 弾が何かに当たった時に消す
+    void OnHit();
 
     bool IsDead() const { return isDead_; }
 
@@ -38,6 +45,9 @@ private:
 
     // 弾の大きさ
     Vector3 scale_ = { 0.5f, 0.5f, 0.5f };
+
+    // 弾の当たり判定半径
+    float colliderRadius_ = 0.4f;
 
     // 生存フレーム
     int lifeTime_ = 120;

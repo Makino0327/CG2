@@ -62,6 +62,18 @@ void PlayerBullet::Draw()
     object_->Draw();
 }
 
+SphereCollider PlayerBullet::GetCollider() const
+{
+    // 弾の現在位置を球の当たり判定として返す
+    return { position_, colliderRadius_ };
+}
+
+void PlayerBullet::OnHit()
+{
+    // 当たった弾は消す
+    isDead_ = true;
+}
+
 Vector3 PlayerBullet::CalcDirectionToMouseGround(
     const Vector3& startPosition,
     Camera* camera,

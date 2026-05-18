@@ -15,16 +15,10 @@
 #include "../../engine/3d/obj3d/Line3DCommon.h"
 #include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
 #include "../../game/camera/DebugCamera.h"
-
 #include "../../game/player/Player.h"
 #include "../../game/camera/FollowCamera.h"
 #include "../../game/enemy/Enemy.h"
 
-
-
-// ===== 前方宣言 =====
-// SceneContext.h を BaseScene.h がインクルードしている前提なので、
-// ここで個別のコンポーネントを大量に宣言する必要はなくなります
 class Sprite;
 class Object3d;
 class ParticleSystem;
@@ -37,18 +31,17 @@ class SkyboxCommon;
 class GamePlayScene : public BaseScene
 {
 public:
-    // ===== BaseScene interface（SceneManagerから呼ばれる）=====
     void Initialize() override;
     void Update() override;
     void Draw() override;
     void Finalize() override;
     void DrawImGui() override;
 
-    // ★ SetContext は BaseScene で共通化されたため、ここからは削除！
+private:
+    // プレイヤーと敵と弾の当たり判定をまとめて処理する
+    void CheckCollisions();
 
 private:
-
-    // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
 
     std::unique_ptr<SkyboxCommon> skyboxCommon_;
@@ -60,27 +53,23 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 
-    bool initialized_ = false; // 二重初期化防止
+    bool initialized_ = false;
 
     std::unique_ptr<DebugCamera> debugCamera_;
-
-    // プレイヤー追従用のカメラ
     std::unique_ptr<FollowCamera> followCamera_;
 
-
 private:
-
-    // プレイヤー
     std::unique_ptr<Player> player_;
     Vector3 playerTranslate_ = { 0.0f, 0.5f, 0.0f };
     Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
 
-    // 敵
+    // 敵を複数管理する
     std::vector<std::unique_ptr<Enemy>> enemies_;
-    // 出す敵の数
-    uint32_t enemyCount_ = 6;
-    // プレイヤーからどれくらい離して置くか
-    float enemySpawnRadius_ = 8.0f;
 
+    // 出現させる敵の数
+    uint32_t enemyCount_ = 6;
+
+    // プレイヤーから敵を配置する半径
+    float enemySpawnRadius_ = 8.0f;
 };
