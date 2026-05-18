@@ -57,6 +57,8 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("cube.obj");
     // プレイヤーモデルを読み込む
     ModelManager::GetInstance()->LoadModel("player/player.obj");
+    // プレイヤー弾モデルを読み込む
+    ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
 
 
     // テクスチャ
@@ -132,9 +134,9 @@ void GamePlayScene::Update()
     /// =============================
     /// プレイヤー
     /// =============================
-    // プレイヤー
+    // プレイヤーを更新する
     if (player_) {
-        player_->Update();
+        player_->Update(context_.camera);
     }
 
 

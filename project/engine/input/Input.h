@@ -43,6 +43,13 @@ public:
 	// 右ボタンを押しているか
 	bool PushMouseRight() const { return isMouseRightPressed_; }
 
+	// 左ボタンを押しているか
+	bool PushMouseLeft() const { return isMouseLeftPressed_; }
+
+	// 左ボタンを押した瞬間か
+	bool TriggerMouseLeft() const { return isMouseLeftPressed_ && !wasMouseLeftPressed_; }
+
+
 public:
 	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
@@ -67,6 +74,12 @@ private:
 
 	// 右ボタン押下中か
 	bool isMouseRightPressed_ = false;
+
+	// 左ボタンが押されているか
+	bool isMouseLeftPressed_ = false;
+
+	// 前フレームの左ボタン状態
+	bool wasMouseLeftPressed_ = false;
 
 };
 

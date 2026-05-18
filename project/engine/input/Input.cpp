@@ -43,6 +43,11 @@ void Input::Update()
 
 	// 右ボタン押下状態を更新する
 	isMouseRightPressed_ = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+	// 前フレームの左ボタン状態を保存する
+	wasMouseLeftPressed_ = isMouseLeftPressed_;
+
+	// 左ボタンの状態を更新する
+	isMouseLeftPressed_ = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
 }
 

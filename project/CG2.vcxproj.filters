@@ -70,6 +70,7 @@
     <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
     <ClCompile Include="engine\animation\SkinCluster.cpp" />
     <ClCompile Include="game\camera\DebugCamera.cpp" />
+    <ClCompile Include="game\player\PlayerBullet.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -116,6 +117,7 @@
     <ClInclude Include="engine\3d\model\ModelStructs.h" />
     <ClInclude Include="engine\animation\SkinCluster.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
+    <ClInclude Include="game\player\PlayerBullet.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

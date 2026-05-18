@@ -3,12 +3,18 @@
 #include "../../engine/input/Input.h"
 #include "../map/MapChipField.h"
 #include <memory>
+
+#include "PlayerBullet.h"
+#include "../camera/Camera.h"
+#include <vector>
+
 class Player
 {
 public:
     void Initialize(Object3dCommon* object3dCommon, Input* input);
 
-    void Update();
+    void Update(Camera* camera);
+
     void Draw();
 
     // 追加：マップとタイルサイズを渡す
@@ -16,6 +22,8 @@ public:
         mapField_ = mapField;
         tileSize_ = tileSize;
     }
+    // プレイヤーの位置を返す
+    Vector3 GetWorldPosition() const;
 
 private:
     // 下方向の当たり判定だけを行う新しい関数
@@ -26,9 +34,24 @@ private:
     void ResolveTopCollisionWithMap(Vector3& pos);
 
     void ResolveRightCollisionWithMap(Vector3& pos);
+
+    // 弾を発射する
+    void FireBullet(Camera* camera);
+
+    // 弾を更新する
+    void UpdateBullets();
+
+    // マウスの方向へプレイヤーを向ける
+    void RotateToMouse(Camera* camera);
+
+    // モデルの正面方向を補正する角度
+    float frontAngleOffset_ = 0.0f;
+
 private:
     std::unique_ptr<Object3d> object_;
     Input* input_ = nullptr;
+    // 3D描画の共通設定
+    Object3dCommon* object3dCommon_ = nullptr;
 
     // 物理系
     float moveSpeed_ = 0.2f;
@@ -51,5 +74,15 @@ private:
 
     // プレイヤーの大きさ
     Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
+
+    // プレイヤー弾
+    std::vector<std::unique_ptr<PlayerBullet>> bullets_;
+
+    // プレイヤー弾の速さ
+    float bulletSpeed_ = 0.5f;
+
+    // 弾を出す高さ
+    float bulletSpawnHeight_ = 0.5f;
+
 
 };

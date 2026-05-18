@@ -1,9 +1,12 @@
 #include "Player.h"
 #include <cfloat>   // FLT_MAX
+#include <algorithm>
 
 void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 {
     input_ = input;
+    // 3D描画の共通設定を保存する
+    object3dCommon_ = object3dCommon;
 
     // プレイヤーのモデルを作る
     object_ = std::make_unique<Object3d>();
@@ -22,12 +25,15 @@ void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
 
     // プレイヤーの位置を設定する
     object_->SetTranslate(translate_);
+    
 
 }
 
-void Player::Update()
+void Player::Update(Camera* camera)
 {
-    if (!object_ || !input_) { return; }
+    if (!object_ || !input_) {
+        return;
+    }
 
     Vector3 pos = object_->GetTranslate();
 
@@ -53,16 +59,38 @@ void Player::Update()
         pos.z -= moveSpeed_;
     }
 
-
+    // 位置を反映する
     object_->SetTranslate(pos);
+
+    // マウスの方向へ向ける
+    RotateToMouse(camera);
+
+    // プレイヤーを更新する
     object_->Update();
+
+
+    // 左クリックで弾を撃つ
+    if (input_->TriggerMouseLeft()) {
+        FireBullet(camera);
+    }
+
+    // 弾を更新する
+    UpdateBullets();
 }
+
 
 void Player::Draw()
 {
-    if (!object_) { return; }
-    object_->Draw();
+    if (object_) {
+        object_->Draw();
+    }
+
+    // プレイヤー弾を描画する
+    for (auto& bullet : bullets_) {
+        bullet->Draw();
+    }
 }
+
 
 // ----------------------------
 // 下方向のマップ当たり判定
@@ -322,4 +350,98 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
         // 右端をブロックの左端にぴったり揃える
         pos.x = bestBlockLeft - halfSize;
     }
+}
+
+Vector3 Player::GetWorldPosition() const
+{
+    if (!object_) {
+        return { 0.0f, 0.0f, 0.0f };
+    }
+
+    // 現在位置を返す
+    return object_->GetTranslate();
+}
+
+void Player::FireBullet(Camera* camera)
+{
+    if (!object_) {
+        return;
+    }
+
+    // プレイヤーの位置を取る
+    Vector3 playerPosition = object_->GetTranslate();
+
+    // プレイヤー位置から少し上に出す
+    Vector3 firePosition = {
+        playerPosition.x,
+        playerPosition.y + bulletSpawnHeight_,
+        playerPosition.z
+    };
+
+    // マウス方向への発射方向を計算する
+    Vector3 direction = PlayerBullet::CalcDirectionToMouseGround(
+        firePosition,
+        camera,
+        input_);
+
+    // 発射速度を作る
+    Vector3 velocity = {
+        direction.x * bulletSpeed_,
+        direction.y * bulletSpeed_,
+        direction.z * bulletSpeed_
+    };
+
+    // 弾を作る
+    auto bullet = std::make_unique<PlayerBullet>();
+
+    // 弾を初期化する
+    bullet->Initialize(object3dCommon_, firePosition, velocity);
+
+    // 弾をリストに追加する
+    bullets_.push_back(std::move(bullet));
+}
+
+void Player::UpdateBullets()
+{
+    // プレイヤー弾を更新する
+    for (auto& bullet : bullets_) {
+        bullet->Update();
+    }
+
+    // 消えたプレイヤー弾を取り除く
+    bullets_.erase(
+        std::remove_if(
+            bullets_.begin(),
+            bullets_.end(),
+            [](const std::unique_ptr<PlayerBullet>& bullet) {
+                return bullet->IsDead();
+            }),
+        bullets_.end());
+}
+
+void Player::RotateToMouse(Camera* camera)
+{
+    if (!object_ || !input_ || !camera) {
+        return;
+    }
+
+    // プレイヤーの位置を取る
+    Vector3 playerPosition = object_->GetTranslate();
+
+    // マウス方向への向きを計算する
+    Vector3 direction = PlayerBullet::CalcDirectionToMouseGround(
+        playerPosition,
+        camera,
+        input_);
+
+    // 方向がない場合は回転しない
+    if (direction.x == 0.0f && direction.z == 0.0f) {
+        return;
+    }
+
+    // Z+ を正面としてY回転を作る
+    rotate_.y = std::atan2(direction.x, direction.z) + frontAngleOffset_;
+
+    // 回転を反映する
+    object_->SetRotate(rotate_);
 }

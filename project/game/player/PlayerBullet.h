@@ -1,0 +1,47 @@
+#pragma once
+#include <memory>
+#include "../../engine/3d/obj3d/Object3d.h"
+#include "../../engine/math/Math.h"
+
+class Camera;
+class Input;
+
+class PlayerBullet
+{
+public:
+    void Initialize(
+        Object3dCommon* object3dCommon,
+        const Vector3& position,
+        const Vector3& velocity);
+
+    void Update();
+    void Draw();
+
+    bool IsDead() const { return isDead_; }
+
+    static Vector3 CalcDirectionToMouseGround(
+        const Vector3& startPosition,
+        Camera* camera,
+        Input* input);
+
+private:
+    static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
+
+private:
+    std::unique_ptr<Object3d> object_;
+
+    // 弾の位置
+    Vector3 position_ = { 0.0f, 0.0f, 0.0f };
+
+    // 弾の速度
+    Vector3 velocity_ = { 0.0f, 0.0f, 0.0f };
+
+    // 弾の大きさ
+    Vector3 scale_ = { 0.5f, 0.5f, 0.5f };
+
+    // 生存フレーム
+    int lifeTime_ = 120;
+
+    // 消すかどうか
+    bool isDead_ = false;
+};
