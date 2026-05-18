@@ -40,6 +40,12 @@ public:
     // プレイヤーの現在HPを返す
     int GetHp() const { return hp_; }
 
+    // プレイヤーが消えたかを返す
+    bool IsDead() const { return isDead_; }
+
+    // プレイヤーを復活させる
+    void Respawn();
+
 private:
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);
@@ -106,6 +112,17 @@ private:
     // プレイヤーの最大HP
     int maxHp_ = 3;
 
+    // 無敵時間の残りフレーム
+    int invincibleTimer_ = 0;
+
+    // 無敵時間の長さ
+    int invincibleDuration_ = 60;
+
+    // 点滅の切り替え間隔
+    int blinkInterval_ = 5;
+
+    // 消えたかどうか
+    bool isDead_ = false;
 
     // プレイヤーが撃った弾
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;

@@ -25,6 +25,22 @@ void Enemy::Update()
     if (!object_ || isDead_) {
         return;
     }
+    // 敵からターゲットへの向きを作る
+    Vector3 direction = {
+        targetPosition_.x - position_.x,
+        0.0f,
+        targetPosition_.z - position_.z
+    };
+
+    // 正規化して少しずつ前進する
+    direction = Normalize(direction);
+
+    position_.x += direction.x * moveSpeed_;
+    position_.z += direction.z * moveSpeed_;
+    // 移動方向を向くように回転する
+    if (direction.x != 0.0f || direction.z != 0.0f) {
+        rotation_.y = std::atan2(direction.x, direction.z);
+    }
 
     // 現在の状態をオブジェクトに反映する
     object_->SetScale(scale_);
@@ -64,4 +80,10 @@ void Enemy::OnHit()
 {
     // 弾が当たった敵は倒された扱いにする
     isDead_ = true;
+}
+
+void Enemy::SetTargetPosition(const Vector3& targetPosition)
+{
+    // 追いかける対象の座標を保存する
+    targetPosition_ = targetPosition;
 }

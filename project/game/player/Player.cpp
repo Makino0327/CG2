@@ -35,6 +35,15 @@ void Player::Update(Camera* camera)
         return;
     }
 
+    // 死亡中にRキーで復活する
+    if (isDead_) {
+        if (input_->TriggerKey(DIK_R)) {
+            Respawn();
+        }
+        return;
+    }
+
+
     Vector3 pos = object_->GetTranslate();
 
     prevPos_ = pos;
@@ -76,20 +85,43 @@ void Player::Update(Camera* camera)
 
     // 弾を更新する
     UpdateBullets();
+
+    // 無敵時間を減らす
+    if (invincibleTimer_ > 0) {
+        invincibleTimer_--;
+    }
+
 }
 
 
 void Player::Draw()
 {
-    if (object_) {
-        object_->Draw();
+    // 死んでいたら描画しない
+    if (!object_ || isDead_) {
+        return;
     }
 
-    // プレイヤー弾を描画する
+    // 無敵中は赤く点滅させる
+    if (invincibleTimer_ > 0) {
+        // 一定フレームごとに表示色を切り替える
+        if ((invincibleTimer_ / blinkInterval_) % 2 == 0) {
+            object_->SetColor({ 1.0f, 0.2f, 0.2f, 1.0f });
+        } else {
+            object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+    } else {
+        // 通常時は白に戻す
+        object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    object_->Draw();
+
+    // プレイヤーの弾を描画する
     for (auto& bullet : bullets_) {
         bullet->Draw();
     }
 }
+
 
 SphereCollider Player::GetCollider() const
 {
@@ -99,12 +131,31 @@ SphereCollider Player::GetCollider() const
 
 void Player::OnHit()
 {
-    // 被弾したことが分かるように状態を保存する
+    // すでに消えていたら何もしない
+    if (isDead_) {
+        return;
+    }
+
+    // 無敵時間中はダメージを受けない
+    if (invincibleTimer_ > 0) {
+        return;
+    }
+
+    // 被弾状態を保存する
     isHit_ = true;
 
     // HPが残っている時だけ1減らす
     if (hp_ > 0) {
         hp_ -= 1;
+    }
+
+    // ダメージを受けたら無敵時間を開始する
+    invincibleTimer_ = invincibleDuration_;
+
+    // HPが0以下になったら消す
+    if (hp_ <= 0) {
+        hp_ = 0;
+        isDead_ = true;
     }
 }
 
@@ -460,4 +511,31 @@ void Player::RotateToMouse(Camera* camera)
 
     // 回転を反映する
     object_->SetRotate(rotate_);
+}
+
+void Player::Respawn()
+{
+    // HPを最大まで戻す
+    hp_ = maxHp_;
+
+    // 死亡状態を解除する
+    isDead_ = false;
+
+    // 被弾状態を解除する
+    isHit_ = false;
+
+    // 無敵時間をリセットする
+    invincibleTimer_ = 0;
+
+    // 初期位置に戻す
+    translate_ = { 0.0f, 0.5f, 0.0f };
+    rotate_ = { 0.0f, 0.0f, 0.0f };
+
+    // 3Dオブジェクトにも座標と回転を反映する
+    if (object_) {
+        object_->SetTranslate(translate_);
+        object_->SetRotate(rotate_);
+        object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        object_->Update();
+    }
 }

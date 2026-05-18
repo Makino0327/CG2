@@ -35,6 +35,12 @@ public:
     // 敵が倒されたかを返す
     bool IsDead() const { return isDead_; }
 
+    // 追いかける対象の座標を設定する
+    void SetTargetPosition(const Vector3& targetPosition);
+
+    // 敵の押し戻し用半径を返す
+    float GetBodyRadius() const { return bodyRadius_; }
+
 private:
     // 敵の3Dオブジェクト
     std::unique_ptr<Object3d> object_;
@@ -53,4 +59,14 @@ private:
 
     // 倒された敵を管理する
     bool isDead_ = false;
+
+    // 追いかける対象の座標
+    Vector3 targetPosition_ = { 0.0f, 0.0f, 0.0f };
+
+    // 敵の移動速度
+    float moveSpeed_ = 0.05f;
+
+    // 敵同士が埋まらないようにするための半径
+    float bodyRadius_ = 1.0f;
+
 };

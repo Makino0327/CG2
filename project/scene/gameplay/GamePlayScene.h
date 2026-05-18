@@ -40,6 +40,8 @@ public:
 private:
     // プレイヤーと敵と弾の当たり判定をまとめて処理する
     void CheckCollisions();
+    // 敵同士の重なりを解消する
+    void ResolveEnemyOverlap();
 
 private:
     std::unique_ptr<Object3d> object3d_;
@@ -68,7 +70,7 @@ private:
     std::vector<std::unique_ptr<Enemy>> enemies_;
 
     // 出現させる敵の数
-    uint32_t enemyCount_ = 6;
+    uint32_t enemyCount_ = 10;
 
     // プレイヤーから敵を配置する半径
     float enemySpawnRadius_ = 8.0f;

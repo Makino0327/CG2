@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <cmath>
+#include <random>
 
 #include "../engine/base/directX/DirectXCommon.h"
 #include "../engine/base/srv/SrvManager.h"
@@ -119,6 +120,12 @@ void GamePlayScene::Initialize()
     // 初期ターゲットをプレイヤー位置にしておく
     followCamera_->SetTarget(player_->GetWorldPosition());
 
+    // 敵の出現位置をランダムにするための乱数
+    std::random_device seedGenerator;
+    std::mt19937 randomEngine(seedGenerator());
+    std::uniform_real_distribution<float> angleDistribution(0.0f, 6.2831853f);
+    std::uniform_real_distribution<float> radiusDistribution(10.0f, 40.0f);
+
     // プレイヤーの周りに敵を円形に配置する
     enemies_.clear();
     if (player_) {
@@ -126,16 +133,17 @@ void GamePlayScene::Initialize()
         const float pi = 3.14159265f;
 
         for (uint32_t i = 0; i < enemyCount_; ++i) {
-            // 敵ごとの角度を計算する
-            const float angle =
-                (2.0f * pi / static_cast<float>(enemyCount_)) * static_cast<float>(i);
+            // ランダムな角度と距離を作る
+            const float angle = angleDistribution(randomEngine);
+            const float radius = radiusDistribution(randomEngine);
 
-            // プレイヤーの周囲に配置する座標を作る
+            // プレイヤーの周囲に少しバラけて出す
             Vector3 enemyPosition = {
-                playerPosition.x + std::cos(angle) * enemySpawnRadius_,
+                playerPosition.x + std::cos(angle) * radius,
                 playerPosition.y,
-                playerPosition.z + std::sin(angle) * enemySpawnRadius_
+                playerPosition.z + std::sin(angle) * radius
             };
+
 
             // 敵を生成して配列に入れる
             auto enemy = std::make_unique<Enemy>();
@@ -191,8 +199,17 @@ void GamePlayScene::Update()
     /// =============================
     // 敵を更新する
     for (auto& enemy : enemies_) {
+        // 敵にプレイヤーの位置を渡す
+        enemy->SetTargetPosition(player_->GetWorldPosition());
+
+        // 敵を更新する
         enemy->Update();
+
+        // 敵同士の重なりを解消する
+        ResolveEnemyOverlap();
+
     }
+
 
     // プレイヤーと敵と弾の当たり判定を処理する
     CheckCollisions();
@@ -335,4 +352,55 @@ void GamePlayScene::DrawImGui()
     }
 
 #endif
+}
+
+void GamePlayScene::ResolveEnemyOverlap()
+{
+    // 全敵の組み合わせを調べる
+    for (size_t i = 0; i < enemies_.size(); ++i) {
+        for (size_t j = i + 1; j < enemies_.size(); ++j) {
+            Vector3 posA = enemies_[i]->GetWorldPosition();
+            Vector3 posB = enemies_[j]->GetWorldPosition();
+
+            // 敵Aから敵Bへの差分を作る
+            Vector3 diff = {
+                posB.x - posA.x,
+                0.0f,
+                posB.z - posA.z
+            };
+
+            float distanceSq = diff.x * diff.x + diff.z * diff.z;
+            float radiusSum = enemies_[i]->GetBodyRadius() + enemies_[j]->GetBodyRadius();
+
+            // 完全に同じ位置だと正規化できないので少しずらす
+            if (distanceSq <= 0.0001f) {
+                diff = { 1.0f, 0.0f, 0.0f };
+                distanceSq = 1.0f;
+            }
+
+            float distance = std::sqrt(distanceSq);
+
+            // 重なっている時だけ押し戻す
+            if (distance < radiusSum) {
+                float overlap = radiusSum - distance;
+
+                // 押し戻す方向を正規化する
+                Vector3 push = {
+                    diff.x / distance,
+                    0.0f,
+                    diff.z / distance
+                };
+
+                // 互いに半分ずつ離す
+                posA.x -= push.x * overlap * 0.5f;
+                posA.z -= push.z * overlap * 0.5f;
+
+                posB.x += push.x * overlap * 0.5f;
+                posB.z += push.z * overlap * 0.5f;
+
+                enemies_[i]->SetPosition(posA);
+                enemies_[j]->SetPosition(posB);
+            }
+        }
+    }
 }
