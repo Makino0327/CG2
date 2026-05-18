@@ -106,6 +106,15 @@ void GamePlayScene::Initialize()
     // プレイヤーを初期化する
     player_->Initialize(context_.object3dCommon, context_.input);
 
+    // プレイヤー追従カメラを作る
+    followCamera_ = std::make_unique<FollowCamera>();
+
+    // シーンで使うカメラを追従カメラに渡す
+    followCamera_->Initialize(context_.camera);
+
+    // 初期ターゲットをプレイヤー位置にしておく
+    followCamera_->SetTarget(player_->GetWorldPosition());
+
 
 }
 
@@ -114,8 +123,7 @@ void GamePlayScene::Update()
    
     const float dt = 1.0f / 60.0f;
 
-    // ★ context_ 経由に変更
-    if (context_.camera) { context_.camera->Update(); }
+
     if (skybox_) { skybox_->Update(); }
 
 
@@ -139,8 +147,16 @@ void GamePlayScene::Update()
         player_->Update(context_.camera);
     }
 
+    // プレイヤー座標を追従カメラへ渡して更新する
+    if (player_ && followCamera_) {
+        followCamera_->SetTarget(player_->GetWorldPosition());
+        followCamera_->Update();
+    }
 
-
+    // カメラ更新後の行列でSkyboxを更新する
+    if (skybox_) {
+        skybox_->Update();
+    }
 
 }
 

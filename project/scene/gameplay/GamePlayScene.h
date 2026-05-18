@@ -17,6 +17,7 @@
 #include "../../game/camera/DebugCamera.h"
 
 #include "../../game/player/Player.h"
+#include "../../game/camera/FollowCamera.h"
 
 
 
@@ -61,6 +62,10 @@ private:
     bool initialized_ = false; // 二重初期化防止
 
     std::unique_ptr<DebugCamera> debugCamera_;
+
+    // プレイヤー追従用のカメラ
+    std::unique_ptr<FollowCamera> followCamera_;
+
 
 private:
 
