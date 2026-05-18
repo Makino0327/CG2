@@ -159,6 +159,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="game\enemy\Enemy.cpp" />
     <ClCompile Include="game\camera\FollowCamera.cpp" />
     <ClCompile Include="game\camera\DebugCamera.cpp" />
     <ClCompile Include="engine\3d\obj3d\DebugSkeletonRenderer.cpp" />
@@ -379,6 +380,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
     <ClInclude Include="engine\3d\model\ModelStructs.h" />

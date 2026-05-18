@@ -72,6 +72,7 @@
     <ClCompile Include="game\camera\DebugCamera.cpp" />
     <ClCompile Include="game\player\PlayerBullet.cpp" />
     <ClCompile Include="game\camera\FollowCamera.cpp" />
+    <ClCompile Include="game\enemy\Enemy.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -120,6 +121,7 @@
     <ClInclude Include="game\camera\DebugCamera.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
+    <ClInclude Include="game\enemy\Enemy.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

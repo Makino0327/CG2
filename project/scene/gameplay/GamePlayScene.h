@@ -18,6 +18,7 @@
 
 #include "../../game/player/Player.h"
 #include "../../game/camera/FollowCamera.h"
+#include "../../game/enemy/Enemy.h"
 
 
 
@@ -74,5 +75,12 @@ private:
     Vector3 playerTranslate_ = { 0.0f, 0.5f, 0.0f };
     Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
+
+    // 敵
+    std::vector<std::unique_ptr<Enemy>> enemies_;
+    // 出す敵の数
+    uint32_t enemyCount_ = 6;
+    // プレイヤーからどれくらい離して置くか
+    float enemySpawnRadius_ = 8.0f;
 
 };

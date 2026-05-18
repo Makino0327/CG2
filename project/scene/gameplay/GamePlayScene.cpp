@@ -3,6 +3,7 @@
 #include <cassert>
 #include <string>
 #include <memory>
+#include <cmath>
 
 #include "../engine/base/directX/DirectXCommon.h"
 #include "../engine/base/srv/SrvManager.h"
@@ -59,6 +60,8 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("player/player.obj");
     // プレイヤー弾モデルを読み込む
     ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
+    // 敵モデルを読み込む
+    ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
 
 
     // テクスチャ
@@ -115,6 +118,30 @@ void GamePlayScene::Initialize()
     // 初期ターゲットをプレイヤー位置にしておく
     followCamera_->SetTarget(player_->GetWorldPosition());
 
+    // プレイヤーの周りに敵を円形に配置する
+    enemies_.clear();
+    if (player_) {
+        const Vector3 playerPosition = player_->GetWorldPosition();
+        const float pi = 3.14159265f;
+
+        for (uint32_t i = 0; i < enemyCount_; ++i) {
+            // 敵ごとの角度を計算する
+            const float angle =
+                (2.0f * pi / static_cast<float>(enemyCount_)) * static_cast<float>(i);
+
+            // プレイヤーの周囲に配置する座標を作る
+            Vector3 enemyPosition = {
+                playerPosition.x + std::cos(angle) * enemySpawnRadius_,
+                playerPosition.y,
+                playerPosition.z + std::sin(angle) * enemySpawnRadius_
+            };
+
+            // 敵を生成して配列に入れる
+            auto enemy = std::make_unique<Enemy>();
+            enemy->Initialize(context_.object3dCommon, enemyPosition);
+            enemies_.push_back(std::move(enemy));
+        }
+    }
 
 }
 
@@ -158,6 +185,14 @@ void GamePlayScene::Update()
         skybox_->Update();
     }
 
+    /// =============================
+    /// 敵
+    /// =============================
+    // 敵を更新する
+    for (auto& enemy : enemies_) {
+        enemy->Update();
+    }
+
 }
 
 void GamePlayScene::Draw()
@@ -189,6 +224,12 @@ void GamePlayScene::Draw()
         player_->Draw();
     }
 
+    // 敵をまとめて描画する
+    for (auto& enemy : enemies_) {
+        enemy->Draw();
+    }
+
+
 }
 
 void GamePlayScene::Finalize()
@@ -210,6 +251,8 @@ void GamePlayScene::Finalize()
 
     // プレイヤーを解放する
     player_.reset();
+    // 敵を全て解放する
+    enemies_.clear();
 
 }
 
