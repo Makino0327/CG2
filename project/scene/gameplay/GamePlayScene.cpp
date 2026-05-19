@@ -155,7 +155,10 @@ void GamePlayScene::Initialize()
             enemies_.push_back(std::move(enemy));
         }
     }
-
+    // シーン開始時は通常表示に戻しておく
+    if (context_.offscreenRenderer) {
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+    }
 }
 
 void GamePlayScene::Update()
@@ -224,12 +227,16 @@ void GamePlayScene::Update()
         return;
     }
 
-    // プレイヤーが死んだらゲームオーバーへ切り替える
-    if (player_ && player_->IsDead()) {
-        sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
-        return;
+    // 死亡中はグレイスケール、生存中は通常表示にする
+    if (player_ && context_.offscreenRenderer) {
+        if (player_->IsDead()) {
+            // 死亡中はゲーム画面をグレイスケールにする
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+        } else {
+            // Rで復活した後は通常表示に戻す
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        }
     }
-
 }
 
 void GamePlayScene::Draw()
