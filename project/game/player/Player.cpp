@@ -35,11 +35,9 @@ void Player::Update(Camera* camera)
         return;
     }
 
-    // 死亡中にRキーで復活する
+    // 死亡中はプレイヤー更新を止める
+    // リセット処理はGamePlayScene側でまとめて行う
     if (isDead_) {
-        if (input_->TriggerKey(DIK_R)) {
-            Respawn();
-        }
         return;
     }
 

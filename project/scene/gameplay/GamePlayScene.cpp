@@ -166,6 +166,26 @@ void GamePlayScene::Update()
    
     const float dt = 1.0f / 60.0f;
 
+    // プレイヤーが死んでいてRが押されたら
+    // ゲームプレイシーンを作り直して全体をリセットする
+    if (player_ && player_->IsDead()) {
+        if (context_.input->TriggerKey(DIK_R)) {
+            // シーンを再生成して敵や弾や状態を全部初期化する
+            sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+            return;
+        }
+
+        // 死亡中は画面をグレイスケールにする
+        if (context_.offscreenRenderer) {
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+        }
+        return;
+    }
+
+    // 生きている間は通常表示に戻す
+    if (context_.offscreenRenderer) {
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+    }
 
     if (skybox_) { skybox_->Update(); }
 
