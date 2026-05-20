@@ -92,7 +92,7 @@ private:
     Vector3 prevPos_{};
 
     // プレイヤーの座標
-    Vector3 translate_ = { 0.0f, 0.5f, 0.0f };
+    Vector3 translate_ = { 2.0f, 0.5f, 2.0f };
 
     // プレイヤーの回転
     Vector3 rotate_ = { 0.0f, 0.0f, 0.0f };

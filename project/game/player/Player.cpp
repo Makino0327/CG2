@@ -68,6 +68,18 @@ void Player::Update(Camera* camera)
         pos.z -= moveSpeed_;
     }
 
+    // 左方向の壁判定を行う
+    ResolveLeftCollisionWithMap(pos);
+
+    // 右方向の壁判定を行う
+    ResolveRightCollisionWithMap(pos);
+
+    // 前方向の壁判定を行う
+    ResolveTopCollisionWithMap(pos);
+
+    // 後方向の壁判定を行う
+    ResolveBottomCollisionWithMap(pos);
+
     // 位置を反映する
     object_->SetTranslate(pos);
 
@@ -168,15 +180,14 @@ void Player::ResolveBottomCollisionWithMap(Vector3& pos)
         return;
     }
 
-    if (velocityY_ > 0.0f) {
-        onGround_ = false;
+    if (pos.z >= prevPos_.z) {
         return;
     }
 
-    const float halfHeight = tileSize_ * 0.5f;
+    const float halfSize = tileSize_ * 0.5f;
 
-    float feetY = pos.y - halfHeight;
-    float prevFeetY = feetY - velocityY_;
+    float playerBack = pos.z - halfSize;
+    float prevBack = prevPos_.z - halfSize;
 
     // ★ 中心X → タイルX（＋0.5で補正）
     int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
@@ -191,24 +202,19 @@ void Player::ResolveBottomCollisionWithMap(Vector3& pos)
             continue;
         }
 
-        float centerY = static_cast<float>(mapH - 1 - ty) * tileSize_;
-        float topY = centerY + halfHeight;
+        float centerZ = static_cast<float>(mapH - 1 - ty) * tileSize_;
+        float blockFront = centerZ + halfSize;
 
-        if (prevFeetY >= topY && feetY <= topY) {
-            if (topY > bestTopY) {
-                bestTopY = topY;
+        if (prevBack >= blockFront && playerBack <= blockFront) {
+            if (blockFront > bestTopY) {
+                bestTopY = blockFront;
                 hit = true;
             }
         }
     }
 
     if (hit) {
-        float feetAlignY = bestTopY;
-        pos.y = feetAlignY + halfHeight;
-        velocityY_ = 0.0f;
-        onGround_ = true;
-    } else {
-        onGround_ = false;
+        pos.z = bestTopY + halfSize;
     }
 }
 
@@ -231,8 +237,8 @@ void Player::ResolveLeftCollisionWithMap(Vector3& pos)
     // プレイヤーの AABB
     float playerLeft = pos.x - halfSize;
     float playerRight = pos.x + halfSize;
-    float playerBottom = pos.y - halfSize;
-    float playerTop = pos.y + halfSize;
+    float playerBack = pos.z - halfSize;
+    float playerFront = pos.z + halfSize;
 
     // 前フレームの左端
     float prevLeft = prevPos_.x - halfSize;
@@ -252,12 +258,12 @@ void Player::ResolveLeftCollisionWithMap(Vector3& pos)
         }
 
         // ブロックのY範囲（描画と同じ式）
-        float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
-        float blockBottom = centerY - halfSize;
-        float blockTop = centerY + halfSize;
+        float centerZ = static_cast<float>(h - 1 - ty) * tileSize_;
+        float blockBack = centerZ - halfSize;
+        float blockFront = centerZ + halfSize;
 
         // 縦方向にかすってなければスキップ
-        if (blockTop <= playerBottom || blockBottom >= playerTop) {
+        if (blockFront <= playerBack || blockBack >= playerFront) {
             continue;
         }
 
@@ -292,16 +298,14 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
     if (!mapField_) { return; }
 
     // 下向き or 静止のときは上判定は不要
-    if (velocityY_ <= 0.0f) {
+    if (pos.z <= prevPos_.z) {
         return;
     }
 
     const float halfSize = tileSize_ * 0.5f;
 
-    // 今フレームの「頭の高さ」
-    float topY = pos.y + halfSize;
-    // 1フレーム前の頭の高さ
-    float prevTopY = topY - velocityY_;
+    float playerFront = pos.z + halfSize;
+    float prevFront = prevPos_.z + halfSize;
 
     // プレイヤーの真上のタイル列（中心Xから）を調べる
     int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
@@ -322,13 +326,13 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
         }
 
         // このブロックの下端（マップ描画と同じ座標系）
-        float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
-        float blockBottom = centerY - halfSize;
+        float centerZ = static_cast<float>(h - 1 - ty) * tileSize_;
+        float blockBack = centerZ - halfSize;
 
         // 「前フレームは下にいて、今フレームで下端をまたいだ」なら頭がぶつかった
-        if (prevTopY <= blockBottom && topY >= blockBottom) {
-            if (blockBottom < bestBottomY) {
-                bestBottomY = blockBottom;
+        if (prevFront <= blockBack && playerFront >= blockBack) {
+            if (blockBack < bestBottomY) {
+                bestBottomY = blockBack;
                 hit = true;
             }
         }
@@ -336,9 +340,7 @@ void Player::ResolveTopCollisionWithMap(Vector3& pos)
 
     if (hit) {
         // 頭をブロックの下端に揃える
-        pos.y = bestBottomY - halfSize;
-        velocityY_ = 0.0f;   // ジャンプ速度を止める
-        // onGround_ は false のまま（天井にいるだけで地面ではない）
+        pos.z = bestBottomY - halfSize;
     }
 }
 
@@ -361,8 +363,8 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
     // プレイヤーの AABB
     float playerLeft = pos.x - halfSize;
     float playerRight = pos.x + halfSize;
-    float playerBottom = pos.y - halfSize;
-    float playerTop = pos.y + halfSize;
+    float playerBack = pos.z - halfSize;
+    float playerFront = pos.z + halfSize;
 
     // 1フレーム前の右端
     float prevRight = prevPos_.x + halfSize;
@@ -385,12 +387,12 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
         }
 
         // ブロックのY範囲（描画と同じ式）
-        float centerY = static_cast<float>(h - 1 - ty) * tileSize_;
-        float blockBottom = centerY - halfSize;
-        float blockTop = centerY + halfSize;
+        float centerZ = static_cast<float>(h - 1 - ty) * tileSize_;
+        float blockBack = centerZ - halfSize;
+        float blockFront = centerZ + halfSize;
 
         // 縦方向にかすってなければスキップ
-        if (blockTop <= playerBottom || blockBottom >= playerTop) {
+        if (blockFront <= playerBack || blockBack >= playerFront) {
             continue;
         }
 
@@ -528,7 +530,7 @@ void Player::Respawn()
     invincibleTimer_ = 0;
 
     // 初期位置に戻す
-    translate_ = { 0.0f, 0.5f, 0.0f };
+    translate_ = { 2.0f, 0.5f, 2.0f };
     rotate_ = { 0.0f, 0.0f, 0.0f };
 
     // 3Dオブジェクトにも座標と回転を反映する

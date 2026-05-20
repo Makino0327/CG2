@@ -18,6 +18,7 @@
 #include "../../game/player/Player.h"
 #include "../../game/camera/FollowCamera.h"
 #include "../../game/enemy/Enemy.h"
+#include "../../game/map/MapChipField.h"
 
 class Sprite;
 class Object3d;
@@ -42,7 +43,8 @@ private:
     void CheckCollisions();
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
-
+    // マップCSVから床と壁のオブジェクトを作る
+    void CreateMapObjects();
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -61,17 +63,27 @@ private:
     std::unique_ptr<FollowCamera> followCamera_;
 
 private:
+    /// プレイヤー
     std::unique_ptr<Player> player_;
-    Vector3 playerTranslate_ = { 0.0f, 0.5f, 0.0f };
+    Vector3 playerTranslate_ = { 2.0f, 0.5f, 0.0f };
     Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
 
+    /// 敵
     // 敵を複数管理する
     std::vector<std::unique_ptr<Enemy>> enemies_;
-
     // 出現させる敵の数
     uint32_t enemyCount_ = 10;
-
     // プレイヤーから敵を配置する半径
     float enemySpawnRadius_ = 8.0f;
+
+    /// マップ
+    // マップCSVの内容を保持する
+    MapChipField mapField_;
+    // 1マス分の大きさ
+    float tileSize_ = 2.0f;
+    // 床マスの描画用オブジェクトを持つ
+    std::vector<std::unique_ptr<Object3d>> floorObjects_;
+    // 壁マスの描画用オブジェクトを持つ
+    std::vector<std::unique_ptr<Object3d>> wallObjects_;
 };

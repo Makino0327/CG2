@@ -68,7 +68,8 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
     // 敵モデルを読み込む
     ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
-
+    // マップの床と壁の仮表示に使う block モデルを読み込む
+    ModelManager::GetInstance()->LoadModel("block/block.obj");
 
     // テクスチャ
     auto texMan = TextureManager::GetInstance();
@@ -115,12 +116,11 @@ void GamePlayScene::Initialize()
     // プレイヤーを初期化する
     player_->Initialize(context_.object3dCommon, context_.input);
 
+    /// カメラ
     // プレイヤー追従カメラを作る
     followCamera_ = std::make_unique<FollowCamera>();
-
     // シーンで使うカメラを追従カメラに渡す
     followCamera_->Initialize(context_.camera);
-
     // 初期ターゲットをプレイヤー位置にしておく
     followCamera_->SetTarget(player_->GetWorldPosition());
 
@@ -159,6 +159,16 @@ void GamePlayScene::Initialize()
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
     }
+
+    /// マップ
+    // マップCSVを読み込む
+    mapField_.LoadFromCsv("Resources/map.csv");
+
+    // プレイヤーにマップ情報と1マスの大きさを渡す
+    player_->SetMap(&mapField_, tileSize_);
+
+    // マップから床と壁のオブジェクトを作る
+    CreateMapObjects();
 }
 
 void GamePlayScene::Update()
@@ -194,6 +204,16 @@ void GamePlayScene::Update()
     if (player_ && followCamera_) {
         followCamera_->SetTarget(player_->GetWorldPosition());
         followCamera_->Update();
+    }
+
+    // カメラ更新後の行列を反映するため床を毎フレーム更新する
+    for (auto& floorObject : floorObjects_) {
+        floorObject->Update();
+    }
+
+    // カメラ更新後の行列を反映するため壁を毎フレーム更新する
+    for (auto& wallObject : wallObjects_) {
+        wallObject->Update();
     }
 
     // カメラ更新後の行列でSkyboxを更新する
@@ -273,7 +293,14 @@ void GamePlayScene::Draw()
         enemy->Draw();
     }
 
-
+    // 床をまとめて描画する
+    for (auto& floorObject : floorObjects_) {
+        floorObject->Draw();
+    }
+    // 壁をまとめて描画する
+    for (auto& wallObject : wallObjects_) {
+        wallObject->Draw();
+    }
 }
 
 void GamePlayScene::Finalize()
@@ -423,6 +450,75 @@ void GamePlayScene::ResolveEnemyOverlap()
 
                 enemies_[i]->SetPosition(posA);
                 enemies_[j]->SetPosition(posB);
+            }
+        }
+    }
+}
+
+void GamePlayScene::CreateMapObjects()
+{
+    // 前回分が残らないように床と壁の配列を空にする
+    floorObjects_.clear();
+    wallObjects_.clear();
+
+    // マップCSVの内容から床と壁のオブジェクトを作る
+    for (int z = 0; z < mapField_.GetHeight(); ++z) {
+        for (int x = 0; x < mapField_.GetWidth(); ++x) {
+            // 今見ているマスの種類を取得する
+            MapChipType chip = mapField_.GetChip(x, z);
+
+            // 床マスなら床用オブジェクトを作る
+            if (chip == MapChipType::Empty) {
+                auto floorObject = std::make_unique<Object3d>();
+
+                // 床オブジェクトを初期化する
+                floorObject->Initialize(context_.object3dCommon);
+
+                // 今回は仮で block モデルを使う
+                floorObject->SetModel("block/block.obj");
+
+                // 床は薄く見せる
+                floorObject->SetScale({ 1.0f, 0.3f, 1.0f });
+
+                // CSVの行番号をワールドのZ方向に並べる
+                floorObject->SetTranslate({
+                    static_cast<float>(x) * tileSize_,
+                    -1.0f,
+                    static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
+                    });
+
+                // 変換を反映する
+                floorObject->Update();
+
+                // 床配列に追加する
+                floorObjects_.push_back(std::move(floorObject));
+            }
+
+            // 壁マスなら壁用オブジェクトを作る
+            if (chip == MapChipType::Block) {
+                auto wallObject = std::make_unique<Object3d>();
+
+                // 壁オブジェクトを初期化する
+                wallObject->Initialize(context_.object3dCommon);
+
+                // 今回は仮で block モデルを使う
+                wallObject->SetModel("block/block.obj");
+
+                // 壁は1マス分の大きさで表示する
+                wallObject->SetScale({ 1.0f, 1.0f, 1.0f });
+
+                // CSVの行番号をワールドのZ方向に並べる
+                wallObject->SetTranslate({
+                    static_cast<float>(x) * tileSize_,
+                    0.0f,
+                    static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
+                    });
+
+                // 変換を反映する
+                wallObject->Update();
+
+                // 壁配列に追加する
+                wallObjects_.push_back(std::move(wallObject));
             }
         }
     }
