@@ -1,5 +1,5 @@
 #pragma once
-
+#define NOMINMAX
 #include <vector>
 #include <string>
 #include <memory>
@@ -45,6 +45,8 @@ private:
     void ResolveEnemyOverlap();
     // マップCSVから床と壁のオブジェクトを作る
     void CreateMapObjects();
+    // 敵をマップ内の空きマスに再生成する
+    void SpawnEnemies();
 private:
     std::unique_ptr<Object3d> object3d_;
 

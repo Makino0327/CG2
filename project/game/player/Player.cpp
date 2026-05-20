@@ -36,10 +36,8 @@ void Player::Update(Camera* camera)
     }
 
     // 死亡中にRキーで復活する
+        // 死亡中の復活処理はシーン側でまとめて行う
     if (isDead_) {
-        if (input_->TriggerKey(DIK_R)) {
-            Respawn();
-        }
         return;
     }
 
@@ -464,7 +462,12 @@ void Player::FireBullet(Camera* camera)
     auto bullet = std::make_unique<PlayerBullet>();
 
     // 弾を初期化する
-    bullet->Initialize(object3dCommon_, firePosition, velocity);
+    bullet->Initialize(
+        object3dCommon_,
+        firePosition,
+        velocity,
+        mapField_,
+        tileSize_);
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));

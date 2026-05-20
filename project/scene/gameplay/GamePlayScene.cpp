@@ -124,37 +124,7 @@ void GamePlayScene::Initialize()
     // 初期ターゲットをプレイヤー位置にしておく
     followCamera_->SetTarget(player_->GetWorldPosition());
 
-    // 敵の出現位置をランダムにするための乱数
-    std::random_device seedGenerator;
-    std::mt19937 randomEngine(seedGenerator());
-    std::uniform_real_distribution<float> angleDistribution(0.0f, 6.2831853f);
-    std::uniform_real_distribution<float> radiusDistribution(10.0f, 40.0f);
-
-    // プレイヤーの周りに敵を円形に配置する
-    enemies_.clear();
-    if (player_) {
-        const Vector3 playerPosition = player_->GetWorldPosition();
-        const float pi = 3.14159265f;
-
-        for (uint32_t i = 0; i < enemyCount_; ++i) {
-            // ランダムな角度と距離を作る
-            const float angle = angleDistribution(randomEngine);
-            const float radius = radiusDistribution(randomEngine);
-
-            // プレイヤーの周囲に少しバラけて出す
-            Vector3 enemyPosition = {
-                playerPosition.x + std::cos(angle) * radius,
-                playerPosition.y,
-                playerPosition.z + std::sin(angle) * radius
-            };
-
-
-            // 敵を生成して配列に入れる
-            auto enemy = std::make_unique<Enemy>();
-            enemy->Initialize(context_.object3dCommon, enemyPosition);
-            enemies_.push_back(std::move(enemy));
-        }
-    }
+    
     // シーン開始時は通常表示に戻しておく
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
@@ -167,6 +137,9 @@ void GamePlayScene::Initialize()
     // プレイヤーにマップ情報と1マスの大きさを渡す
     player_->SetMap(&mapField_, tileSize_);
 
+    // 敵をマップ内の空きマスに生成する
+    SpawnEnemies();
+
     // マップから床と壁のオブジェクトを作る
     CreateMapObjects();
 }
@@ -175,6 +148,22 @@ void GamePlayScene::Update()
 {
    
     const float dt = 1.0f / 60.0f;
+
+    // プレイヤー死亡中にRが押されたら敵も含めて再生成する
+    if (player_ && context_.input) {
+        if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
+            // プレイヤーを復活させる
+            player_->Respawn();
+
+            // 敵を再生成する
+            SpawnEnemies();
+
+            // 画面効果を通常に戻す
+            if (context_.offscreenRenderer) {
+                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+            }
+        }
+    }
 
     // ★ context_ 経由に変更
     if (skybox_) { skybox_->Update(); }
@@ -522,5 +511,65 @@ void GamePlayScene::CreateMapObjects()
                 wallObjects_.push_back(std::move(wallObject));
             }
         }
+    }
+}
+
+void GamePlayScene::SpawnEnemies()
+{
+    // ランダム生成用の乱数を用意する
+    std::random_device seedGenerator;
+    std::mt19937 randomEngine(seedGenerator());
+
+    // 敵を置ける空きマス一覧を作る
+    std::vector<Vector3> spawnCandidates;
+
+    for (int z = 0; z < mapField_.GetHeight(); ++z) {
+        for (int x = 0; x < mapField_.GetWidth(); ++x) {
+            // 空きマスだけ候補にする
+            if (mapField_.GetChip(x, z) != MapChipType::Empty) {
+                continue;
+            }
+
+            Vector3 spawnPosition = {
+                static_cast<float>(x) * tileSize_,
+                0.5f,
+                static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
+            };
+
+            // プレイヤーの位置に近すぎる候補は除外する
+            Vector3 diff = {
+                spawnPosition.x - player_->GetWorldPosition().x,
+                0.0f,
+                spawnPosition.z - player_->GetWorldPosition().z
+            };
+
+            float distanceSq = diff.x * diff.x + diff.z * diff.z;
+            if (distanceSq < 25.0f) {
+                continue;
+            }
+
+            spawnCandidates.push_back(spawnPosition);
+        }
+    }
+
+    // 候補をシャッフルして先頭から使う
+    std::shuffle(spawnCandidates.begin(), spawnCandidates.end(), randomEngine);
+
+    // いったん今の敵を消す
+    enemies_.clear();
+
+    // 候補が足りない時はある分だけ生成する
+    uint32_t spawnCount = std::min(
+        enemyCount_,
+        static_cast<uint32_t>(spawnCandidates.size()));
+
+    for (uint32_t i = 0; i < spawnCount; ++i) {
+        auto enemy = std::make_unique<Enemy>();
+        enemy->Initialize(context_.object3dCommon, spawnCandidates[i]);
+
+        // 敵にもマップ情報を渡す
+        enemy->SetMap(&mapField_, tileSize_);
+
+        enemies_.push_back(std::move(enemy));
     }
 }

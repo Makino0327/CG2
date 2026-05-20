@@ -3,7 +3,7 @@
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
-
+#include "../map/MapChipField.h"
 class Camera;
 class Input;
 
@@ -13,7 +13,9 @@ public:
     void Initialize(
         Object3dCommon* object3dCommon,
         const Vector3& position,
-        const Vector3& velocity);
+        const Vector3& velocity,
+        const MapChipField* mapField,
+        float tileSize);
 
     void Update();
     void Draw();
@@ -54,4 +56,10 @@ private:
 
     // 消すかどうか
     bool isDead_ = false;
+
+    // 弾が参照するマップ情報
+    const MapChipField* mapField_ = nullptr;
+
+    // 1マスの大きさ
+    float tileSize_ = 2.0f;
 };

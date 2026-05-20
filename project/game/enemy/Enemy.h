@@ -5,6 +5,7 @@
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
+#include "../map/MapChipField.h"
 
 class Object3dCommon;
 
@@ -41,6 +42,21 @@ public:
     // 敵の押し戻し用半径を返す
     float GetBodyRadius() const { return bodyRadius_; }
 
+    // 敵にマップ情報を渡す
+    void SetMap(const MapChipField* mapField, float tileSize);
+
+private:
+    // 敵の左方向の壁当たり判定を行う
+    void ResolveLeftCollisionWithMap(Vector3& pos);
+
+    // 敵の右方向の壁当たり判定を行う
+    void ResolveRightCollisionWithMap(Vector3& pos);
+
+    // 敵の上方向の壁当たり判定を行う
+    void ResolveTopCollisionWithMap(Vector3& pos);
+
+    // 敵の下方向の壁当たり判定を行う
+    void ResolveBottomCollisionWithMap(Vector3& pos);
 private:
     // 敵の3Dオブジェクト
     std::unique_ptr<Object3d> object_;
@@ -69,4 +85,12 @@ private:
     // 敵同士が埋まらないようにするための半径
     float bodyRadius_ = 1.0f;
 
+    // 前フレームの座標を保持する
+    Vector3 prevPosition_ = { 0.0f, 0.5f, 0.0f };
+
+    // マップデータへの参照
+    const MapChipField* mapField_ = nullptr;
+
+    // 1マスの大きさ
+    float tileSize_ = 2.0f;
 };

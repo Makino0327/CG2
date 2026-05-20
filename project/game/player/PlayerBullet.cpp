@@ -6,13 +6,19 @@
 void PlayerBullet::Initialize(
     Object3dCommon* object3dCommon,
     const Vector3& position,
-    const Vector3& velocity)
+    const Vector3& velocity,
+    const MapChipField* mapField,
+    float tileSize)
 {
     // 初期位置を保存する
     position_ = position;
 
     // 初速度を保存する
     velocity_ = velocity;
+
+    // マップ情報を保存する
+    mapField_ = mapField;
+    tileSize_ = tileSize;
 
     // 弾オブジェクトを作る
     object_ = std::make_unique<Object3d>();
@@ -38,6 +44,17 @@ void PlayerBullet::Update()
 
     // 弾を進める
     position_ = Add(position_, velocity_);
+
+    // 弾が今いるマスが壁なら消す
+    if (mapField_) {
+        int tileX = static_cast<int>(std::floor(position_.x / tileSize_ + 0.5f));
+        int tileY = mapField_->GetHeight() - 1 - static_cast<int>(std::floor(position_.z / tileSize_ + 0.5f));
+
+        if (mapField_->GetChip(tileX, tileY) == MapChipType::Block) {
+            isDead_ = true;
+            return;
+        }
+    }
 
     // 位置を反映する
     object_->SetTranslate(position_);

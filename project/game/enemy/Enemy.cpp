@@ -1,4 +1,6 @@
 #include "Enemy.h"
+#include <cfloat>
+#include <cmath>
 
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 
@@ -14,10 +16,12 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, const Vector3& position)
     // 敵モデルを設定する
     object_->SetModel("enemy/enemy.obj");
 
-    // 初期状態を反映する
     object_->SetScale(scale_);
     object_->SetRotate(rotation_);
     object_->SetTranslate(position_);
+
+    // 初期状態の描画行列を作る
+    object_->Update();
 }
 
 void Enemy::Update()
@@ -25,24 +29,48 @@ void Enemy::Update()
     if (!object_ || isDead_) {
         return;
     }
-    // 敵からターゲットへの向きを作る
+
+    // 前フレーム座標を保存する
+    prevPosition_ = position_;
+
+    // 敵からターゲットへの方向を求める
     Vector3 direction = {
         targetPosition_.x - position_.x,
         0.0f,
         targetPosition_.z - position_.z
     };
 
-    // 正規化して少しずつ前進する
-    direction = Normalize(direction);
+    // 長さがある時だけ正規化する
+    const float lengthSq =
+        direction.x * direction.x +
+        direction.z * direction.z;
 
-    position_.x += direction.x * moveSpeed_;
-    position_.z += direction.z * moveSpeed_;
-    // 移動方向を向くように回転する
+    if (lengthSq > 0.0001f) {
+        direction = Normalize(direction);
+    } else {
+        direction = { 0.0f, 0.0f, 0.0f };
+    }
+
+    // 移動先を計算する
+    Vector3 nextPosition = position_;
+    nextPosition.x += direction.x * moveSpeed_;
+    nextPosition.z += direction.z * moveSpeed_;
+
+    // マップとの当たり判定を解決する
+    ResolveLeftCollisionWithMap(nextPosition);
+    ResolveRightCollisionWithMap(nextPosition);
+    ResolveTopCollisionWithMap(nextPosition);
+    ResolveBottomCollisionWithMap(nextPosition);
+
+    // 位置を反映する
+    position_ = nextPosition;
+
+    // 移動方向を向く
     if (direction.x != 0.0f || direction.z != 0.0f) {
         rotation_.y = std::atan2(direction.x, direction.z);
     }
 
-    // 現在の状態をオブジェクトに反映する
+    // オブジェクトへ反映する
     object_->SetScale(scale_);
     object_->SetRotate(rotation_);
     object_->SetTranslate(position_);
@@ -86,4 +114,216 @@ void Enemy::SetTargetPosition(const Vector3& targetPosition)
 {
     // 追いかける対象の座標を保存する
     targetPosition_ = targetPosition;
+}
+
+void Enemy::SetMap(const MapChipField* mapField, float tileSize)
+{
+    // 敵が参照するマップ情報を保存する
+    mapField_ = mapField;
+    tileSize_ = tileSize;
+}
+
+void Enemy::ResolveLeftCollisionWithMap(Vector3& pos)
+{
+    if (!mapField_) { return; }
+
+    const float halfSize = tileSize_ * 0.5f;
+
+    // 左に動いていない時は処理しない
+    if (pos.x >= prevPosition_.x) {
+        return;
+    }
+
+    int mapWidth = mapField_->GetWidth();
+    int mapHeight = mapField_->GetHeight();
+
+    float enemyLeft = pos.x - halfSize;
+    float enemyRight = pos.x + halfSize;
+    float enemyBack = pos.z - halfSize;
+    float enemyFront = pos.z + halfSize;
+    float prevLeft = prevPosition_.x - halfSize;
+
+    int tileX = static_cast<int>(std::floor(enemyLeft / tileSize_));
+    if (tileX < 0 || tileX >= mapWidth) {
+        return;
+    }
+
+    float bestBlockRight = -FLT_MAX;
+    bool hit = false;
+
+    for (int tileY = 0; tileY < mapHeight; ++tileY) {
+        if (mapField_->GetChip(tileX, tileY) != MapChipType::Block) {
+            continue;
+        }
+
+        float centerZ = static_cast<float>(mapHeight - 1 - tileY) * tileSize_;
+        float blockBack = centerZ - halfSize;
+        float blockFront = centerZ + halfSize;
+
+        if (blockFront <= enemyBack || blockBack >= enemyFront) {
+            continue;
+        }
+
+        float centerX = static_cast<float>(tileX) * tileSize_;
+        float blockLeft = centerX - halfSize;
+        float blockRight = centerX + halfSize;
+
+        if (prevLeft >= blockRight && enemyLeft <= blockRight && enemyRight > blockLeft) {
+            if (blockRight > bestBlockRight) {
+                bestBlockRight = blockRight;
+                hit = true;
+            }
+        }
+    }
+
+    if (hit) {
+        pos.x = bestBlockRight + halfSize;
+    }
+}
+
+void Enemy::ResolveRightCollisionWithMap(Vector3& pos)
+{
+    if (!mapField_) { return; }
+
+    const float halfSize = tileSize_ * 0.5f;
+
+    // 右に動いていない時は処理しない
+    if (pos.x <= prevPosition_.x) {
+        return;
+    }
+
+    int mapWidth = mapField_->GetWidth();
+    int mapHeight = mapField_->GetHeight();
+
+    float enemyLeft = pos.x - halfSize;
+    float enemyRight = pos.x + halfSize;
+    float enemyBack = pos.z - halfSize;
+    float enemyFront = pos.z + halfSize;
+    float prevRight = prevPosition_.x + halfSize;
+
+    int tileX = static_cast<int>(std::floor((enemyRight + halfSize) / tileSize_));
+    if (tileX < 0 || tileX >= mapWidth) {
+        return;
+    }
+
+    float bestBlockLeft = FLT_MAX;
+    bool hit = false;
+
+    for (int tileY = 0; tileY < mapHeight; ++tileY) {
+        if (mapField_->GetChip(tileX, tileY) != MapChipType::Block) {
+            continue;
+        }
+
+        float centerZ = static_cast<float>(mapHeight - 1 - tileY) * tileSize_;
+        float blockBack = centerZ - halfSize;
+        float blockFront = centerZ + halfSize;
+
+        if (blockFront <= enemyBack || blockBack >= enemyFront) {
+            continue;
+        }
+
+        float centerX = static_cast<float>(tileX) * tileSize_;
+        float blockLeft = centerX - halfSize;
+        float blockRight = centerX + halfSize;
+
+        if (prevRight <= blockLeft && enemyRight >= blockLeft && enemyLeft < blockRight) {
+            if (blockLeft < bestBlockLeft) {
+                bestBlockLeft = blockLeft;
+                hit = true;
+            }
+        }
+    }
+
+    if (hit) {
+        pos.x = bestBlockLeft - halfSize;
+    }
+}
+
+void Enemy::ResolveTopCollisionWithMap(Vector3& pos)
+{
+    if (!mapField_) { return; }
+
+    // 上に動いていない時は処理しない
+    if (pos.z <= prevPosition_.z) {
+        return;
+    }
+
+    const float halfSize = tileSize_ * 0.5f;
+
+    float enemyFront = pos.z + halfSize;
+    float prevFront = prevPosition_.z + halfSize;
+
+    int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
+    int mapWidth = mapField_->GetWidth();
+    int mapHeight = mapField_->GetHeight();
+
+    if (tileX < 0 || tileX >= mapWidth) {
+        return;
+    }
+
+    float bestBlockBack = FLT_MAX;
+    bool hit = false;
+
+    for (int tileY = 0; tileY < mapHeight; ++tileY) {
+        if (mapField_->GetChip(tileX, tileY) != MapChipType::Block) {
+            continue;
+        }
+
+        float centerZ = static_cast<float>(mapHeight - 1 - tileY) * tileSize_;
+        float blockBack = centerZ - halfSize;
+
+        if (prevFront <= blockBack && enemyFront >= blockBack) {
+            if (blockBack < bestBlockBack) {
+                bestBlockBack = blockBack;
+                hit = true;
+            }
+        }
+    }
+
+    if (hit) {
+        pos.z = bestBlockBack - halfSize;
+    }
+}
+
+void Enemy::ResolveBottomCollisionWithMap(Vector3& pos)
+{
+    if (!mapField_) {
+        return;
+    }
+
+    // 下に動いていない時は処理しない
+    if (pos.z >= prevPosition_.z) {
+        return;
+    }
+
+    const float halfSize = tileSize_ * 0.5f;
+
+    float enemyBack = pos.z - halfSize;
+    float prevBack = prevPosition_.z - halfSize;
+
+    int tileX = static_cast<int>(std::floor(pos.x / tileSize_ + 0.5f));
+    int mapHeight = mapField_->GetHeight();
+
+    float bestBlockFront = -FLT_MAX;
+    bool hit = false;
+
+    for (int tileY = 0; tileY < mapHeight; ++tileY) {
+        if (mapField_->GetChip(tileX, tileY) != MapChipType::Block) {
+            continue;
+        }
+
+        float centerZ = static_cast<float>(mapHeight - 1 - tileY) * tileSize_;
+        float blockFront = centerZ + halfSize;
+
+        if (prevBack >= blockFront && enemyBack <= blockFront) {
+            if (blockFront > bestBlockFront) {
+                bestBlockFront = blockFront;
+                hit = true;
+            }
+        }
+    }
+
+    if (hit) {
+        pos.z = bestBlockFront + halfSize;
+    }
 }
