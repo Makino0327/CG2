@@ -67,13 +67,17 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 bool WinApp::ProcessMessage()
 {
 	MSG msg{};
-	if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+
+	// そのフレームで溜まっている Windows メッセージを全部処理する
+	while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
+
+		// 終了メッセージが来たらすぐ終了要求を返す
+		if (msg.message == WM_QUIT) {
+			return true;
+		}
 	}
 
-	if (msg.message == WM_QUIT) {
-		return true;
-	}
 	return false;
 }

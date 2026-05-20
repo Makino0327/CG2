@@ -176,7 +176,7 @@ void GamePlayScene::Update()
    
     const float dt = 1.0f / 60.0f;
 
-
+    // ★ context_ 経由に変更
     if (skybox_) { skybox_->Update(); }
 
 
@@ -199,6 +199,7 @@ void GamePlayScene::Update()
     if (player_) {
         player_->Update(context_.camera);
     }
+    if (context_.camera) { context_.camera->Update(); }
 
     // プレイヤー座標を追従カメラへ渡して更新する
     if (player_ && followCamera_) {

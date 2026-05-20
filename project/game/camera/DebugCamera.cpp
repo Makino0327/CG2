@@ -31,23 +31,28 @@ void DebugCamera::Update(Camera* camera, Input* input, OffscreenRenderer* offscr
         return;
     }
 
-    // Game View 上で右クリック中だけ視点操作を受け付ける
-    const bool canControlCamera =
+    // Game View 上にマウスがある時だけデバッグカメラ入力を受け付ける
+    const bool canMoveCamera = offscreenRenderer->IsGameViewHovered();
+
+    // Game View 上にマウスがあり、なおかつこのフレームで右ボタンが押されている時だけ回転する
+    const bool canRotateCamera =
         offscreenRenderer->IsGameViewHovered() &&
         input->PushMouseRight();
-
-    if (!canControlCamera) {
+    // どちらも無効なら何もしない
+    if (!canMoveCamera && !canRotateCamera) {
         return;
     }
+    // 右ドラッグ中だけマウス移動量で回転する
+    if (canRotateCamera) {
+        // Input 側で更新したこのフレームのマウス移動量を使う
+        Vector2 mouseDelta = input->GetMouseDelta();
 
-    Vector2 mouseDelta = offscreenRenderer->GetGameViewMouseDelta();
+        // 左右移動で Yaw を回す
+        transform.rotate.y += mouseDelta.x * rotateSpeed_;
 
-    // 横移動で Yaw を回す
-    transform.rotate.y += mouseDelta.x * rotateSpeed_;
-
-    // 縦移動で Pitch を回す
-    transform.rotate.x += mouseDelta.y * rotateSpeed_;
-
+        // 上下移動で Pitch を回す
+        transform.rotate.x += mouseDelta.y * rotateSpeed_;
+    }
     // Pitch の回りすぎを防ぐ
     if (transform.rotate.x > 1.2f) {
         transform.rotate.x = 1.2f;
@@ -75,35 +80,38 @@ void DebugCamera::Update(Camera* camera, Input* input, OffscreenRenderer* offscr
     };
     right = Normalize(right);
 
-    // 前後移動
-    if (input->PushKey(DIK_W)) {
-        transform.translate.x += forward.x * moveSpeed_;
-        transform.translate.y += forward.y * moveSpeed_;
-        transform.translate.z += forward.z * moveSpeed_;
-    }
-    if (input->PushKey(DIK_S)) {
-        transform.translate.x -= forward.x * moveSpeed_;
-        transform.translate.y -= forward.y * moveSpeed_;
-        transform.translate.z -= forward.z * moveSpeed_;
-    }
+    // Game View 上にマウスがある時だけ移動入力を受け付ける
+    if (canMoveCamera) {
+        // 前後移動
+        if (input->PushKey(DIK_W)) {
+            transform.translate.x += forward.x * moveSpeed_;
+            transform.translate.y += forward.y * moveSpeed_;
+            transform.translate.z += forward.z * moveSpeed_;
+        }
+        if (input->PushKey(DIK_S)) {
+            transform.translate.x -= forward.x * moveSpeed_;
+            transform.translate.y -= forward.y * moveSpeed_;
+            transform.translate.z -= forward.z * moveSpeed_;
+        }
 
-    // 左右移動
-    if (input->PushKey(DIK_A)) {
-        transform.translate.x -= right.x * moveSpeed_;
-        transform.translate.z -= right.z * moveSpeed_;
-    }
-    if (input->PushKey(DIK_D)) {
-        transform.translate.x += right.x * moveSpeed_;
-        transform.translate.z += right.z * moveSpeed_;
-    }
+        // 左右移動
+        if (input->PushKey(DIK_A)) {
+            transform.translate.x -= right.x * moveSpeed_;
+            transform.translate.z -= right.z * moveSpeed_;
+        }
+        if (input->PushKey(DIK_D)) {
+            transform.translate.x += right.x * moveSpeed_;
+            transform.translate.z += right.z * moveSpeed_;
+        }
 
-    // 上昇
-    if (input->PushKey(DIK_SPACE)) {
-        transform.translate.y += moveSpeed_;
-    }
+        // 上昇
+        if (input->PushKey(DIK_SPACE)) {
+            transform.translate.y += moveSpeed_;
+        }
 
-    // 下降
-    if (input->PushKey(DIK_LSHIFT) || input->PushKey(DIK_RSHIFT)) {
-        transform.translate.y -= moveSpeed_;
+        // 下降
+        if (input->PushKey(DIK_LSHIFT) || input->PushKey(DIK_RSHIFT)) {
+            transform.translate.y -= moveSpeed_;
+        }
     }
 }
