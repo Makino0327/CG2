@@ -164,5 +164,6 @@ private:
     // 前フレームの Game View 内マウス座標
     Vector2 prevGameViewMousePosition_ = { 0.0f, 0.0f };
 
-
+    // 右ドラッグで視点回転を開始したかどうかを保持する
+    bool isGameViewRotationStarted_ = false;
 };

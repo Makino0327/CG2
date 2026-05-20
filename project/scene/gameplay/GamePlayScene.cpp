@@ -104,9 +104,6 @@ void GamePlayScene::Update()
     const float dt = 1.0f / 60.0f;
 
     // ★ context_ 経由に変更
-    if (context_.camera) { context_.camera->Update(); }
-
-
     if (skybox_) { skybox_->Update(); }
 
     // Particleを毎フレーム更新する
@@ -121,6 +118,7 @@ void GamePlayScene::Update()
             *context_.isDebugMode);
     }
 
+    if (context_.camera) { context_.camera->Update(); }
 
 }
 
