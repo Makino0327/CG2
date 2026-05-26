@@ -142,6 +142,8 @@ void GamePlayScene::Initialize()
 
     // マップから床と壁のオブジェクトを作る
     CreateMapObjects();
+    // シーン開始時にぼかし演出を始める
+    startBlurTimer_ = startBlurDuration_;
 }
 
 void GamePlayScene::Update()
@@ -155,7 +157,6 @@ void GamePlayScene::Update()
             // プレイヤーを復活させる
             player_->Respawn();
             // 復活時に被弾ビネットもリセットする
-            damageVignetteTimer_ = 0;
             // 敵を再生成する
             SpawnEnemies();
 
@@ -190,14 +191,27 @@ void GamePlayScene::Update()
         player_->Update(context_.camera);
     }
 
-    // 被弾した瞬間に赤ビネット用タイマーを開始する
-    if (player_ && player_->ConsumeHitFlag()) {
-        damageVignetteTimer_ = damageVignetteDuration_;
+    // 開始演出のぼかし時間を減らす
+    if (startBlurTimer_ > 0) {
+        startBlurTimer_--;
     }
 
+    // 開始直後ほど強く、時間で弱くなるぼかし量を作る
+    float startBlurStrength = 0.0f;
+    if (startBlurDuration_ > 0) {
+        startBlurStrength =
+            static_cast<float>(startBlurTimer_) /
+            static_cast<float>(startBlurDuration_);
+
+        // 0.0f～1.0fに収める
+        startBlurStrength = std::clamp(startBlurStrength, 0.0f, 1.0f);
+    }
+
+    // 被弾した瞬間に赤ビネット用タイマーを開始する
+
     // 赤ビネットの残り時間を減らす
-    if (damageVignetteTimer_ > 0) {
-        damageVignetteTimer_--;
+    if (context_.offscreenRenderer) {
+        context_.offscreenRenderer->SetBlurStrength(startBlurStrength);
     }
 
     if (context_.camera) { context_.camera->Update(); }
@@ -249,15 +263,14 @@ void GamePlayScene::Update()
         return;
     }
 
-    // 死亡中はグレイスケール、生存中は通常表示にする
     if (player_ && context_.offscreenRenderer) {
         // 死亡時はグレースケールを優先する
         if (player_->IsDead()) {
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
         }
-        // 被弾演出中は赤ビネットを出す
-        else if (damageVignetteTimer_ > 0) {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Vignette);
+        // 開始演出中はぼかしを表示する
+        else if (startBlurStrength > 0.0f) {
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::BoxFilter);
         }
         // それ以外は通常表示に戻す
         else {

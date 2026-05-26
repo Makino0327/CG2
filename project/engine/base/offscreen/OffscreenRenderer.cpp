@@ -21,51 +21,52 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
         DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         Vector4(1.0f, 0.0f, 0.0f, 1.0f));
 
-    depthSrvIndex_ = srvManager_->Allocate(); // DepthTexture逕ｨ縺ｮSRV逡ｪ蜿ｷ繧堤｢ｺ菫昴☆繧・
+    // DepthTexture を読むための SRV を作る
+    depthSrvIndex_ = srvManager_->Allocate();
     srvManager_->CreateSRVForDepthTexture(
         depthSrvIndex_,
-        dxCommon_->GetDepthStencilResource()); // DepthBuffer繧単ixelShader縺九ｉ隱ｭ繧√ｋ繧医≧縺ｫ縺吶ｋ
+        dxCommon_->GetDepthStencilResource());
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
 
-    // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ螳壽焚繝舌ャ繝輔ぃ繧剃ｽ懈・縺吶ｋ
+    // RadialBlur 用の定数バッファを作る
     radialBlurResource_ = dxCommon_->CreateBufferResource(sizeof(RadialBlurData));
     radialBlurResource_->Map(0, nullptr, reinterpret_cast<void**>(&radialBlurData_));
-
-    // 蛻晄悄蛟､縺ｨ縺励※逕ｻ髱｢荳ｭ螟ｮ繧剃ｸｭ蠢・↓縺励※蠑ｱ繧√↓縺ｼ縺九☆
     radialBlurData_->center = { 0.5f, 0.5f };
     radialBlurData_->blurWidth = 0.01f;
     radialBlurData_->padding = 0.0f;
 
     TextureManager* textureManager = TextureManager::GetInstance();
 
-    // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝槭せ繧ｯ繝・け繧ｹ繝√Ε繧定ｪｭ縺ｿ霎ｼ繧
+    // Dissolve 用のマスクテクスチャを読み込む
     textureManager->LoadTexture("Resources/noise0.png");
     textureManager->LoadTexture("Resources/noise1.png");
 
     dissolveMaskSrvIndex0_ = textureManager->GetSrvIndex("Resources/noise0.png");
     dissolveMaskSrvIndex1_ = textureManager->GetSrvIndex("Resources/noise1.png");
 
-    // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ螳壽焚繝舌ャ繝輔ぃ繧剃ｽ懈・縺吶ｋ
+    // Dissolve 用の定数バッファを作る
     dissolveResource_ = dxCommon_->CreateBufferResource(sizeof(DissolveData));
     dissolveResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveData_));
-
     dissolveData_->threshold = 0.0f;
     dissolveData_->edgeWidth = 0.03f;
     dissolveData_->padding = { 0.0f, 0.0f };
     dissolveData_->edgeColor = { 1.0f, 0.4f, 0.3f, 1.0f };
 
-    // 繝ｩ繝ｳ繝繝繝弱う繧ｺ逕ｨ縺ｮ螳壽焚繝舌ャ繝輔ぃ繧剃ｽ懈・縺吶ｋ
+    // RandomNoise 用の定数バッファを作る
     randomNoiseResource_ = dxCommon_->CreateBufferResource(sizeof(RandomNoiseData));
     randomNoiseResource_->Map(0, nullptr, reinterpret_cast<void**>(&randomNoiseData_));
-
     randomNoiseData_->intensity = 0.3f;
     randomNoiseData_->time = 0.0f;
     randomNoiseData_->speed = 1.0f;
     randomNoiseData_->padding = 0.0f;
 
-
+    // 開始ぼかし用の定数バッファを作る
+    blurResource_ = dxCommon_->CreateBufferResource(sizeof(BlurData));
+    blurResource_->Map(0, nullptr, reinterpret_cast<void**>(&blurData_));
+    blurData_->strength = 0.0f;
+    blurData_->padding = { 0.0f, 0.0f, 0.0f };
 }
 
 void OffscreenRenderer::PreDrawScene()
@@ -97,7 +98,8 @@ void OffscreenRenderer::DrawToBackBuffer()
     assert(commandList);
     assert(renderTexture_);
 
-    ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource(); // // Outline縺ｧ隱ｭ繧DepthResource
+    // Outline 用に DepthResource を参照する
+    ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource();
 
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTVHandle = dxCommon_->GetCurrentBackBufferRTVHandle();
 
@@ -123,7 +125,9 @@ void OffscreenRenderer::DrawToBackBuffer()
         depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        commandList->ResourceBarrier(1, &depthBarrier); // // Depth繧呈嶌縺崎ｾｼ縺ｿ逕ｨ縺九ｉ隱ｭ縺ｿ霎ｼ縺ｿ逕ｨ縺ｸ蛻・ｊ譖ｿ縺医ｋ
+
+        // Depth をピクセルシェーダから読める状態へ切り替える
+        commandList->ResourceBarrier(1, &depthBarrier);
     }
 
     commandList->OMSetRenderTargets(1, &backBufferRTVHandle, FALSE, nullptr);
@@ -146,34 +150,35 @@ void OffscreenRenderer::DrawToBackBuffer()
     case PostEffectType::Sepia:
         commandList->SetPipelineState(sepiaPipelineState_.Get());
         break;
+
     case PostEffectType::Vignette:
         commandList->SetPipelineState(vignettePipelineState_.Get());
         break;
+
     case PostEffectType::BoxFilter:
-        // 繝懊ャ繧ｯ繧ｹ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
+        // 開始時のぼかし演出で使う
         commandList->SetPipelineState(boxFilterPipelineState_.Get());
         break;
+
     case PostEffectType::GaussianFilter:
-        // 繧ｬ繧ｦ繧ｷ繧｢繝ｳ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
         commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
         break;
+
     case PostEffectType::DepthOutline:
-        commandList->SetPipelineState(depthOutlinePipelineState_.Get()); // Depth繝吶・繧ｹ縺ｮOutline繧剃ｽｿ縺・
+        commandList->SetPipelineState(depthOutlinePipelineState_.Get());
         break;
 
     case PostEffectType::RadialBlur:
-        // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
         commandList->SetPipelineState(radialBlurPipelineState_.Get());
         break;
+
     case PostEffectType::Dissolve:
-        // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
         commandList->SetPipelineState(dissolvePipelineState_.Get());
         break;
+
     case PostEffectType::RandomNoise:
-        // 繝ｩ繝ｳ繝繝繝弱う繧ｺ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
         commandList->SetPipelineState(randomNoisePipelineState_.Get());
         break;
-
     }
 
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -193,11 +198,15 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     commandList->SetGraphicsRootConstantBufferView(
         4,
-        dissolveResource_->GetGPUVirtualAddress()); // b4
+        dissolveResource_->GetGPUVirtualAddress()); // b1
 
     commandList->SetGraphicsRootConstantBufferView(
         5,
         randomNoiseResource_->GetGPUVirtualAddress()); // b2
+
+    commandList->SetGraphicsRootConstantBufferView(
+        6,
+        blurResource_->GetGPUVirtualAddress()); // b3
 
     if (postEffectType_ == PostEffectType::DepthOutline) {
         D3D12_RESOURCE_BARRIER depthBarrier{};
@@ -207,13 +216,13 @@ void OffscreenRenderer::DrawToBackBuffer()
         depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        commandList->ResourceBarrier(1, &depthBarrier); // // 谺｡繝輔Ξ繝ｼ繝縺ｧDepth繧呈嶌縺代ｋ迥ｶ諷九↓謌ｻ縺・
-    }
 
+        // 読み終わった Depth を元の書き込み状態へ戻す
+        commandList->ResourceBarrier(1, &depthBarrier);
+    }
 
     commandList->DrawInstanced(3, 1, 0, 0);
 }
-
 
 void OffscreenRenderer::CreateRootSignature()
 {
@@ -237,7 +246,7 @@ void OffscreenRenderer::CreateRootSignature()
     maskRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     maskRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[6]{};
+    D3D12_ROOT_PARAMETER rootParameters[7]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -265,6 +274,9 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[5].Descriptor.ShaderRegister = 2;
 
+    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[6].Descriptor.ShaderRegister = 3;
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
 
@@ -277,7 +289,8 @@ void OffscreenRenderer::CreateRootSignature()
     staticSamplers[0].ShaderRegister = 0;
     staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    staticSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT; // // Depth縺ｯ陬憺俣縺励↑縺・
+    // Depth は補間したくないので PointSampler を使う
+    staticSamplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
     staticSamplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     staticSamplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     staticSamplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -316,7 +329,6 @@ void OffscreenRenderer::CreateRootSignature()
     assert(SUCCEEDED(hr));
 }
 
-
 void OffscreenRenderer::CreateGraphicsPipelineState()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
@@ -327,11 +339,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto copyPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/CopyImage.PS.hlsl",
         L"ps_6_0");
-
     auto grayscalePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Grayscale.PS.hlsl",
         L"ps_6_0");
-
     auto sepiaPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Sepia.PS.hlsl",
         L"ps_6_0");
@@ -415,103 +425,85 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         IID_PPV_ARGS(sepiaPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
-    // 繝ｴ繧｣繝阪ャ繝・ぅ繝ｳ繧ｰ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
     desc.PS = {
         vignettePixelShaderBlob->GetBufferPointer(),
         vignettePixelShaderBlob->GetBufferSize()
     };
-
-    // 繝ｴ繧｣繝阪ャ繝・ぅ繝ｳ繧ｰ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(vignettePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
-    // 繝懊ャ繧ｯ繧ｹ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
+
     desc.PS = {
         boxFilterPixelShaderBlob->GetBufferPointer(),
         boxFilterPixelShaderBlob->GetBufferSize()
     };
-
-    // 繝懊ャ繧ｯ繧ｹ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(boxFilterPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
-    // 繧ｬ繧ｦ繧ｷ繧｢繝ｳ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
     desc.PS = {
         gaussianFilterPixelShaderBlob->GetBufferPointer(),
         gaussianFilterPixelShaderBlob->GetBufferSize()
     };
-
-    // 繧ｬ繧ｦ繧ｷ繧｢繝ｳ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(gaussianFilterPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
-    // 繧｢繧ｦ繝医Λ繧､繝ｳ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝
-    desc.PS = {
-    depthOutlinePixelShaderBlob->GetBufferPointer(),
-    depthOutlinePixelShaderBlob->GetBufferSize()
-    };
 
+    desc.PS = {
+        depthOutlinePixelShaderBlob->GetBufferPointer(),
+        depthOutlinePixelShaderBlob->GetBufferSize()
+    };
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(depthOutlinePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
-    // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
     desc.PS = {
         radialBlurPixelShaderBlob->GetBufferPointer(),
         radialBlurPixelShaderBlob->GetBufferSize()
     };
-
-    // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(radialBlurPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
-    // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
     desc.PS = {
         dissolvePixelShaderBlob->GetBufferPointer(),
         dissolvePixelShaderBlob->GetBufferSize()
     };
-
-    // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(dissolvePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
-    // 繝ｩ繝ｳ繝繝繝弱う繧ｺ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
     desc.PS = {
         randomNoisePixelShaderBlob->GetBufferPointer(),
         randomNoisePixelShaderBlob->GetBufferSize()
     };
-
-    // 繝ｩ繝ｳ繝繝繝弱う繧ｺ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ菴懈・縺吶ｋ
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(randomNoisePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
-
 }
+
 void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed)
 {
-    // 繝ｩ繝ｳ繝繝繝弱う繧ｺ縺ｮ譎る俣繧帝ｲ繧√ｋ
+    // RandomNoise 用の時間を進める
     if (randomNoiseData_) {
         randomNoiseData_->time += deltaTime * randomNoiseData_->speed;
     }
 
-    // 右ボタンを離したフレームで回転状態が残らないようにここで即座に解除する
+    // 右ボタンを離したら回転状態を解除する
     if (!isMouseRightPressed) {
         isGameViewRotating_ = false;
         isGameViewRotationStarted_ = false;
         gameViewMouseDelta_ = { 0.0f, 0.0f };
     }
 
-    // 現在はマウス座標はここでは使わない
+    // 現状は引数だけ受け取り、ここでは使わない
     (void)mousePosition;
 
     if (!isDissolvePlaying_) {
@@ -530,7 +522,6 @@ void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bo
     }
 }
 
-
 void OffscreenRenderer::StartDissolve()
 {
     dissolveElapsedTime_ = 0.0f;
@@ -542,14 +533,22 @@ void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
 {
     float duration = std::max(dissolveDuration_, 0.1f);
 
-    // 迴ｾ蝨ｨ遘呈焚縺・0 譛ｪ貅繧・怙螟ｧ遘呈焚雜・∴縺ｫ縺ｪ繧峨↑縺・ｈ縺・↓縺吶ｋ
+    // 指定秒数を有効範囲に収める
     dissolveElapsedTime_ = std::clamp(seconds, 0.0f, duration);
 
-    // 迴ｾ蝨ｨ遘呈焚縺ｫ蜷医ｏ縺帙※ threshold 繧よ峩譁ｰ縺吶ｋ
+    // 経過時間から threshold を再計算する
     dissolveData_->threshold = dissolveElapsedTime_ / duration;
 
-    // 譛蠕後∪縺ｧ陦後▲縺ｦ縺・ｌ縺ｰ蛛懈ｭ｢縲√◎繧御ｻ･螟悶・蜀咲函荳ｭ謇ｱ縺・↓縺吶ｋ
+    // まだ最後まで進んでいなければ再生中扱いにする
     isDissolvePlaying_ = dissolveElapsedTime_ < duration;
+}
+
+void OffscreenRenderer::SetBlurStrength(float strength)
+{
+    // 開始時ぼかしの強さを 0.0f から 1.0f に収めて渡す
+    if (blurData_) {
+        blurData_->strength = std::clamp(strength, 0.0f, 1.0f);
+    }
 }
 
 void OffscreenRenderer::DrawImGui()
@@ -570,8 +569,6 @@ void OffscreenRenderer::DrawImGui()
         "DepthOutline",
     };
 
-
-
     int current = static_cast<int>(postEffectType_);
     if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
         postEffectType_ = static_cast<PostEffectType>(current);
@@ -579,8 +576,7 @@ void OffscreenRenderer::DrawImGui()
 
     if (postEffectType_ == PostEffectType::Dissolve) {
         const char* maskItems[] = { "noise0", "noise1" };
-        if (ImGui::Combo("Mask", &dissolveMaskType_, maskItems, IM_ARRAYSIZE(maskItems))) {
-        }
+        ImGui::Combo("Mask", &dissolveMaskType_, maskItems, IM_ARRAYSIZE(maskItems));
 
         ImGui::DragFloat("Duration", &dissolveDuration_, 0.1f, 0.1f, 10.0f);
 
@@ -602,7 +598,6 @@ void OffscreenRenderer::DrawImGui()
         ImGui::DragFloat("Speed", &randomNoiseData_->speed, 0.01f, 0.0f, 10.0f);
     }
 
-
     ImGui::End();
 #endif
 }
@@ -613,7 +608,6 @@ void OffscreenRenderer::DrawDebugGameViewImGui()
     if (!renderTexture_) {
         return;
     }
-
 
     ImGui::Begin("Game View");
 
@@ -633,54 +627,54 @@ void OffscreenRenderer::DrawDebugGameViewImGui()
 
     ImGui::Image(textureId, imageSize);
 
-        // Game View 縺ｮ陦ｨ遉ｺ菴咲ｽｮ縺ｨ繧ｵ繧､繧ｺ縺縺代ｒ菫晏ｭ倥＠縺ｦ縺翫￥
+    // Game View の表示位置とサイズを保存する
     ImVec2 imageMin = ImGui::GetItemRectMin();
     ImVec2 imageSizeImGui = ImGui::GetItemRectSize();
 
     gameViewTopLeft_ = { imageMin.x, imageMin.y };
     gameViewSize_ = { imageSizeImGui.x, imageSizeImGui.y };
 
-    // ImGui 縺檎｢ｺ螳壹＠縺溽洸蠖｢繧剃ｽｿ縺｣縺ｦ Game View 縺ｮ蜈･蜉帷憾諷九ｒ譖ｴ譁ｰ縺吶ｋ
+    // 前フレームのマウス座標を保存する
     prevGameViewMousePosition_ = gameViewMousePosition_;
 
-    // Image の hover 状態をそのまま Game View の hover として使う
+    // 画像上にマウスがあるかどうかを調べる
     isGameViewHovered_ = ImGui::IsItemHovered();
 
     if (isGameViewHovered_ && imageSizeImGui.x > 0.0f && imageSizeImGui.y > 0.0f) {
         ImVec2 mousePos = ImGui::GetIO().MousePos;
 
-        // Game View 蜀・〒縺ｮ繝槭え繧ｹ蠎ｧ讓吶ｒ譖ｴ譁ｰ縺吶ｋ
+        // Game View 内でのローカル座標を計算する
         gameViewMousePosition_.x = mousePos.x - imageMin.x;
         gameViewMousePosition_.y = mousePos.y - imageMin.y;
 
-        // 0.0f 縺九ｉ 1.0f 縺ｮ UV 蠎ｧ讓吶ｂ譖ｴ譁ｰ縺吶ｋ
+        // 0.0f から 1.0f の UV 座標に変換する
         gameViewMouseUV_.x = gameViewMousePosition_.x / imageSizeImGui.x;
         gameViewMouseUV_.y = gameViewMousePosition_.y / imageSizeImGui.y;
     } else {
-        // Game View 縺ｮ螟悶〒縺ｯ繝槭え繧ｹ髢｢騾｣縺ｮ蛟､繧偵Μ繧ｻ繝・ヨ縺吶ｋ
+        // Game View 外では座標を 0 に戻す
         gameViewMousePosition_ = { 0.0f, 0.0f };
         gameViewMouseUV_ = { 0.0f, 0.0f };
     }
 
-    // Game View 上で右クリックを始めた瞬間だけ回転開始フラグを立てる
+    // 右クリックした瞬間にドラッグ開始フラグを立てる
     if (isGameViewHovered_ && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         isGameViewRotationStarted_ = true;
     }
 
-    // 右ボタンを離したら回転終了にする
+    // 右ボタンを離したらドラッグ終了
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
         isGameViewRotationStarted_ = false;
     }
 
-    // 回転開始後は、右ボタンを離すまで回転状態を維持する
+    // ドラッグ開始後は回転中として扱う
     isGameViewRotating_ = isGameViewRotationStarted_;
 
     if (isGameViewRotating_) {
-        // Game View 内でのマウス移動量を更新する
+        // Game View 上でのマウス移動量を計算する
         gameViewMouseDelta_.x = gameViewMousePosition_.x - prevGameViewMousePosition_.x;
         gameViewMouseDelta_.y = gameViewMousePosition_.y - prevGameViewMousePosition_.y;
     } else {
-        // 回転していない時は移動量を 0 に戻す
+        // 回転していないときは移動量を 0 に戻す
         gameViewMouseDelta_ = { 0.0f, 0.0f };
     }
 
