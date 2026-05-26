@@ -46,6 +46,9 @@ public:
     // プレイヤーを復活させる
     void Respawn();
 
+    // 被弾した瞬間を1回だけ受け取る
+    bool ConsumeHitFlag();
+
 private:
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);

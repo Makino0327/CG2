@@ -88,4 +88,10 @@ private:
     std::vector<std::unique_ptr<Object3d>> floorObjects_;
     // 壁マスの描画用オブジェクトを持つ
     std::vector<std::unique_ptr<Object3d>> wallObjects_;
+
+    // 被弾時の赤ビネットを表示する残りフレーム
+    int damageVignetteTimer_ = 0;
+
+    // 赤ビネットを表示するフレーム数
+    int damageVignetteDuration_ = 12;
 };

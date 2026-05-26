@@ -12,20 +12,23 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
 
-    // 元画像の色をテクスチャから取得する
+    // 元画像の色を取得する
     output.color = gTexture.Sample(gSampler, input.texcoord);
 
-    // 中心から離れるほど小さくなる値を作る
+    // 画面中央から離れるほど値が小さくなる係数を作る
     float2 correct = input.texcoord * (1.0f - input.texcoord.yx);
-
-    // 中心付近が1.0、端に近いほど0.0に近づく値に調整する
     float vignette = correct.x * correct.y * 16.0f;
-
-    // powで暗くなり方を調整し、saturateで0.0から1.0の範囲に収める
     vignette = saturate(pow(vignette, 0.8f));
 
-    // 元画像のRGBにヴィネッティング係数を掛けて、画面端を暗くする
-    output.color.rgb *= vignette;
+    // 端に近いほど強くなる赤ビネット用の強さ
+    float edge = 1.0f - vignette;
+
+    // 被弾感が出るように少し濃い赤を使う
+    float3 damageColor = float3(0.9f, 0.0f, 0.0f);
+
+    // 元画像を少し暗くしつつ赤を混ぜる
+    output.color.rgb *= lerp(0.55f, 1.0f, vignette);
+    output.color.rgb = lerp(output.color.rgb, damageColor, edge * 0.6f);
 
     return output;
 }

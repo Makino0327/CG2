@@ -544,3 +544,15 @@ void Player::Respawn()
         object_->Update();
     }
 }
+
+bool Player::ConsumeHitFlag()
+{
+    // 被弾フラグが立っていなければ false を返す
+    if (!isHit_) {
+        return false;
+    }
+
+    // 1回読んだらフラグを下ろす
+    isHit_ = false;
+    return true;
+}

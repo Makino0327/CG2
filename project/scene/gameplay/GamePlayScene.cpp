@@ -154,7 +154,8 @@ void GamePlayScene::Update()
         if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
             // プレイヤーを復活させる
             player_->Respawn();
-
+            // 復活時に被弾ビネットもリセットする
+            damageVignetteTimer_ = 0;
             // 敵を再生成する
             SpawnEnemies();
 
@@ -188,6 +189,17 @@ void GamePlayScene::Update()
     if (player_) {
         player_->Update(context_.camera);
     }
+
+    // 被弾した瞬間に赤ビネット用タイマーを開始する
+    if (player_ && player_->ConsumeHitFlag()) {
+        damageVignetteTimer_ = damageVignetteDuration_;
+    }
+
+    // 赤ビネットの残り時間を減らす
+    if (damageVignetteTimer_ > 0) {
+        damageVignetteTimer_--;
+    }
+
     if (context_.camera) { context_.camera->Update(); }
 
     // プレイヤー座標を追従カメラへ渡して更新する
@@ -239,11 +251,16 @@ void GamePlayScene::Update()
 
     // 死亡中はグレイスケール、生存中は通常表示にする
     if (player_ && context_.offscreenRenderer) {
+        // 死亡時はグレースケールを優先する
         if (player_->IsDead()) {
-            // 死亡中はゲーム画面をグレイスケールにする
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
-        } else {
-            // Rで復活した後は通常表示に戻す
+        }
+        // 被弾演出中は赤ビネットを出す
+        else if (damageVignetteTimer_ > 0) {
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Vignette);
+        }
+        // それ以外は通常表示に戻す
+        else {
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
     }
