@@ -270,7 +270,7 @@ void GamePlayScene::Update()
         }
         // 開始演出中はぼかしを表示する
         else if (startBlurStrength > 0.0f) {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::BoxFilter);
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::GaussianFilter);
         }
         // それ以外は通常表示に戻す
         else {
