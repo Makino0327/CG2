@@ -61,6 +61,25 @@ static LevelObjectData ParseObject(const json& objectJson) {
     objectData.rotation.y = ToRadian(objectData.rotation.y);
     objectData.rotation.z = ToRadian(objectData.rotation.z);
 
+    // コライダー情報があるなら読む
+    objectData.collider.hasCollider = false;
+    if (objectJson.contains("collider")) {
+        const json& colliderJson = objectJson["collider"];
+
+        objectData.collider.hasCollider = true;
+        objectData.collider.type = colliderJson["type"].get<std::string>();
+
+        // Blender座標系からゲーム座標系へ変換してコライダー中心を入れる
+        objectData.collider.center.x = static_cast<float>(colliderJson["center"][0]); // Xはそのまま
+        objectData.collider.center.y = static_cast<float>(colliderJson["center"][2]); // Blender Z -> Game Y
+        objectData.collider.center.z = static_cast<float>(colliderJson["center"][1]); // Blender Y -> Game Z
+
+        // Blender座標系からゲーム座標系へ変換してコライダーサイズを入れる
+        objectData.collider.size.x = static_cast<float>(colliderJson["size"][0]); // Xはそのまま
+        objectData.collider.size.y = static_cast<float>(colliderJson["size"][2]); // Blender Z -> Game Y
+        objectData.collider.size.z = static_cast<float>(colliderJson["size"][1]); // Blender Y -> Game Z
+    }
+
     if (objectJson.contains("children")) {
         for (const json& childJson : objectJson["children"]) {
             objectData.children.push_back(ParseObject(childJson)); // 子オブジェクトを再帰的に追加

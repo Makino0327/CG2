@@ -3,6 +3,14 @@
 #include <vector>
 #include "../engine/math/Math.h"
 
+// 当たり判定用のボックスコライダー情報
+struct LevelColliderData {
+    std::string type;      // コライダーの種類。今は BOX 想定
+    Vector3 center;        // コライダー中心のローカル座標
+    Vector3 size;          // コライダーのサイズ
+    bool hasCollider;      // コライダーを持っているかどうか
+};
+
 // Blender から読み込んだ 1 個分のオブジェクト情報
 struct LevelObjectData {
     std::string type; // Blender の object.type
@@ -12,6 +20,7 @@ struct LevelObjectData {
     Vector3 rotation; // 回転
     Vector3 scaling; // 拡大縮小
     std::vector<LevelObjectData> children; // 子オブジェクト
+    LevelColliderData collider; // Blender から読み込んだコライダー情報
 };
 
 // レベル全体の情報
