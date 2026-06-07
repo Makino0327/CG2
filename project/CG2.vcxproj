@@ -174,6 +174,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
     <ClCompile Include="game\player\PlayerBullet.cpp" />
+    <ClCompile Include="scene\LevelLoader.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="game\camera\Camera.cpp" />
     <ClCompile Include="engine\base\leakchecker\D3DResourceLeakChecker.cpp" />
@@ -399,6 +400,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
+    <ClInclude Include="scene\LevelLoader.h" />
     <ClInclude Include="scene\BaseScene.h" />
     <ClInclude Include="game\camera\Camera.h" />
     <ClInclude Include="engine\base\leakchecker\D3DResourceLeakChecker.h" />

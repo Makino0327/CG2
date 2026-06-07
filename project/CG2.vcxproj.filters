@@ -76,6 +76,7 @@
     <ClCompile Include="game\collision\Collision.cpp" />
     <ClCompile Include="scene\clear\ClearScene.cpp" />
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
+    <ClCompile Include="scene\LevelLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -128,6 +129,7 @@
     <ClInclude Include="game\collision\Collision.h" />
     <ClInclude Include="scene\clear\ClearScene.h" />
     <ClInclude Include="scene\gameover\GameOverScene.h" />
+    <ClInclude Include="scene\LevelLoader.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
