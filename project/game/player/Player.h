@@ -58,6 +58,9 @@ public:
         wallColliders_ = wallColliders;
     }
 
+    // // デバッグカメラ確認用に描画行列だけ更新する
+    void UpdateRenderOnly();
+
 private:
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);
@@ -85,6 +88,8 @@ private:
 
     // 壁コライダーとの横移動衝突を解決する
     void ResolveWallCollision(Vector3& pos);
+
+    
 
     // モデルの正面方向補正に使う角度
     float frontAngleOffset_ = 0.0f;
@@ -119,7 +124,7 @@ private:
     Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
 
     // プレイヤーの当たり判定半径
-    float colliderRadius_ = 0.8f;
+    float colliderRadius_ = 1.0f;
 
     // 被弾状態を保持する
     bool isHit_ = false;

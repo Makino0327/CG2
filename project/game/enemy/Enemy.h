@@ -54,6 +54,9 @@ public:
     void SetWallColliders(const std::vector<LevelColliderData>* wallColliders) {
         wallColliders_ = wallColliders;
     }
+
+    // // デバッグカメラ確認用に描画行列だけ更新する
+    void UpdateRenderOnly();
 private:
     // 敵の左方向の壁当たり判定を行う
     void ResolveLeftCollisionWithMap(Vector3& pos);
@@ -86,7 +89,7 @@ private:
     Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
 
     // 敵の当たり判定半径
-    float colliderRadius_ = 0.8f;
+    float colliderRadius_ = 1.0f;
 
     // 倒された敵を管理する
     bool isDead_ = false;

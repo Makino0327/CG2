@@ -79,7 +79,7 @@ void Player::Update(Camera* camera)
     //ResolveBottomCollisionWithMap(pos);
 
     // Blender JSON の床コライダーを使って地面の高さを合わせる
-    //ResolveGroundHeight(pos);
+    ResolveGroundHeight(pos);
 
     // Blender JSON の壁コライダーを使って横移動の衝突を解決する
     ResolveWallCollision(pos);
@@ -595,7 +595,7 @@ void Player::ResolveGroundHeight(Vector3& pos)
 
     // 見つかった床の上にプレイヤーを乗せる
     if (foundGround) {
-        pos.y = bestGroundY + colliderRadius_ * 0.5f;
+        pos.y = bestGroundY + colliderRadius_ ;
     }
 }
 
@@ -647,6 +647,21 @@ void Player::ResolveWallCollision(Vector3& pos)
             pos.z = wallBack - halfSize;
         } else if (prevBack >= wallFront) {
             pos.z = wallFront + halfSize;
+        }
+    }
+}
+
+void Player::UpdateRenderOnly()
+{
+    // // 本体オブジェクトがあればカメラ反映用に更新する
+    if (object_) {
+        object_->Update();
+    }
+
+    // // 弾も見た目だけ更新する
+    for (auto& bullet : bullets_) {
+        if (!bullet->IsDead()) {
+            bullet->Update();
         }
     }
 }

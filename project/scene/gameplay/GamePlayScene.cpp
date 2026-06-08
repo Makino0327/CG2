@@ -187,6 +187,40 @@ void GamePlayScene::Update()
             *context_.isDebugMode);
     }
 
+    // // F1中はゲーム進行を止めるが、カメラと描画行列だけは更新する
+    if (context_.isDebugMode && *context_.isDebugMode) {
+        // // デバッグカメラで変更した transform から ViewProjection を更新する
+        if (context_.camera) {
+            context_.camera->Update();
+        }
+
+        // // プレイヤーの見た目だけ更新する
+        if (player_) {
+            player_->UpdateRenderOnly();
+        }
+
+        // // 敵の見た目だけ更新する
+        for (auto& enemy : enemies_) {
+            enemy->UpdateRenderOnly();
+        }
+
+        // // 床と壁の見た目だけ更新する
+        for (auto& floorObject : floorObjects_) {
+            floorObject->Update();
+        }
+
+        for (auto& wallObject : wallObjects_) {
+            wallObject->Update();
+        }
+
+        // // Skybox もカメラ反映のため更新する
+        if (skybox_) {
+            skybox_->Update();
+        }
+
+        return;
+    }
+
     /// =============================
     /// プレイヤー
     /// =============================
@@ -506,12 +540,19 @@ void GamePlayScene::CreateMapObjects()
             worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
             worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
 
-            // 名前に Wall が入っているものは壁として扱う
-            if (objectData.name.find("wall") != std::string::npos) {
+            // // 名前に Wall / wall が入っているものは壁として扱う
+            if (objectData.name.find("Wall") != std::string::npos ||
+                objectData.name.find("wall") != std::string::npos) {
+                // // 壁コライダーを保存する
                 wallColliders_.push_back(worldCollider);
+
+                // // 壁オブジェクトとして描画用リストへ入れる
                 wallObjects_.push_back(std::move(mapObject));
             } else {
-                // それ以外は床や見た目用として扱う
+                // // 床コライダーを保存する
+                floorColliders_.push_back(worldCollider);
+
+                // // 床オブジェクトとして描画用リストへ入れる
                 floorObjects_.push_back(std::move(mapObject));
             }
         } else {

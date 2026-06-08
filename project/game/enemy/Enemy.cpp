@@ -63,7 +63,7 @@ void Enemy::Update()
     //ResolveBottomCollisionWithMap(nextPosition);
 
     // Blender JSON の床コライダーを使って地面の高さを合わせる
-    //ResolveGroundHeight(nextPosition);
+    ResolveGroundHeight(nextPosition);
 
     // Blender JSON の壁コライダーを使って横移動の衝突を解決する
     ResolveWallCollision(nextPosition);
@@ -377,7 +377,7 @@ void Enemy::ResolveGroundHeight(Vector3& pos)
 
     // 見つかった床の上に敵を乗せる
     if (foundGround) {
-        pos.y = bestGroundY + colliderRadius_ * 0.5f;
+        pos.y = bestGroundY + colliderRadius_ ;
     }
 }
 
@@ -428,5 +428,16 @@ void Enemy::ResolveWallCollision(Vector3& pos)
         } else if (prevBack >= wallFront) {
             pos.z = wallFront + halfSize;
         }
+    }
+}
+
+void Enemy::UpdateRenderOnly()
+{
+    // // 本体オブジェクトがあればカメラ反映用に更新する
+    if (object_ && !isDead_) {
+        object_->SetScale(scale_);
+        object_->SetRotate(rotation_);
+        object_->SetTranslate(position_);
+        object_->Update();
     }
 }

@@ -45,16 +45,7 @@ void PlayerBullet::Update()
     // 弾を進める
     position_ = Add(position_, velocity_);
 
-    // 弾が今いるマスが壁なら消す
-    if (mapField_) {
-        int tileX = static_cast<int>(std::floor(position_.x / tileSize_ + 0.5f));
-        int tileY = mapField_->GetHeight() - 1 - static_cast<int>(std::floor(position_.z / tileSize_ + 0.5f));
-
-        if (mapField_->GetChip(tileX, tileY) == MapChipType::Block) {
-            isDead_ = true;
-            return;
-        }
-    }
+    
 
     // 位置を反映する
     object_->SetTranslate(position_);
