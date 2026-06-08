@@ -142,6 +142,12 @@ void GamePlayScene::Initialize()
 
     // マップから床と壁のオブジェクトを作る
     CreateMapObjects();
+
+    // プレイヤーに Blender JSON の床コライダー一覧を渡す
+    player_->SetFloorColliders(&floorColliders_);
+
+    // プレイヤーに Blender JSON の壁コライダー一覧を渡す
+    player_->SetWallColliders(&wallColliders_);
 }
 
 void GamePlayScene::Update()
@@ -447,69 +453,70 @@ void GamePlayScene::ResolveEnemyOverlap()
 
 void GamePlayScene::CreateMapObjects()
 {
-    // 前回分が残らないように床と壁の配列を空にする
+    // 既存の床と壁の描画用オブジェクトを最初に空にする
     floorObjects_.clear();
     wallObjects_.clear();
+    floorColliders_.clear();
+    wallColliders_.clear();
 
-    // マップCSVの内容から床と壁のオブジェクトを作る
-    for (int z = 0; z < mapField_.GetHeight(); ++z) {
-        for (int x = 0; x < mapField_.GetWidth(); ++x) {
-            // 今見ているマスの種類を取得する
-            MapChipType chip = mapField_.GetChip(x, z);
+    // Blender から出力した JSON を読み込む
+    LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
 
-            // 床マスなら床用オブジェクトを作る
-            if (chip == MapChipType::Empty) {
-                auto floorObject = std::make_unique<Object3d>();
+    // JSON 内のオブジェクトを順番に確認して床として生成する
+    for (const LevelObjectData& objectData : levelData.objects) {
+        // MESH 以外は使わない
+        if (objectData.type != "MESH") {
+            continue;
+        }
 
-                // 床オブジェクトを初期化する
-                floorObject->Initialize(context_.object3dCommon);
+        // モデル名が空なら生成しない
+        if (objectData.fileName.empty()) {
+            continue;
+        }
 
-                // 今回は仮で block モデルを使う
-                floorObject->SetModel("block/block.obj");
+        // JSON に書かれたモデルを事前に読み込む
+        ModelManager::GetInstance()->LoadModel(objectData.fileName);
 
-                // 床は薄く見せる
-                floorObject->SetScale({ 1.0f, 0.3f, 1.0f });
+        auto mapObject = std::make_unique<Object3d>();
 
-                // CSVの行番号をワールドのZ方向に並べる
-                floorObject->SetTranslate({
-                    static_cast<float>(x) * tileSize_,
-                    -1.0f,
-                    static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
-                    });
+        // 3D オブジェクトを初期化する
+        mapObject->Initialize(context_.object3dCommon);
 
-                // 変換を反映する
-                floorObject->Update();
+        // Blender JSON に書かれた情報を使う
+        mapObject->SetModel(objectData.fileName);
+        mapObject->SetScale(objectData.scaling);
+        mapObject->SetRotate(objectData.rotation);
+        mapObject->SetTranslate(objectData.translation);
+        mapObject->Update();
 
-                // 床配列に追加する
-                floorObjects_.push_back(std::move(floorObject));
+        // 今回は回転なしの BOX collider 前提でワールド AABB を作る
+        if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
+            LevelColliderData worldCollider = objectData.collider;
+
+            // collider.center はローカル座標なので平行移動を足す
+            worldCollider.center.x =
+                objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
+            worldCollider.center.y =
+                objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
+            worldCollider.center.z =
+                objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
+
+            // collider.size にオブジェクトの拡大率を掛けてワールドサイズにする
+            worldCollider.size.x = objectData.collider.size.x * objectData.scaling.x;
+            worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
+            worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
+
+            // 名前に Wall が入っているものは壁として扱う
+            if (objectData.name.find("wall") != std::string::npos) {
+                wallColliders_.push_back(worldCollider);
+                wallObjects_.push_back(std::move(mapObject));
+            } else {
+                // それ以外は床や見た目用として扱う
+                floorObjects_.push_back(std::move(mapObject));
             }
-
-            // 壁マスなら壁用オブジェクトを作る
-            if (chip == MapChipType::Block) {
-                auto wallObject = std::make_unique<Object3d>();
-
-                // 壁オブジェクトを初期化する
-                wallObject->Initialize(context_.object3dCommon);
-
-                // 今回は仮で block モデルを使う
-                wallObject->SetModel("block/block.obj");
-
-                // 壁は1マス分の大きさで表示する
-                wallObject->SetScale({ 1.0f, 1.0f, 1.0f });
-
-                // CSVの行番号をワールドのZ方向に並べる
-                wallObject->SetTranslate({
-                    static_cast<float>(x) * tileSize_,
-                    0.0f,
-                    static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
-                    });
-
-                // 変換を反映する
-                wallObject->Update();
-
-                // 壁配列に追加する
-                wallObjects_.push_back(std::move(wallObject));
-            }
+        } else {
+            // collider が無いものは見た目だけ床側に入れておく
+            floorObjects_.push_back(std::move(mapObject));
         }
     }
 }
@@ -569,6 +576,12 @@ void GamePlayScene::SpawnEnemies()
 
         // 敵にもマップ情報を渡す
         enemy->SetMap(&mapField_, tileSize_);
+
+        // 敵に Blender JSON の床コライダー一覧を渡す
+        enemy->SetFloorColliders(&floorColliders_);
+
+        // 敵に Blender JSON の壁コライダー一覧を渡す
+        enemy->SetWallColliders(&wallColliders_);
 
         enemies_.push_back(std::move(enemy));
     }

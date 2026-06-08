@@ -20,6 +20,8 @@
 #include "../../game/enemy/Enemy.h"
 #include "../../game/map/MapChipField.h"
 
+#include "../LevelLoader.h"
+
 class Sprite;
 class Object3d;
 class ParticleSystem;
@@ -88,4 +90,10 @@ private:
     std::vector<std::unique_ptr<Object3d>> floorObjects_;
     // 壁マスの描画用オブジェクトを持つ
     std::vector<std::unique_ptr<Object3d>> wallObjects_;
+
+    // Blender JSON から読んだ床コライダーを保持する
+    std::vector<LevelColliderData> floorColliders_;
+
+    // Blender JSON から読んだ壁コライダーを保持する
+    std::vector<LevelColliderData> wallColliders_;
 };

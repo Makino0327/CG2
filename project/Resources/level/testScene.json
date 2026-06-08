@@ -7,8 +7,8 @@
             "transform": {
                 "translation": [
                     0.0,
-                    -0.11971503496170044,
-                    -5.436043739318848
+                    0.0,
+                    0.0
                 ],
                 "rotation": [
                     0.0,
@@ -16,12 +16,25 @@
                     0.0
                 ],
                 "scaling": [
-                    64.4716796875,
-                    64.4716796875,
+                    50.0,
+                    50.0,
                     1.0
                 ]
             },
-            "file_name": "cube.obj"
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
         },
         {
             "type": "LIGHT",
@@ -67,12 +80,12 @@
         },
         {
             "type": "MESH",
-            "name": "立方体",
+            "name": "wall_00",
             "transform": {
                 "translation": [
                     0.0,
                     0.0,
-                    1.7439429759979248
+                    2.0
                 ],
                 "rotation": [
                     0.0,
@@ -82,10 +95,58 @@
                 "scaling": [
                     1.0,
                     1.0,
-                    6.440779209136963
+                    1.0
                 ]
             },
-            "file_name": "cube.obj"
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_01",
+            "transform": {
+                "translation": [
+                    0.0,
+                    13.136577606201172,
+                    2.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    2.0,
+                    10.0,
+                    2.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
         }
     ]
 }

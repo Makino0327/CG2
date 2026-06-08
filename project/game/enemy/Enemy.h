@@ -6,6 +6,7 @@
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
 #include "../map/MapChipField.h"
+#include "../../scene/LevelLoader.h"
 
 class Object3dCommon;
 
@@ -45,6 +46,14 @@ public:
     // 敵にマップ情報を渡す
     void SetMap(const MapChipField* mapField, float tileSize);
 
+    // Blender JSON から読んだ床コライダー一覧を受け取る
+    void SetFloorColliders(const std::vector<LevelColliderData>* floorColliders) {
+        floorColliders_ = floorColliders;
+    }
+    // Blender JSON から読んだ壁コライダー一覧を受け取る
+    void SetWallColliders(const std::vector<LevelColliderData>* wallColliders) {
+        wallColliders_ = wallColliders;
+    }
 private:
     // 敵の左方向の壁当たり判定を行う
     void ResolveLeftCollisionWithMap(Vector3& pos);
@@ -57,6 +66,12 @@ private:
 
     // 敵の下方向の壁当たり判定を行う
     void ResolveBottomCollisionWithMap(Vector3& pos);
+
+    // 床コライダーから現在位置の地面高さを合わせる
+    void ResolveGroundHeight(Vector3& pos);
+
+    // 壁コライダーとの横移動衝突を解決する
+    void ResolveWallCollision(Vector3& pos);
 private:
     // 敵の3Dオブジェクト
     std::unique_ptr<Object3d> object_;
@@ -93,4 +108,10 @@ private:
 
     // 1マスの大きさ
     float tileSize_ = 2.0f;
+
+    // Blender JSON から読んだ床コライダー一覧
+    const std::vector<LevelColliderData>* floorColliders_ = nullptr;
+
+    // Blender JSON から読んだ壁コライダー一覧
+    const std::vector<LevelColliderData>* wallColliders_ = nullptr;
 };

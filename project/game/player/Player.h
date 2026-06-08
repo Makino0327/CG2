@@ -10,6 +10,8 @@
 #include "../collision/Collision.h"
 #include "PlayerBullet.h"
 
+#include "../../scene/LevelLoader.h"
+
 class Player
 {
 public:
@@ -23,6 +25,11 @@ public:
     void SetMap(MapChipField* mapField, float tileSize) {
         mapField_ = mapField;
         tileSize_ = tileSize;
+    }
+
+    // Blender JSON から読んだ床コライダー一覧を受け取る
+    void SetFloorColliders(const std::vector<LevelColliderData>* floorColliders) {
+        floorColliders_ = floorColliders;
     }
 
     // プレイヤーの座標を返す
@@ -46,6 +53,11 @@ public:
     // プレイヤーを復活させる
     void Respawn();
 
+    // Blender JSON から読んだ壁コライダー一覧を受け取る
+    void SetWallColliders(const std::vector<LevelColliderData>* wallColliders) {
+        wallColliders_ = wallColliders;
+    }
+
 private:
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);
@@ -67,6 +79,12 @@ private:
 
     // マウスの方向へプレイヤーを向ける
     void RotateToMouse(Camera* camera);
+
+    // 床コライダーから現在位置の地面高さを合わせる
+    void ResolveGroundHeight(Vector3& pos);
+
+    // 壁コライダーとの横移動衝突を解決する
+    void ResolveWallCollision(Vector3& pos);
 
     // モデルの正面方向補正に使う角度
     float frontAngleOffset_ = 0.0f;
@@ -132,4 +150,10 @@ private:
 
     // 弾の発射位置の高さ
     float bulletSpawnHeight_ = 0.5f;
+
+    // Blender JSON から読んだ床コライダー一覧
+    const std::vector<LevelColliderData>* floorColliders_ = nullptr;
+
+    // Blender JSON から読んだ壁コライダー一覧
+    const std::vector<LevelColliderData>* wallColliders_ = nullptr;
 };

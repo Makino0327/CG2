@@ -57,10 +57,16 @@ void Enemy::Update()
     nextPosition.z += direction.z * moveSpeed_;
 
     // マップとの当たり判定を解決する
-    ResolveLeftCollisionWithMap(nextPosition);
-    ResolveRightCollisionWithMap(nextPosition);
-    ResolveTopCollisionWithMap(nextPosition);
-    ResolveBottomCollisionWithMap(nextPosition);
+    //ResolveLeftCollisionWithMap(nextPosition);
+    //ResolveRightCollisionWithMap(nextPosition);
+    //ResolveTopCollisionWithMap(nextPosition);
+    //ResolveBottomCollisionWithMap(nextPosition);
+
+    // Blender JSON の床コライダーを使って地面の高さを合わせる
+    //ResolveGroundHeight(nextPosition);
+
+    // Blender JSON の壁コライダーを使って横移動の衝突を解決する
+    ResolveWallCollision(nextPosition);
 
     // 位置を反映する
     position_ = nextPosition;
@@ -325,5 +331,102 @@ void Enemy::ResolveBottomCollisionWithMap(Vector3& pos)
 
     if (hit) {
         pos.z = bestBlockFront + halfSize;
+    }
+}
+
+void Enemy::ResolveGroundHeight(Vector3& pos)
+{
+    // 床コライダーが無ければ何もしない
+    if (!floorColliders_) {
+        return;
+    }
+
+    bool foundGround = false;
+    float bestGroundY = -FLT_MAX;
+
+    // 敵の今の XZ 座標が乗っている床を探す
+    for (const LevelColliderData& collider : *floorColliders_) {
+        // BOX collider 以外は今は使わない
+        if (!collider.hasCollider || collider.type != "BOX") {
+            continue;
+        }
+
+        float halfX = collider.size.x * 0.5f;
+        float halfY = collider.size.y * 0.5f;
+        float halfZ = collider.size.z * 0.5f;
+
+        float minX = collider.center.x - halfX;
+        float maxX = collider.center.x + halfX;
+        float minZ = collider.center.z - halfZ;
+        float maxZ = collider.center.z + halfZ;
+
+        // 敵がこの床の上にいるかを XZ で判定する
+        if (pos.x < minX || pos.x > maxX || pos.z < minZ || pos.z > maxZ) {
+            continue;
+        }
+
+        // 床の上面 Y を求める
+        float groundY = collider.center.y + halfY;
+
+        // いちばん高い床を採用する
+        if (!foundGround || groundY > bestGroundY) {
+            bestGroundY = groundY;
+            foundGround = true;
+        }
+    }
+
+    // 見つかった床の上に敵を乗せる
+    if (foundGround) {
+        pos.y = bestGroundY + colliderRadius_ * 0.5f;
+    }
+}
+
+void Enemy::ResolveWallCollision(Vector3& pos)
+{
+    // 壁コライダーが無ければ何もしない
+    if (!wallColliders_) {
+        return;
+    }
+
+    float halfSize = colliderRadius_;
+
+    float enemyLeft = pos.x - halfSize;
+    float enemyRight = pos.x + halfSize;
+    float enemyBack = pos.z - halfSize;
+    float enemyFront = pos.z + halfSize;
+
+    float prevLeft = prevPosition_.x - halfSize;
+    float prevRight = prevPosition_.x + halfSize;
+    float prevBack = prevPosition_.z - halfSize;
+    float prevFront = prevPosition_.z + halfSize;
+
+    for (const LevelColliderData& collider : *wallColliders_) {
+        if (!collider.hasCollider || collider.type != "BOX") {
+            continue;
+        }
+
+        float halfX = collider.size.x * 0.5f;
+        float halfZ = collider.size.z * 0.5f;
+
+        float wallLeft = collider.center.x - halfX;
+        float wallRight = collider.center.x + halfX;
+        float wallBack = collider.center.z - halfZ;
+        float wallFront = collider.center.z + halfZ;
+
+        bool overlapX = (enemyRight > wallLeft && enemyLeft < wallRight);
+        bool overlapZ = (enemyFront > wallBack && enemyBack < wallFront);
+        if (!overlapX || !overlapZ) {
+            continue;
+        }
+
+        if (prevRight <= wallLeft) {
+            pos.x = wallLeft - halfSize;
+        } else if (prevLeft >= wallRight) {
+            pos.x = wallRight + halfSize;
+        } else if (prevFront <= wallBack) {
+            pos.z = wallBack - halfSize;
+        } else if (prevBack >= wallFront) {
+            pos.z = wallFront + halfSize;
+        }
     }
 }
