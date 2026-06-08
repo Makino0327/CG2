@@ -147,6 +147,72 @@
                     2.0
                 ]
             }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00",
+            "transform": {
+                "translation": [
+                    8.84249496459961,
+                    20.15810775756836,
+                    2.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "",
+            "children": [
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_00_Waypoint_00",
+                    "transform": {
+                        "translation": [
+                            0.0,
+                            -0.4251384735107422,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                },
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_00_Waypoint_01",
+                    "transform": {
+                        "translation": [
+                            0.0,
+                            -16.75200843811035,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                }
+            ]
         }
     ]
 }

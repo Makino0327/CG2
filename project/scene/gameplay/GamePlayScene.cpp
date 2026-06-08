@@ -6,6 +6,7 @@
 #include <memory>
 #include <cmath>
 #include <random>
+#include <unordered_map>
 
 #include "../engine/base/directX/DirectXCommon.h"
 #include "../engine/base/srv/SrvManager.h"
@@ -37,12 +38,53 @@
 #include "../externals/imgui/imgui.h"
 #endif
 
+namespace {
+
+    // 親子込みのワールド座標へ変換したオブジェクト一覧を作る
+    void FlattenLevelObjectsRecursive(
+        const LevelObjectData& objectData,
+        const Vector3& parentTranslation,
+        std::vector<LevelObjectData>& outObjects)
+    {
+        // 今のオブジェクトをコピーする
+        LevelObjectData worldObject = objectData;
+
+        // 親の座標を足してワールド座標にする
+        worldObject.translation.x += parentTranslation.x;
+        worldObject.translation.y += parentTranslation.y;
+        worldObject.translation.z += parentTranslation.z;
+
+        // 子配列はここでは使わないので空にしておく
+        worldObject.children.clear();
+
+        // 平坦化した一覧へ追加する
+        outObjects.push_back(worldObject);
+
+        // 子オブジェクトも親座標を引き継いで再帰する
+        for (const LevelObjectData& child : objectData.children) {
+            FlattenLevelObjectsRecursive(child, worldObject.translation, outObjects);
+        }
+    }
+
+    // レベル全体を親子込みのワールド座標オブジェクト一覧へ変換する
+    std::vector<LevelObjectData> FlattenAllLevelObjects(const LevelData& levelData)
+    {
+        std::vector<LevelObjectData> allObjects;
+
+        for (const LevelObjectData& objectData : levelData.objects) {
+            FlattenLevelObjectsRecursive(objectData, Vector3{ 0.0f, 0.0f, 0.0f }, allObjects);
+        }
+
+        return allObjects;
+    }
+
+}
+
 void GamePlayScene::Initialize()
 {
     if (initialized_) { return; }
     initialized_ = true;
 
-    // ★ すべて context_ 経由に変更。sceneManager_ は直接使用。
     assert(context_.dxCommon);
     assert(context_.srvManager);
     assert(context_.spriteCommon);
@@ -54,24 +96,17 @@ void GamePlayScene::Initialize()
     assert(context_.sound);
     assert(sceneManager_);
 
-    // 3D オブジェクト共通
     object3d_ = std::make_unique<Object3d>();
     object3d_->Initialize(context_.object3dCommon);
 
-    // モデル読み込み
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
     ModelManager::GetInstance()->LoadModel("cube.obj");
-    // プレイヤーモデルを読み込む
     ModelManager::GetInstance()->LoadModel("player/player.obj");
-    // プレイヤー弾モデルを読み込む
     ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
-    // 敵モデルを読み込む
     ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
-    // マップの床と壁の仮表示に使う block モデルを読み込む
     ModelManager::GetInstance()->LoadModel("block/block.obj");
 
-    // テクスチャ
     auto texMan = TextureManager::GetInstance();
     texMan->LoadTexture("Resources/uvChecker.png");
     texMan->LoadTexture("Resources/monsterBall.png");
@@ -80,9 +115,8 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/fence.png");
     texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
-    texMan->LoadTexture("Resources/gradationLine.png"); // // Ring 用のグラデーションテクスチャ
+    texMan->LoadTexture("Resources/gradationLine.png");
 
-    // Material
     materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));
     Material* materialData = nullptr;
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
@@ -91,7 +125,6 @@ void GamePlayScene::Initialize()
     materialData->environmentCoefficient = 0.0f;
     materialData->uvTransform = MakeIdentity4x4();
 
-    // DirectionalLight
     directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
@@ -99,7 +132,6 @@ void GamePlayScene::Initialize()
     light->direction = Vector3(0.0f, -1.0f, 0.0f);
     light->intensity = 4.0f;
 
-	// Skybox
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
     skyboxCommon_->SetDefaultCamera(context_.camera);
@@ -108,77 +140,46 @@ void GamePlayScene::Initialize()
     skybox_->Initialize(skyboxCommon_.get());
     skybox_->SetCamera(context_.camera);
 
-    // デバッグ画面でカメラを操作するクラスを生成する
     debugCamera_ = std::make_unique<DebugCamera>();
 
-    /// プレイヤー
     player_ = std::make_unique<Player>();
-    // プレイヤーを初期化する
     player_->Initialize(context_.object3dCommon, context_.input);
 
-    /// カメラ
-    // プレイヤー追従カメラを作る
     followCamera_ = std::make_unique<FollowCamera>();
-    // シーンで使うカメラを追従カメラに渡す
     followCamera_->Initialize(context_.camera);
-    // 初期ターゲットをプレイヤー位置にしておく
     followCamera_->SetTarget(player_->GetWorldPosition());
 
-    
-    // シーン開始時は通常表示に戻しておく
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
     }
 
-    /// マップ
-    // マップCSVを読み込む
     mapField_.LoadFromCsv("Resources/map.csv");
-
-    // プレイヤーにマップ情報と1マスの大きさを渡す
     player_->SetMap(&mapField_, tileSize_);
 
-    // 敵をマップ内の空きマスに生成する
-    SpawnEnemies();
-
-    // マップから床と壁のオブジェクトを作る
     CreateMapObjects();
-
-    // プレイヤーに Blender JSON の床コライダー一覧を渡す
     player_->SetFloorColliders(&floorColliders_);
-
-    // プレイヤーに Blender JSON の壁コライダー一覧を渡す
     player_->SetWallColliders(&wallColliders_);
+    SpawnEnemies();
 }
 
 void GamePlayScene::Update()
 {
-   
     const float dt = 1.0f / 60.0f;
 
-    // プレイヤー死亡中にRが押されたら敵も含めて再生成する
     if (player_ && context_.input) {
         if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
-            // プレイヤーを復活させる
             player_->Respawn();
-
-            // 敵を再生成する
             SpawnEnemies();
 
-            // 画面効果を通常に戻す
             if (context_.offscreenRenderer) {
                 context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
             }
         }
     }
 
-    // ★ context_ 経由に変更
     if (skybox_) { skybox_->Update(); }
-
-
-    // Particleを毎フレーム更新する
     if (particleSystem_) { particleSystem_->Update(dt); }
 
-       // デバッグ用のカメラ操作を更新する
     if (debugCamera_ && context_.isDebugMode) {
         debugCamera_->Update(
             context_.camera,
@@ -187,24 +188,19 @@ void GamePlayScene::Update()
             *context_.isDebugMode);
     }
 
-    // // F1中はゲーム進行を止めるが、カメラと描画行列だけは更新する
     if (context_.isDebugMode && *context_.isDebugMode) {
-        // // デバッグカメラで変更した transform から ViewProjection を更新する
         if (context_.camera) {
             context_.camera->Update();
         }
 
-        // // プレイヤーの見た目だけ更新する
         if (player_) {
             player_->UpdateRenderOnly();
         }
 
-        // // 敵の見た目だけ更新する
         for (auto& enemy : enemies_) {
             enemy->UpdateRenderOnly();
         }
 
-        // // 床と壁の見た目だけ更新する
         for (auto& floorObject : floorObjects_) {
             floorObject->Update();
         }
@@ -213,7 +209,6 @@ void GamePlayScene::Update()
             wallObject->Update();
         }
 
-        // // Skybox もカメラ反映のため更新する
         if (skybox_) {
             skybox_->Update();
         }
@@ -221,69 +216,44 @@ void GamePlayScene::Update()
         return;
     }
 
-    /// =============================
-    /// プレイヤー
-    /// =============================
-    // プレイヤーを更新する
     if (player_) {
         player_->Update(context_.camera);
     }
     if (context_.camera) { context_.camera->Update(); }
 
-    // プレイヤー座標を追従カメラへ渡して更新する
     if (player_ && followCamera_) {
         followCamera_->SetTarget(player_->GetWorldPosition());
         followCamera_->Update();
     }
 
-    // カメラ更新後の行列を反映するため床を毎フレーム更新する
     for (auto& floorObject : floorObjects_) {
         floorObject->Update();
     }
 
-    // カメラ更新後の行列を反映するため壁を毎フレーム更新する
     for (auto& wallObject : wallObjects_) {
         wallObject->Update();
     }
 
-    // カメラ更新後の行列でSkyboxを更新する
     if (skybox_) {
         skybox_->Update();
     }
 
-    /// =============================
-    /// 敵
-    /// =============================
-    // 敵を更新する
     for (auto& enemy : enemies_) {
-        // 敵にプレイヤーの位置を渡す
-        enemy->SetTargetPosition(player_->GetWorldPosition());
-
-        // 敵を更新する
         enemy->Update();
-
-        // 敵同士の重なりを解消する
         ResolveEnemyOverlap();
-
     }
 
-
-    // プレイヤーと敵と弾の当たり判定を処理する
     CheckCollisions();
 
-    // 敵を全部倒したらクリアへ切り替える
     if (enemies_.empty()) {
         sceneManager_->SetNextScene(std::make_unique<ClearScene>());
         return;
     }
 
-    // 死亡中はグレイスケール、生存中は通常表示にする
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
-            // 死亡中はゲーム画面をグレイスケールにする
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
         } else {
-            // Rで復活した後は通常表示に戻す
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
     }
@@ -291,7 +261,6 @@ void GamePlayScene::Update()
 
 void GamePlayScene::Draw()
 {
-    // ★ context_ 経由に変更
     assert(context_.dxCommon);
     assert(context_.spriteCommon);
     assert(context_.object3dCommon);
@@ -300,34 +269,28 @@ void GamePlayScene::Draw()
     ID3D12GraphicsCommandList* commandList = context_.dxCommon->GetCommandList();
     assert(commandList);
 
-    // Sprite
     context_.spriteCommon->CommonDrawSetting();
 
     if (skybox_) {
         skybox_->Draw();
     }
 
-    // Particle
     context_.particleCommon->CommonDrawSetting();
 
-    // Particleを描画する
     if (particleSystem_) { particleSystem_->Draw(); }
-    
-    // プレイヤーを描画する
+
     if (player_) {
         player_->Draw();
     }
 
-    // 敵をまとめて描画する
     for (auto& enemy : enemies_) {
         enemy->Draw();
     }
 
-    // 床をまとめて描画する
     for (auto& floorObject : floorObjects_) {
         floorObject->Draw();
     }
-    // 壁をまとめて描画する
+
     for (auto& wallObject : wallObjects_) {
         wallObject->Draw();
     }
@@ -339,7 +302,6 @@ void GamePlayScene::Finalize()
 
     object3d_.reset();
     particleSystem_.reset();
-  
     skybox_.reset();
     skyboxCommon_.reset();
 
@@ -349,12 +311,8 @@ void GamePlayScene::Finalize()
     initialized_ = false;
 
     debugCamera_.reset();
-
-    // プレイヤーを解放する
     player_.reset();
-    // 敵を全て解放する
     enemies_.clear();
-
 }
 
 void GamePlayScene::CheckCollisions()
@@ -363,19 +321,16 @@ void GamePlayScene::CheckCollisions()
         return;
     }
 
-    // プレイヤーと敵の当たり判定を処理する
     for (auto& enemy : enemies_) {
         if (enemy->IsDead()) {
             continue;
         }
 
         if (Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
-            // プレイヤーに敵が触れたことを通知する
             player_->OnHit();
         }
     }
 
-    // プレイヤーが持っている弾と敵の当たり判定を処理する
     const auto& bullets = player_->GetBullets();
     for (const auto& bullet : bullets) {
         if (bullet->IsDead()) {
@@ -388,17 +343,13 @@ void GamePlayScene::CheckCollisions()
             }
 
             if (Collision::IsHit(bullet->GetCollider(), enemy->GetCollider())) {
-                // 当たった弾を消す
                 bullet->OnHit();
-
-                // 当たった敵を倒す
                 enemy->OnHit();
                 break;
             }
         }
     }
 
-    // 倒された敵を配列から取り除く
     enemies_.erase(
         std::remove_if(
             enemies_.begin(),
@@ -424,25 +375,20 @@ void GamePlayScene::DrawImGui()
     ImGui::Text("Skybox and objects use this camera.");
     ImGui::End();
 
-    // ポストエフェクト
-    // オフスクリーン描画結果をデバッグ表示する
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->DrawDebugGameViewImGui();
         context_.offscreenRenderer->DrawImGui();
     }
-
 #endif
 }
 
 void GamePlayScene::ResolveEnemyOverlap()
 {
-    // 全敵の組み合わせを調べる
     for (size_t i = 0; i < enemies_.size(); ++i) {
         for (size_t j = i + 1; j < enemies_.size(); ++j) {
             Vector3 posA = enemies_[i]->GetWorldPosition();
             Vector3 posB = enemies_[j]->GetWorldPosition();
 
-            // 敵Aから敵Bへの差分を作る
             Vector3 diff = {
                 posB.x - posA.x,
                 0.0f,
@@ -452,7 +398,6 @@ void GamePlayScene::ResolveEnemyOverlap()
             float distanceSq = diff.x * diff.x + diff.z * diff.z;
             float radiusSum = enemies_[i]->GetBodyRadius() + enemies_[j]->GetBodyRadius();
 
-            // 完全に同じ位置だと正規化できないので少しずらす
             if (distanceSq <= 0.0001f) {
                 diff = { 1.0f, 0.0f, 0.0f };
                 distanceSq = 1.0f;
@@ -460,18 +405,15 @@ void GamePlayScene::ResolveEnemyOverlap()
 
             float distance = std::sqrt(distanceSq);
 
-            // 重なっている時だけ押し戻す
             if (distance < radiusSum) {
                 float overlap = radiusSum - distance;
 
-                // 押し戻す方向を正規化する
                 Vector3 push = {
                     diff.x / distance,
                     0.0f,
                     diff.z / distance
                 };
 
-                // 互いに半分ずつ離す
                 posA.x -= push.x * overlap * 0.5f;
                 posA.z -= push.z * overlap * 0.5f;
 
@@ -487,47 +429,37 @@ void GamePlayScene::ResolveEnemyOverlap()
 
 void GamePlayScene::CreateMapObjects()
 {
-    // 既存の床と壁の描画用オブジェクトを最初に空にする
     floorObjects_.clear();
     wallObjects_.clear();
     floorColliders_.clear();
     wallColliders_.clear();
 
-    // Blender から出力した JSON を読み込む
     LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
+    // 親子込みのワールド座標オブジェクト一覧を作る
+    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
-    // JSON 内のオブジェクトを順番に確認して床として生成する
-    for (const LevelObjectData& objectData : levelData.objects) {
-        // MESH 以外は使わない
+    for (const LevelObjectData& objectData : allObjects) {
         if (objectData.type != "MESH") {
             continue;
         }
 
-        // モデル名が空なら生成しない
         if (objectData.fileName.empty()) {
             continue;
         }
 
-        // JSON に書かれたモデルを事前に読み込む
         ModelManager::GetInstance()->LoadModel(objectData.fileName);
 
         auto mapObject = std::make_unique<Object3d>();
-
-        // 3D オブジェクトを初期化する
         mapObject->Initialize(context_.object3dCommon);
-
-        // Blender JSON に書かれた情報を使う
         mapObject->SetModel(objectData.fileName);
         mapObject->SetScale(objectData.scaling);
         mapObject->SetRotate(objectData.rotation);
         mapObject->SetTranslate(objectData.translation);
         mapObject->Update();
 
-        // 今回は回転なしの BOX collider 前提でワールド AABB を作る
         if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
             LevelColliderData worldCollider = objectData.collider;
 
-            // collider.center はローカル座標なので平行移動を足す
             worldCollider.center.x =
                 objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
             worldCollider.center.y =
@@ -535,28 +467,19 @@ void GamePlayScene::CreateMapObjects()
             worldCollider.center.z =
                 objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
 
-            // collider.size にオブジェクトの拡大率を掛けてワールドサイズにする
             worldCollider.size.x = objectData.collider.size.x * objectData.scaling.x;
             worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
             worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
 
-            // // 名前に Wall / wall が入っているものは壁として扱う
             if (objectData.name.find("Wall") != std::string::npos ||
                 objectData.name.find("wall") != std::string::npos) {
-                // // 壁コライダーを保存する
                 wallColliders_.push_back(worldCollider);
-
-                // // 壁オブジェクトとして描画用リストへ入れる
                 wallObjects_.push_back(std::move(mapObject));
             } else {
-                // // 床コライダーを保存する
                 floorColliders_.push_back(worldCollider);
-
-                // // 床オブジェクトとして描画用リストへ入れる
                 floorObjects_.push_back(std::move(mapObject));
             }
         } else {
-            // collider が無いものは見た目だけ床側に入れておく
             floorObjects_.push_back(std::move(mapObject));
         }
     }
@@ -564,65 +487,76 @@ void GamePlayScene::CreateMapObjects()
 
 void GamePlayScene::SpawnEnemies()
 {
-    // ランダム生成用の乱数を用意する
-    std::random_device seedGenerator;
-    std::mt19937 randomEngine(seedGenerator());
+    // 既存の敵を消す
+    enemies_.clear();
 
-    // 敵を置ける空きマス一覧を作る
-    std::vector<Vector3> spawnCandidates;
+    // Blender から出力した JSON を読み込む
+    LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
 
-    for (int z = 0; z < mapField_.GetHeight(); ++z) {
-        for (int x = 0; x < mapField_.GetWidth(); ++x) {
-            // 空きマスだけ候補にする
-            if (mapField_.GetChip(x, z) != MapChipType::Empty) {
-                continue;
-            }
+    // 敵の初期位置を名前ごとに保持する
+    std::unordered_map<std::string, Vector3> enemySpawnMap;
 
-            Vector3 spawnPosition = {
-                static_cast<float>(x) * tileSize_,
-                0.5f,
-                static_cast<float>(mapField_.GetHeight() - 1 - z) * tileSize_
-            };
+    // 敵ごとの waypoint を番号付きで保持する
+    std::unordered_map<std::string, std::vector<std::pair<int, Vector3>>> enemyWaypointMap;
 
-            // プレイヤーの位置に近すぎる候補は除外する
-            Vector3 diff = {
-                spawnPosition.x - player_->GetWorldPosition().x,
-                0.0f,
-                spawnPosition.z - player_->GetWorldPosition().z
-            };
+    // 親子込みのワールド座標オブジェクト一覧を作る
+    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
-            float distanceSq = diff.x * diff.x + diff.z * diff.z;
-            if (distanceSq < 25.0f) {
-                continue;
-            }
+    for (const LevelObjectData& objectData : allObjects) {
+        const std::string& name = objectData.name;
 
-            spawnCandidates.push_back(spawnPosition);
+        // Enemy_00_Waypoint_00 形式の経路点を集める
+        size_t waypointPos = name.find("_Waypoint_");
+        if (waypointPos != std::string::npos) {
+            std::string enemyName = name.substr(0, waypointPos);
+            std::string indexText = name.substr(waypointPos + std::string("_Waypoint_").size());
+            int waypointIndex = std::stoi(indexText);
+
+            // waypoint のワールド座標を保存する
+            enemyWaypointMap[enemyName].push_back({ waypointIndex, objectData.translation });
+            continue;
+        }
+
+        // Enemy_ で始まるものを敵の初期位置として使う
+        if (name.rfind("Enemy_", 0) == 0 || name.rfind("enemy_", 0) == 0) {
+            // 敵のワールド初期位置を保存する
+            enemySpawnMap[name] = objectData.translation;
         }
     }
 
-    // 候補をシャッフルして先頭から使う
-    std::shuffle(spawnCandidates.begin(), spawnCandidates.end(), randomEngine);
+    // JSON 上の敵定義から敵を生成する
+    for (const auto& enemyEntry : enemySpawnMap) {
+        const std::string& enemyName = enemyEntry.first;
+        const Vector3& spawnPosition = enemyEntry.second;
 
-    // いったん今の敵を消す
-    enemies_.clear();
-
-    // 候補が足りない時はある分だけ生成する
-    uint32_t spawnCount = std::min(
-        enemyCount_,
-        static_cast<uint32_t>(spawnCandidates.size()));
-
-    for (uint32_t i = 0; i < spawnCount; ++i) {
         auto enemy = std::make_unique<Enemy>();
-        enemy->Initialize(context_.object3dCommon, spawnCandidates[i]);
+        enemy->Initialize(context_.object3dCommon, context_.camera, spawnPosition);
 
-        // 敵にもマップ情報を渡す
+        // 既存の参照もそのまま渡しておく
         enemy->SetMap(&mapField_, tileSize_);
-
-        // 敵に Blender JSON の床コライダー一覧を渡す
         enemy->SetFloorColliders(&floorColliders_);
-
-        // 敵に Blender JSON の壁コライダー一覧を渡す
         enemy->SetWallColliders(&wallColliders_);
+
+        // waypoint を番号順に並べる
+        std::vector<Vector3> waypoints;
+        auto found = enemyWaypointMap.find(enemyName);
+        if (found != enemyWaypointMap.end()) {
+            auto& waypointPairs = found->second;
+
+            std::sort(
+                waypointPairs.begin(),
+                waypointPairs.end(),
+                [](const std::pair<int, Vector3>& a, const std::pair<int, Vector3>& b) {
+                    return a.first < b.first;
+                });
+
+            for (const auto& waypointPair : waypointPairs) {
+                waypoints.push_back(waypointPair.second);
+            }
+        }
+
+        // JSON の経路点を敵へ渡す
+        enemy->SetWaypoints(waypoints);
 
         enemies_.push_back(std::move(enemy));
     }

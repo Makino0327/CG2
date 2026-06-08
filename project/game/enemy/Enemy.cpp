@@ -4,127 +4,112 @@
 
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 
-void Enemy::Initialize(Object3dCommon* object3dCommon, const Vector3& position)
+void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vector3& position)
 {
-    // 初期座標を保存する
+    // 初期位置を保存する
     position_ = position;
 
-    // 敵の3Dオブジェクトを作る
-    object_ = std::make_unique<Object3d>();
-    object_->Initialize(object3dCommon);
+    // WaypointMover を初期化する
+    waypointMover_.Initialize(object3dCommon, camera);
+    waypointMover_.SetModel("enemy/enemy.obj");
+    waypointMover_.SetScale(scale_);
+    waypointMover_.SetRotation(rotation_);
+    waypointMover_.SetPosition(position_);
+    waypointMover_.SetMoveSpeed(moveSpeed_);
+    waypointMover_.SetLoop(true);
 
-    // 敵モデルを設定する
-    object_->SetModel("enemy/enemy.obj");
-
-    object_->SetScale(scale_);
-    object_->SetRotate(rotation_);
-    object_->SetTranslate(position_);
-
-    // 初期状態の描画行列を作る
-    object_->Update();
+    // 初期描画行列を更新する
+    waypointMover_.Update();
 }
 
 void Enemy::Update()
 {
-    if (!object_ || isDead_) {
+    Object3d* object = waypointMover_.GetObject3d();
+    if (!object || isDead_) {
         return;
     }
 
-    // 前フレーム座標を保存する
+    // 前フレーム位置を保存する
     prevPosition_ = position_;
 
-    // 敵からターゲットへの方向を求める
-    Vector3 direction = {
-        targetPosition_.x - position_.x,
-        0.0f,
-        targetPosition_.z - position_.z
-    };
+    // WaypointMover で経路点へ移動する
+    waypointMover_.Update();
 
-    // 長さがある時だけ正規化する
-    const float lengthSq =
-        direction.x * direction.x +
-        direction.z * direction.z;
+    // WaypointMover 側の移動結果を受け取る
+    Vector3 nextPosition = object->GetTranslate();
+    rotation_ = object->GetRotate();
 
-    if (lengthSq > 0.0001f) {
-        direction = Normalize(direction);
-    } else {
-        direction = { 0.0f, 0.0f, 0.0f };
-    }
-
-    // 移動先を計算する
-    Vector3 nextPosition = position_;
-    nextPosition.x += direction.x * moveSpeed_;
-    nextPosition.z += direction.z * moveSpeed_;
-
-    // マップとの当たり判定を解決する
-    //ResolveLeftCollisionWithMap(nextPosition);
-    //ResolveRightCollisionWithMap(nextPosition);
-    //ResolveTopCollisionWithMap(nextPosition);
-    //ResolveBottomCollisionWithMap(nextPosition);
-
-    // Blender JSON の床コライダーを使って地面の高さを合わせる
+    // Blender JSON の床コライダーで高さを合わせる
     ResolveGroundHeight(nextPosition);
 
-    // Blender JSON の壁コライダーを使って横移動の衝突を解決する
+    // Blender JSON の壁コライダーで横移動を止める
     ResolveWallCollision(nextPosition);
 
-    // 位置を反映する
+    // 補正後の位置を保存する
     position_ = nextPosition;
 
-    // 移動方向を向く
-    if (direction.x != 0.0f || direction.z != 0.0f) {
-        rotation_.y = std::atan2(direction.x, direction.z);
-    }
-
-    // オブジェクトへ反映する
-    object_->SetScale(scale_);
-    object_->SetRotate(rotation_);
-    object_->SetTranslate(position_);
-    object_->Update();
+    // 補正後の transform を描画へ戻す
+    object->SetScale(scale_);
+    object->SetRotate(rotation_);
+    object->SetTranslate(position_);
+    object->Update();
 }
 
 void Enemy::Draw()
 {
-    if (!object_ || isDead_) {
+    if (isDead_) {
         return;
     }
 
-    // 敵を描画する
-    object_->Draw();
+    // WaypointMover が持つオブジェクトを描画する
+    waypointMover_.Draw();
 }
 
 void Enemy::SetPosition(const Vector3& position)
 {
-    // 外から敵の座標を変えられるようにする
+    // 外から補正された位置を保存する
     position_ = position;
+
+    // 描画位置も同じ座標へ合わせる
+    Object3d* object = waypointMover_.GetObject3d();
+    if (object) {
+        object->SetTranslate(position_);
+    }
 }
 
 Vector3 Enemy::GetWorldPosition() const
 {
-    // 現在の座標を返す
+    // 現在位置を返す
     return position_;
 }
+
 SphereCollider Enemy::GetCollider() const
 {
-    // 敵の現在位置を球の当たり判定として返す
+    // 現在位置と半径から球コライダーを返す
     return { position_, colliderRadius_ };
 }
 
 void Enemy::OnHit()
 {
-    // 弾が当たった敵は倒された扱いにする
+    // 当たった敵は倒す
     isDead_ = true;
 }
 
 void Enemy::SetTargetPosition(const Vector3& targetPosition)
 {
-    // 追いかける対象の座標を保存する
+    // 旧追尾ロジック互換のため残しておく
     targetPosition_ = targetPosition;
+}
+
+void Enemy::SetWaypoints(const std::vector<Vector3>& waypoints)
+{
+    // Blender JSON から読んだ経路点を渡す
+    waypointMover_.SetWaypoints(waypoints);
 }
 
 void Enemy::SetMap(const MapChipField* mapField, float tileSize)
 {
-    // 敵が参照するマップ情報を保存する
+    // 旧 CSV 判定用の参照を保存する
     mapField_ = mapField;
     tileSize_ = tileSize;
 }
@@ -377,7 +362,7 @@ void Enemy::ResolveGroundHeight(Vector3& pos)
 
     // 見つかった床の上に敵を乗せる
     if (foundGround) {
-        pos.y = bestGroundY + colliderRadius_ ;
+        pos.y = bestGroundY + colliderRadius_;
     }
 }
 
@@ -433,11 +418,12 @@ void Enemy::ResolveWallCollision(Vector3& pos)
 
 void Enemy::UpdateRenderOnly()
 {
-    // // 本体オブジェクトがあればカメラ反映用に更新する
-    if (object_ && !isDead_) {
-        object_->SetScale(scale_);
-        object_->SetRotate(rotation_);
-        object_->SetTranslate(position_);
-        object_->Update();
+    // デバッグカメラ確認用に描画行列だけ更新する
+    Object3d* object = waypointMover_.GetObject3d();
+    if (object && !isDead_) {
+        object->SetScale(scale_);
+        object->SetRotate(rotation_);
+        object->SetTranslate(position_);
+        object->Update();
     }
 }

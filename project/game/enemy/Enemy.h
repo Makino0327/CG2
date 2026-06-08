@@ -5,6 +5,7 @@
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
+#include "../common/WaypointMover.h"
 #include "../map/MapChipField.h"
 #include "../../scene/LevelLoader.h"
 
@@ -14,7 +15,7 @@ class Enemy
 {
 public:
     // 敵を初期化する
-    void Initialize(Object3dCommon* object3dCommon, const Vector3& position);
+    void Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vector3& position);
 
     // 敵を更新する
     void Update();
@@ -39,6 +40,7 @@ public:
 
     // 追いかける対象の座標を設定する
     void SetTargetPosition(const Vector3& targetPosition);
+    void SetWaypoints(const std::vector<Vector3>& waypoints);
 
     // 敵の押し戻し用半径を返す
     float GetBodyRadius() const { return bodyRadius_; }
@@ -77,7 +79,7 @@ private:
     void ResolveWallCollision(Vector3& pos);
 private:
     // 敵の3Dオブジェクト
-    std::unique_ptr<Object3d> object_;
+    WaypointMover waypointMover_;
 
     // 敵の座標
     Vector3 position_ = { 0.0f, 0.5f, 0.0f };
