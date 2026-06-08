@@ -206,6 +206,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="engine\3d\skybox\SkyboxCommon.cpp" />
     <ClCompile Include="engine\animation\Skeleton.cpp" />
     <ClCompile Include="engine\animation\SkinCluster.cpp" />
+    <ClCompile Include="game\common\WaypointMover.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\BoxFilter.PS.hlsl">
@@ -423,6 +424,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\3d\skybox\SkyboxCommon.h" />
     <ClInclude Include="engine\animation\Skeleton.h" />
     <ClInclude Include="engine\animation\SkinCluster.h" />
+    <ClInclude Include="game\common\WaypointMover.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="externals\DirectXTex\DirectXTex_Desktop_2022_Win10.vcxproj">

@@ -71,6 +71,7 @@
     <ClCompile Include="engine\animation\SkinCluster.cpp" />
     <ClCompile Include="game\camera\DebugCamera.cpp" />
     <ClCompile Include="scene\LevelLoader.cpp" />
+    <ClCompile Include="game\common\WaypointMover.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -118,6 +119,7 @@
     <ClInclude Include="engine\animation\SkinCluster.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
     <ClInclude Include="scene\LevelLoader.h" />
+    <ClInclude Include="game\common\WaypointMover.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
