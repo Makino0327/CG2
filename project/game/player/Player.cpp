@@ -472,8 +472,7 @@ void Player::FireBullet(Camera* camera)
         object3dCommon_,
         firePosition,
         velocity,
-        mapField_,
-        tileSize_);
+        wallColliders_);
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));

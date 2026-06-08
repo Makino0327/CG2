@@ -1,4 +1,7 @@
 #include "PlayerBullet.h"
+
+#include <algorithm>
+
 #include "../camera/Camera.h"
 #include "../../engine/input/Input.h"
 #include "../../engine/base/winapp/WinApp.h"
@@ -7,8 +10,7 @@ void PlayerBullet::Initialize(
     Object3dCommon* object3dCommon,
     const Vector3& position,
     const Vector3& velocity,
-    const MapChipField* mapField,
-    float tileSize)
+    const std::vector<LevelColliderData>* wallColliders)
 {
     // 初期位置を保存する
     position_ = position;
@@ -16,14 +18,13 @@ void PlayerBullet::Initialize(
     // 初速度を保存する
     velocity_ = velocity;
 
-    // マップ情報を保存する
-    mapField_ = mapField;
-    tileSize_ = tileSize;
+    // Blender JSON の壁コライダー一覧を保存する
+    wallColliders_ = wallColliders;
 
     // 弾オブジェクトを作る
     object_ = std::make_unique<Object3d>();
 
-    // 3D描画の共通設定を渡す
+    // 3D オブジェクトを初期化する
     object_->Initialize(object3dCommon);
 
     // 弾モデルを設定する
@@ -45,9 +46,48 @@ void PlayerBullet::Update()
     // 弾を進める
     position_ = Add(position_, velocity_);
 
-    
+    // Blender JSON の壁コライダーに入ったら弾を消す
+    if (wallColliders_) {
+        for (const LevelColliderData& collider : *wallColliders_) {
+            // BOX collider だけ使う
+            if (!collider.hasCollider || collider.type != "BOX") {
+                continue;
+            }
 
-    // 位置を反映する
+            float halfX = collider.size.x * 0.5f;
+            float halfY = collider.size.y * 0.5f;
+            float halfZ = collider.size.z * 0.5f;
+
+            float minX = collider.center.x - halfX;
+            float maxX = collider.center.x + halfX;
+            float minY = collider.center.y - halfY;
+            float maxY = collider.center.y + halfY;
+            float minZ = collider.center.z - halfZ;
+            float maxZ = collider.center.z + halfZ;
+
+            // 弾の球コライダーと壁 AABB の最短距離を求める
+            float closestX = std::clamp(position_.x, minX, maxX);
+            float closestY = std::clamp(position_.y, minY, maxY);
+            float closestZ = std::clamp(position_.z, minZ, maxZ);
+
+            float diffX = position_.x - closestX;
+            float diffY = position_.y - closestY;
+            float diffZ = position_.z - closestZ;
+
+            float distanceSq =
+                diffX * diffX +
+                diffY * diffY +
+                diffZ * diffZ;
+
+            // 壁に重なったら消す
+            if (distanceSq <= colliderRadius_ * colliderRadius_) {
+                isDead_ = true;
+                return;
+            }
+        }
+    }
+
+    // 位置を更新する
     object_->SetTranslate(position_);
     object_->Update();
 
@@ -72,7 +112,7 @@ void PlayerBullet::Draw()
 
 SphereCollider PlayerBullet::GetCollider() const
 {
-    // 弾の現在位置を球の当たり判定として返す
+    // 現在位置と半径から球コライダーを返す
     return { position_, colliderRadius_ };
 }
 
@@ -87,10 +127,10 @@ Vector3 PlayerBullet::CalcDirectionToMouseGround(
     Camera* camera,
     Input* input)
 {
-    // マウスが指している地面の位置を取る
+    // マウスが指している地面の位置を求める
     Vector3 targetPosition = GetMousePositionOnGround(camera, input);
 
-    // 発射位置から狙い位置への方向を作る
+    // 発射位置から目標位置への方向を求める
     Vector3 direction = {
         targetPosition.x - startPosition.x,
         0.0f,
@@ -98,7 +138,6 @@ Vector3 PlayerBullet::CalcDirectionToMouseGround(
     };
 
     return Normalize(direction);
-
 }
 
 Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
@@ -114,7 +153,7 @@ Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
     float ndcX = (mousePosition.x / static_cast<float>(WinApp::kClientWidth)) * 2.0f - 1.0f;
     float ndcY = -((mousePosition.y / static_cast<float>(WinApp::kClientHeight)) * 2.0f - 1.0f);
 
-    // ビュープロジェクション行列の逆行列を作る
+    // ビュープロジェクション行列の逆行列を求める
     Matrix4x4 inverseViewProjection = Inverse(camera->GetViewProjectionMatrix());
 
     Vector4 nearPoint = { ndcX, ndcY, 0.0f, 1.0f };
@@ -147,13 +186,13 @@ Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
                 point.w * matrix.m[3][2]) / w;
 
         return result;
-        };
+    };
 
     // 画面上の点をワールド座標へ戻す
     Vector3 worldNear = TransformPoint(nearPoint, inverseViewProjection);
     Vector3 worldFar = TransformPoint(farPoint, inverseViewProjection);
 
-    // レイの向きを作る
+    // レイの向きを求める
     Vector3 rayVector = {
         worldFar.x - worldNear.x,
         worldFar.y - worldNear.y,
@@ -161,7 +200,6 @@ Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
     };
 
     Vector3 rayDirection = Normalize(rayVector);
-
 
     // 地面 y = 0 と交差する位置を求める
     float t = 0.0f;
