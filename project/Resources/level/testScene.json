@@ -213,6 +213,113 @@
                     }
                 }
             ]
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_01",
+            "transform": {
+                "translation": [
+                    -10.258203506469727,
+                    25.58578109741211,
+                    2.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "children": [
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_01_Waypoint_00",
+                    "transform": {
+                        "translation": [
+                            0.09413909912109375,
+                            -0.15357589721679688,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                },
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_01_Waypoint_01",
+                    "transform": {
+                        "translation": [
+                            0.5545215606689453,
+                            -25.58578109741211,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                },
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_01_Waypoint_02",
+                    "transform": {
+                        "translation": [
+                            -18.13884735107422,
+                            -25.58578109741211,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                },
+                {
+                    "type": "EMPTY",
+                    "name": "Enemy_01_Waypoint_03",
+                    "transform": {
+                        "translation": [
+                            -18.13884735107422,
+                            -0.15357589721679688,
+                            0.0
+                        ],
+                        "rotation": [
+                            0.0,
+                            -0.0,
+                            0.0
+                        ],
+                        "scaling": [
+                            1.0,
+                            1.0,
+                            1.0
+                        ]
+                    }
+                }
+            ]
         }
     ]
 }

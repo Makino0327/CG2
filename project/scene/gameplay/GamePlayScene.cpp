@@ -239,7 +239,13 @@ void GamePlayScene::Update()
     }
 
     for (auto& enemy : enemies_) {
+        // 毎フレーム敵にプレイヤーの現在位置を渡す
+        enemy->SetTargetPosition(player_->GetWorldPosition());
+
+        // 敵の更新を行う
         enemy->Update();
+
+        // 敵同士が重ならないように補正する
         ResolveEnemyOverlap();
     }
 

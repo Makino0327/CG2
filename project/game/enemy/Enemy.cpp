@@ -32,12 +32,53 @@ void Enemy::Update()
     // 前フレーム位置を保存する
     prevPosition_ = position_;
 
-    // WaypointMover で経路点へ移動する
-    waypointMover_.Update();
-
-    // WaypointMover 側の移動結果を受け取る
+    // いったん現在位置を次の位置として持っておく
     Vector3 nextPosition = object->GetTranslate();
-    rotation_ = object->GetRotate();
+
+    // プレイヤーまでのXZ平面距離を計算する
+    Vector3 toPlayer = {
+        targetPosition_.x - position_.x,
+        0.0f,
+        targetPosition_.z - position_.z
+    };
+
+    // プレイヤーまでの距離を求める
+    float distanceToPlayer = std::sqrt(
+        toPlayer.x * toPlayer.x +
+        toPlayer.z * toPlayer.z
+    );
+
+    // まだ追尾していないときは、見つける距離に入ったら追尾開始
+    if (!isChasing_ && distanceToPlayer <= detectRange_) {
+        // プレイヤーを見つけたので追尾開始
+        isChasing_ = true;
+    }
+
+    // すでに追尾中なら、かなり離れるまで追尾を続ける
+    if (isChasing_ && distanceToPlayer > chaseKeepRange_) {
+        // プレイヤーを見失ったので追尾終了
+        isChasing_ = false;
+    }
+
+    // 追尾中のときはプレイヤーへ向かって移動する
+    if (isChasing_ && distanceToPlayer > 0.001f) {
+        // プレイヤー方向への単位ベクトルを作る
+        Vector3 direction = Normalize(toPlayer);
+
+        // プレイヤーの方向へ移動する
+        nextPosition.x += direction.x * moveSpeed_;
+        nextPosition.z += direction.z * moveSpeed_;
+
+        // プレイヤーの方向を向く
+        rotation_.y = std::atan2(direction.x, direction.z);
+    } else {
+        // 追尾していないときは今まで通りウェイポイント移動する
+        waypointMover_.Update();
+
+        // ウェイポイント移動後の位置と回転を受け取る
+        nextPosition = object->GetTranslate();
+        rotation_ = object->GetRotate();
+    }
 
     // Blender JSON の床コライダーで高さを合わせる
     ResolveGroundHeight(nextPosition);

@@ -100,7 +100,7 @@ private:
     Vector3 targetPosition_ = { 0.0f, 0.0f, 0.0f };
 
     // 敵の移動速度
-    float moveSpeed_ = 0.05f;
+    float moveSpeed_ = 0.1f;
 
     // 敵同士が埋まらないようにするための半径
     float bodyRadius_ = 1.0f;
@@ -119,4 +119,13 @@ private:
 
     // Blender JSON から読んだ壁コライダー一覧
     const std::vector<LevelColliderData>* wallColliders_ = nullptr;
+
+    // プレイヤーを見つける距離
+    float detectRange_ = 6.0f;
+
+    // いったん見つけた後に追いかけ続ける距離
+    float chaseKeepRange_ = 20.0f;
+
+    // 追尾中かどうか
+    bool isChasing_ = false;
 };
