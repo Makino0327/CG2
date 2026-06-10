@@ -449,6 +449,11 @@ void GamePlayScene::CreateMapObjects()
             continue;
         }
 
+        if (objectData.name.rfind("Enemy_", 0) == 0 || objectData.name.rfind("enemy_", 0) == 0) {
+            continue;
+        }
+
+
         if (objectData.fileName.empty()) {
             continue;
         }

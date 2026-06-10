@@ -8,7 +8,7 @@
                 "translation": [
                     0.0,
                     0.0,
-                    0.0
+                    -1.0
                 ],
                 "rotation": [
                     0.0,
@@ -41,9 +41,9 @@
             "name": "Light",
             "transform": {
                 "translation": [
-                    4.076245307922363,
-                    1.0054539442062378,
-                    5.903861999511719
+                    4.0,
+                    1.0,
+                    6.0
                 ],
                 "rotation": [
                     37.26104736328125,
@@ -85,7 +85,7 @@
                 "translation": [
                     0.0,
                     0.0,
-                    2.0
+                    1.0
                 ],
                 "rotation": [
                     0.0,
@@ -115,50 +115,15 @@
         },
         {
             "type": "MESH",
-            "name": "wall_01",
-            "transform": {
-                "translation": [
-                    0.0,
-                    13.136577606201172,
-                    2.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    2.0,
-                    10.0,
-                    2.0
-                ]
-            },
-            "file_name": "cube.obj",
-            "collider": {
-                "type": "BOX",
-                "center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "size": [
-                    2.0,
-                    2.0,
-                    2.0
-                ]
-            }
-        },
-        {
-            "type": "EMPTY",
             "name": "Enemy_00",
             "transform": {
                 "translation": [
-                    8.84249496459961,
-                    20.15810775756836,
-                    2.0
+                    12.0,
+                    9.0,
+                    1.0
                 ],
                 "rotation": [
-                    0.0,
+                    90.00000762939453,
                     -0.0,
                     0.0
                 ],
@@ -168,7 +133,7 @@
                     1.0
                 ]
             },
-            "file_name": "",
+            "file_name": "enemy",
             "children": [
                 {
                     "type": "EMPTY",
@@ -176,7 +141,7 @@
                     "transform": {
                         "translation": [
                             0.0,
-                            -0.4251384735107422,
+                            -3.577463303372497e-08,
                             0.0
                         ],
                         "rotation": [
@@ -197,51 +162,7 @@
                     "transform": {
                         "translation": [
                             0.0,
-                            -16.75200843811035,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                }
-            ]
-        },
-        {
-            "type": "EMPTY",
-            "name": "Enemy_01",
-            "transform": {
-                "translation": [
-                    -10.258203506469727,
-                    25.58578109741211,
-                    2.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            },
-            "children": [
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_01_Waypoint_00",
-                    "transform": {
-                        "translation": [
-                            0.09413909912109375,
-                            -0.15357589721679688,
+                            -3.577463303372497e-08,
                             0.0
                         ],
                         "rotation": [
@@ -258,53 +179,11 @@
                 },
                 {
                     "type": "EMPTY",
-                    "name": "Enemy_01_Waypoint_01",
+                    "name": "Enemy_00_Waypoint_02",
                     "transform": {
                         "translation": [
-                            0.5545215606689453,
-                            -25.58578109741211,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                },
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_01_Waypoint_02",
-                    "transform": {
-                        "translation": [
-                            -18.13884735107422,
-                            -25.58578109741211,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                },
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_01_Waypoint_03",
-                    "transform": {
-                        "translation": [
-                            -18.13884735107422,
-                            -0.15357589721679688,
+                            10.0,
+                            -3.577463303372497e-08,
                             0.0
                         ],
                         "rotation": [
