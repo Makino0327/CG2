@@ -30,6 +30,12 @@ void PlayerBullet::Initialize(
     // 弾モデルを設定する
     object_->SetModel("bullet/bullet.obj");
 
+    // 弾だけ環境マップ反射を使う
+    object_->SetEnvironmentTexture("Resources/skybox.dds");
+
+    // 弾の反射の強さを設定する
+    object_->SetEnvironmentCoefficient(0.2f);
+
     // 大きさを設定する
     object_->SetScale(scale_);
 
