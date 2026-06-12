@@ -143,6 +143,21 @@ void GamePlayScene::Initialize()
     debugCamera_ = std::make_unique<DebugCamera>();
 
     player_ = std::make_unique<Player>();
+
+    // Blender の Player オブジェクトを探して開始位置に使う
+    {
+        LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
+        std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+
+        for (const LevelObjectData& objectData : allObjects) {
+            // 名前が Player のオブジェクトを開始位置として使う
+            if (objectData.name == "Player") {
+                player_->SetSpawnPosition(objectData.translation);
+                break;
+            }
+        }
+    }
+
     player_->Initialize(context_.object3dCommon, context_.input);
 
     followCamera_ = std::make_unique<FollowCamera>();
@@ -450,6 +465,10 @@ void GamePlayScene::CreateMapObjects()
         }
 
         if (objectData.name.rfind("Enemy_", 0) == 0 || objectData.name.rfind("enemy_", 0) == 0) {
+            continue;
+        }
+        // Player は開始位置用なのでマップオブジェクトとしては描画しない
+        if (objectData.name == "Player") {
             continue;
         }
 

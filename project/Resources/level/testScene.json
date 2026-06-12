@@ -80,11 +80,103 @@
         },
         {
             "type": "MESH",
-            "name": "wall_00",
+            "name": "Player",
+            "transform": {
+                "translation": [
+                    -7.0,
+                    -29.0,
+                    1.0
+                ],
+                "rotation": [
+                    90.00000762939453,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "player/player.obj"
+        },
+        {
+            "type": "MESH",
+            "name": "wall_06",
             "transform": {
                 "translation": [
                     0.0,
+                    -39.0,
+                    1.0
+                ],
+                "rotation": [
                     0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    40.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_06.001",
+            "transform": {
+                "translation": [
+                    0.0,
+                    39.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    40.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_00",
+            "transform": {
+                "translation": [
+                    -14.0,
+                    -30.0,
                     1.0
                 ],
                 "rotation": [
@@ -94,7 +186,147 @@
                 ],
                 "scaling": [
                     1.0,
+                    8.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_01",
+            "transform": {
+                "translation": [
+                    0.0,
+                    10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    4.0,
+                    14.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_02",
+            "transform": {
+                "translation": [
+                    -27.0,
+                    -12.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
                     1.0,
+                    8.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_03",
+            "transform": {
+                "translation": [
+                    -16.0,
+                    -3.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    12.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_04",
+            "transform": {
+                "translation": [
+                    3.0,
+                    -21.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    17.0,
                     1.0
                 ]
             },
@@ -118,8 +350,8 @@
             "name": "Enemy_00",
             "transform": {
                 "translation": [
-                    12.0,
-                    9.0,
+                    -20.0,
+                    -10.0,
                     1.0
                 ],
                 "rotation": [
@@ -133,72 +365,225 @@
                     1.0
                 ]
             },
-            "file_name": "enemy",
-            "children": [
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_00_Waypoint_00",
-                    "transform": {
-                        "translation": [
-                            0.0,
-                            -3.577463303372497e-08,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                },
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_00_Waypoint_01",
-                    "transform": {
-                        "translation": [
-                            0.0,
-                            -3.577463303372497e-08,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                },
-                {
-                    "type": "EMPTY",
-                    "name": "Enemy_00_Waypoint_02",
-                    "transform": {
-                        "translation": [
-                            10.0,
-                            -3.577463303372497e-08,
-                            0.0
-                        ],
-                        "rotation": [
-                            0.0,
-                            -0.0,
-                            0.0
-                        ],
-                        "scaling": [
-                            1.0,
-                            1.0,
-                            1.0
-                        ]
-                    }
-                }
-            ]
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_00",
+            "transform": {
+                "translation": [
+                    -20.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_01",
+            "transform": {
+                "translation": [
+                    -20.0,
+                    -33.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_01",
+            "transform": {
+                "translation": [
+                    -11.0,
+                    5.0,
+                    1.0
+                ],
+                "rotation": [
+                    90.00000762939453,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_01_Waypoint_00",
+            "transform": {
+                "translation": [
+                    -11.0,
+                    5.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_01_Waypoint_01",
+            "transform": {
+                "translation": [
+                    -33.0,
+                    5.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_01_Waypoint_02",
+            "transform": {
+                "translation": [
+                    -32.39101791381836,
+                    29.971595764160156,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_01_Waypoint_03",
+            "transform": {
+                "translation": [
+                    -9.899539947509766,
+                    29.971595764160156,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_05",
+            "transform": {
+                "translation": [
+                    -41.0,
+                    0.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    40.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_07",
+            "transform": {
+                "translation": [
+                    39.0,
+                    0.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    40.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
         }
     ]
 }

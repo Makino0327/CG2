@@ -61,6 +61,11 @@ public:
     // // デバッグカメラ確認用に描画行列だけ更新する
     void UpdateRenderOnly();
 
+    // Blender から読んだプレイヤー開始位置を設定する
+    void SetSpawnPosition(const Vector3& spawnPosition) {
+        translate_ = spawnPosition;
+    }
+
 private:
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);

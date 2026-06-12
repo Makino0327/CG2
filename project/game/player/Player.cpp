@@ -537,8 +537,7 @@ void Player::Respawn()
     // 無敵時間をリセットする
     invincibleTimer_ = 0;
 
-    // 初期位置に戻す
-    translate_ = { 2.0f, 0.5f, 2.0f };
+    // 開始位置は Blender から設定された値を使い続ける
     rotate_ = { 0.0f, 0.0f, 0.0f };
 
     // 3Dオブジェクトにも座標と回転を反映する
