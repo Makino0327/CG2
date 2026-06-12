@@ -165,7 +165,8 @@ void GamePlayScene::Initialize()
     followCamera_->SetTarget(player_->GetWorldPosition());
 
     if (context_.offscreenRenderer) {
-        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        // 常に画面全体へアウトラインをかける
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::DepthOutline);
     }
 
     mapField_.LoadFromCsv("Resources/map.csv");
@@ -187,7 +188,8 @@ void GamePlayScene::Update()
             SpawnEnemies();
 
             if (context_.offscreenRenderer) {
-                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+                // リスポーン後も画面全体へアウトラインをかける
+                context_.offscreenRenderer->SetPostEffectType(PostEffectType::DepthOutline);
             }
         }
     }
@@ -273,9 +275,11 @@ void GamePlayScene::Update()
 
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
+            // 死亡中だけグレースケールをかける
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
         } else {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+            // 生存中は常に画面全体へアウトラインをかける
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::DepthOutline);
         }
     }
 }
