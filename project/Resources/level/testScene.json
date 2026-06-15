@@ -3,7 +3,7 @@
     "objects": [
         {
             "type": "MESH",
-            "name": "Cube",
+            "name": "Floor",
             "transform": {
                 "translation": [
                     0.0,
@@ -83,7 +83,7 @@
             "name": "Player",
             "transform": {
                 "translation": [
-                    -7.0,
+                    -5.0,
                     -29.0,
                     1.0
                 ],
@@ -207,41 +207,6 @@
         },
         {
             "type": "MESH",
-            "name": "wall_01",
-            "transform": {
-                "translation": [
-                    0.0,
-                    10.0,
-                    1.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    4.0,
-                    14.0,
-                    1.0
-                ]
-            },
-            "file_name": "cube.obj",
-            "collider": {
-                "type": "BOX",
-                "center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "size": [
-                    2.0,
-                    2.0,
-                    2.0
-                ]
-            }
-        },
-        {
-            "type": "MESH",
             "name": "wall_02",
             "transform": {
                 "translation": [
@@ -280,7 +245,7 @@
             "name": "wall_03",
             "transform": {
                 "translation": [
-                    -16.0,
+                    -24.0,
                     -3.0,
                     1.0
                 ],
@@ -290,43 +255,8 @@
                     0.0
                 ],
                 "scaling": [
-                    12.0,
+                    16.0,
                     1.0,
-                    1.0
-                ]
-            },
-            "file_name": "cube.obj",
-            "collider": {
-                "type": "BOX",
-                "center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "size": [
-                    2.0,
-                    2.0,
-                    2.0
-                ]
-            }
-        },
-        {
-            "type": "MESH",
-            "name": "wall_04",
-            "transform": {
-                "translation": [
-                    3.0,
-                    -21.0,
-                    1.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    1.0,
-                    17.0,
                     1.0
                 ]
             },
@@ -355,7 +285,7 @@
                     1.0
                 ],
                 "rotation": [
-                    90.00000762939453,
+                    0.0,
                     -0.0,
                     0.0
                 ],
@@ -414,12 +344,12 @@
             "name": "Enemy_01",
             "transform": {
                 "translation": [
-                    -11.0,
+                    -5.0,
                     5.0,
                     1.0
                 ],
                 "rotation": [
-                    90.00000762939453,
+                    0.0,
                     -0.0,
                     0.0
                 ],
@@ -436,7 +366,7 @@
             "name": "Enemy_01_Waypoint_00",
             "transform": {
                 "translation": [
-                    -11.0,
+                    -5.0,
                     5.0,
                     1.0
                 ],
@@ -457,50 +387,8 @@
             "name": "Enemy_01_Waypoint_01",
             "transform": {
                 "translation": [
-                    -33.0,
+                    -36.0,
                     5.0,
-                    1.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "type": "EMPTY",
-            "name": "Enemy_01_Waypoint_02",
-            "transform": {
-                "translation": [
-                    -32.39101791381836,
-                    29.971595764160156,
-                    1.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
-            }
-        },
-        {
-            "type": "EMPTY",
-            "name": "Enemy_01_Waypoint_03",
-            "transform": {
-                "translation": [
-                    -9.899539947509766,
-                    29.971595764160156,
                     1.0
                 ],
                 "rotation": [
@@ -582,6 +470,917 @@
                     2.0,
                     2.0,
                     2.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_02",
+            "transform": {
+                "translation": [
+                    -35.0,
+                    -33.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_03",
+            "transform": {
+                "translation": [
+                    -35.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_04",
+            "transform": {
+                "translation": [
+                    -35.0,
+                    -33.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_00_Waypoint_05",
+            "transform": {
+                "translation": [
+                    -20.0,
+                    -33.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_01",
+            "transform": {
+                "translation": [
+                    -10.0,
+                    10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    10.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_04",
+            "transform": {
+                "translation": [
+                    -26.0,
+                    20.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    10.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_08",
+            "transform": {
+                "translation": [
+                    -10.0,
+                    30.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    10.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_02",
+            "transform": {
+                "translation": [
+                    -36.0,
+                    15.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_02_Waypoint_00",
+            "transform": {
+                "translation": [
+                    -36.0,
+                    15.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_02_Waypoint_01",
+            "transform": {
+                "translation": [
+                    -5.0,
+                    15.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_03",
+            "transform": {
+                "translation": [
+                    -5.0,
+                    25.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_03_Waypoint_00",
+            "transform": {
+                "translation": [
+                    -5.0,
+                    25.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_03_Waypoint_01",
+            "transform": {
+                "translation": [
+                    -36.0,
+                    25.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_09",
+            "transform": {
+                "translation": [
+                    11.0,
+                    20.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    10.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_10",
+            "transform": {
+                "translation": [
+                    21.0,
+                    11.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    9.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_11",
+            "transform": {
+                "translation": [
+                    21.0,
+                    29.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    9.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_12",
+            "transform": {
+                "translation": [
+                    29.0,
+                    14.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    2.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_13",
+            "transform": {
+                "translation": [
+                    29.0,
+                    26.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    2.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_04",
+            "transform": {
+                "translation": [
+                    8.0,
+                    8.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_04_Waypoint_00",
+            "transform": {
+                "translation": [
+                    8.0,
+                    8.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_04_Waypoint_01",
+            "transform": {
+                "translation": [
+                    32.0,
+                    8.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_04_Waypoint_02",
+            "transform": {
+                "translation": [
+                    32.0,
+                    32.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_04_Waypoint_03",
+            "transform": {
+                "translation": [
+                    8.0,
+                    32.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_05",
+            "transform": {
+                "translation": [
+                    32.0,
+                    32.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_05_Waypoint_00",
+            "transform": {
+                "translation": [
+                    32.0,
+                    32.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_05_Waypoint_01",
+            "transform": {
+                "translation": [
+                    8.0,
+                    32.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_05_Waypoint_02",
+            "transform": {
+                "translation": [
+                    8.0,
+                    8.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_05_Waypoint_03",
+            "transform": {
+                "translation": [
+                    32.0,
+                    8.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_14",
+            "transform": {
+                "translation": [
+                    20.0,
+                    -20.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_06",
+            "transform": {
+                "translation": [
+                    10.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_06_Waypoint_00",
+            "transform": {
+                "translation": [
+                    10.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_07",
+            "transform": {
+                "translation": [
+                    30.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_07_Waypoint_00",
+            "transform": {
+                "translation": [
+                    30.0,
+                    -10.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_08",
+            "transform": {
+                "translation": [
+                    10.0,
+                    -30.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_08_Waypoint_00",
+            "transform": {
+                "translation": [
+                    10.0,
+                    -30.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Enemy_09",
+            "transform": {
+                "translation": [
+                    30.0,
+                    -30.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "enemy/enemy.obj"
+        },
+        {
+            "type": "EMPTY",
+            "name": "Enemy_09_Waypoint_00",
+            "transform": {
+                "translation": [
+                    30.0,
+                    -30.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
                 ]
             }
         }
