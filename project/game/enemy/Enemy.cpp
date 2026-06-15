@@ -31,6 +31,7 @@ void Enemy::Update()
 
     // 前フレーム位置を保存する
     prevPosition_ = position_;
+    wasChasing_ = isChasing_;
 
     // いったん現在位置を次の位置として持っておく
     Vector3 nextPosition = object->GetTranslate();
@@ -61,6 +62,11 @@ void Enemy::Update()
     }
 
     // 追尾中のときはプレイヤーへ向かって移動する
+    if (wasChasing_ && !isChasing_) {
+        // 見失った瞬間に巡回状態へ戻して、見張り地点へ復帰できるようにする
+        waypointMover_.ResumePatrol();
+    }
+
     if (isChasing_ && distanceToPlayer > 0.001f) {
         // プレイヤー方向への単位ベクトルを作る
         Vector3 direction = Normalize(toPlayer);

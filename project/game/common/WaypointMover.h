@@ -35,6 +35,9 @@ public:
     // Update movement and internal Object3d.
     void Update();
 
+    // Return from chase state to normal waypoint patrol.
+    void ResumePatrol();
+
     // Draw the internal Object3d.
     void Draw();
 
@@ -47,16 +50,51 @@ public:
     Object3d* GetObject3d() const { return object3d_.get(); }
 
 private:
+    // Patrol state used to insert waiting and turning behaviors.
+    enum class PatrolState {
+        Move,
+        Wait,
+        Turn,
+        LookAround,
+    };
+
     // Move toward the current waypoint.
     void MoveToCurrentWaypoint();
+    // Update the wait state after reaching a waypoint.
+    void UpdateWaitState();
+    // Update the in-place turning animation toward the next target.
+    void UpdateTurnState();
+    // Update the random look-around behavior for a single waypoint.
+    void UpdateLookAroundState();
+    // Return the next waypoint index.
+    uint32_t GetNextWaypointIndex() const;
+    // Compute the yaw angle needed to face the target position.
+    float CalculateTargetYaw(const Vector3& from, const Vector3& to) const;
 
 private:
     std::unique_ptr<Object3d> object3d_;
 
     std::vector<Vector3> waypoints_;
     uint32_t currentWaypointIndex_ = 0;
+    PatrolState patrolState_ = PatrolState::Move;
 
     float moveSpeed_ = 0.05f;
     float reachDistance_ = 0.1f;
     bool isLoop_ = true;
+
+    // Wait about two seconds at 60fps before turning or looking around.
+    uint32_t waitFrameCount_ = 120;
+    uint32_t currentWaitFrame_ = 0;
+
+    // Turn over a short fixed number of frames.
+    uint32_t turnFrameCount_ = 30;
+    uint32_t currentTurnFrame_ = 0;
+    float turnStartYaw_ = 0.0f;
+    float turnTargetYaw_ = 0.0f;
+
+    // For a single waypoint, pick a random facing direction and turn to it.
+    uint32_t lookAroundFrameCount_ = 45;
+    uint32_t currentLookAroundFrame_ = 0;
+    float lookAroundStartYaw_ = 0.0f;
+    float lookAroundTargetYaw_ = 0.0f;
 };

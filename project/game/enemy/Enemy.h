@@ -128,4 +128,7 @@ private:
 
     // 追尾中かどうか
     bool isChasing_ = false;
+
+    // 1フレーム前に追跡していたかを保持する
+    bool wasChasing_ = false;
 };
