@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <memory>
 
@@ -24,92 +24,92 @@ public:
     // 敵を描画する
     void Draw();
 
-    // 敵の座標を設定する
+    // 位置を設定する
     void SetPosition(const Vector3& position);
 
-    // 敵の座標を取得する
+    // 現在位置を取得する
     Vector3 GetWorldPosition() const;
 
-    // 敵の当たり判定を返す
+    // 当たり判定を取得する
     SphereCollider GetCollider() const;
 
-    // 敵がダメージを受けた時の処理
+    // 被弾時の処理を行う
     void OnHit();
 
-    // 敵が倒されたかを返す
+    // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
 
-    // 追いかける対象の座標を設定する
+    // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
     void SetWaypoints(const std::vector<Vector3>& waypoints);
 
-    // 敵の押し戻し用半径を返す
+    // 重なり解消用の半径を返す
     float GetBodyRadius() const { return bodyRadius_; }
 
-    // 敵にマップ情報を渡す
+    // マップ情報を設定する
     void SetMap(const MapChipField* mapField, float tileSize);
     bool IsTargetInSight() const { return isTargetInSight_; }
     void AppendVisionDebugLines(DebugLine3D& debugLine) const;
 
-    // Blender JSON から読んだ床コライダー一覧を受け取る
+    // 床コライダーを設定する
     void SetFloorColliders(const std::vector<LevelColliderData>* floorColliders) {
         floorColliders_ = floorColliders;
     }
-    // Blender JSON から読んだ壁コライダー一覧を受け取る
+    // 壁コライダーを設定する
     void SetWallColliders(const std::vector<LevelColliderData>* wallColliders) {
         wallColliders_ = wallColliders;
     }
 
-    // // デバッグカメラ確認用に描画行列だけ更新する
+    // デバッグカメラ用に描画だけ更新する
     void UpdateRenderOnly();
 private:
-    // 敵の左方向の壁当たり判定を行う
+    // 左方向のマップ衝突を解決する
     void ResolveLeftCollisionWithMap(Vector3& pos);
 
-    // 敵の右方向の壁当たり判定を行う
+    // 右方向のマップ衝突を解決する
     void ResolveRightCollisionWithMap(Vector3& pos);
 
-    // 敵の上方向の壁当たり判定を行う
+    // 前方向のマップ衝突を解決する
     void ResolveTopCollisionWithMap(Vector3& pos);
 
-    // 敵の下方向の壁当たり判定を行う
+    // 後方向のマップ衝突を解決する
     void ResolveBottomCollisionWithMap(Vector3& pos);
 
-    // 床コライダーから現在位置の地面高さを合わせる
+    // 床コライダーから接地高さを求める
     void ResolveGroundHeight(Vector3& pos);
 
-    // 壁コライダーとの横移動衝突を解決する
+    // 壁コライダーとの衝突を解決する
     void ResolveWallCollision(Vector3& pos);
     bool CheckTargetInSight() const;
 private:
-    // 敵の3Dオブジェクト
+    // 敵の移動と描画を管理する
     WaypointMover waypointMover_;
 
-    // 敵の座標
+    // 現在位置
     Vector3 position_ = { 0.0f, 0.5f, 0.0f };
 
-    // 敵の回転
+    // 回転
     Vector3 rotation_ = { 0.0f, 0.0f, 0.0f };
 
-    // 敵の大きさ
+    // 拡大率
     Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
 
-    // 敵の当たり判定半径
+    // 球コライダーの半径
     float colliderRadius_ = 1.0f;
 
-    // 倒された敵を管理する
+    // 撃破フラグ
     bool isDead_ = false;
 
-    // 追いかける対象の座標
+    // 追跡対象の位置
     Vector3 targetPosition_ = { 0.0f, 0.0f, 0.0f };
 
-    // 敵の移動速度
+    // 移動速度
     float moveSpeed_ = 0.1f;
 
-    // 敵同士が埋まらないようにするための半径
+    // 敵同士の重なり解消に使う半径
     float bodyRadius_ = 1.0f;
 
-    // 前フレームの座標を保持する
+    // 前フレームの位置
     Vector3 prevPosition_ = { 0.0f, 0.5f, 0.0f };
 
     // マップデータへの参照
@@ -118,26 +118,26 @@ private:
     // 1マスの大きさ
     float tileSize_ = 2.0f;
 
-    // Blender JSON から読んだ床コライダー一覧
+    // 床コライダー一覧
     const std::vector<LevelColliderData>* floorColliders_ = nullptr;
 
-    // Blender JSON から読んだ壁コライダー一覧
+    // 壁コライダー一覧
     const std::vector<LevelColliderData>* wallColliders_ = nullptr;
 
-    // プレイヤーを見つける距離
+    // 視認できる距離
     float detectRange_ = 12.0f;
     float sightHalfAngleRad_ = 0.785398163f;
-    // 視界の上下半角は45度にして、tan()の発散でデバッグ線が壊れないようにする
+    // 上下の半角は45度にして、tan()の暴走を防ぐ
     float sightVerticalHalfAngleRad_ = 0.785398163f;
     float sightHeight_ = 1.0f;
 
-    // いったん見つけた後に追いかけ続ける距離
+    // 追跡を維持する最大距離
     float chaseKeepRange_ = 20.0f;
 
-    // 追尾中かどうか
+    // 追跡中かどうか
     bool isChasing_ = false;
     bool isTargetInSight_ = false;
 
-    // 1フレーム前に追跡していたかを保持する
+    // 前フレームで追跡していたか
     bool wasChasing_ = false;
 };

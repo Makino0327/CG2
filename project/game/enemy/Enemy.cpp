@@ -1,11 +1,11 @@
-#include "Enemy.h"
+﻿#include "Enemy.h"
 #include <cfloat>
 #include <cmath>
 
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 
 namespace {
-    // Return a - b.
+    // a から b を引いたベクトルを返す
     Vector3 SubtractVector3(const Vector3& a, const Vector3& b) {
         return {
             a.x - b.x,
@@ -14,7 +14,7 @@ namespace {
         };
     }
 
-    // Return the dot product of two vectors.
+    // 2つのベクトルの内積を返す
     float DotVector3(const Vector3& a, const Vector3& b) {
         return a.x * b.x + a.y * b.y + a.z * b.z;
     }
@@ -22,10 +22,10 @@ namespace {
 
 void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vector3& position)
 {
-    // 蛻晄悄菴咲ｽｮ繧剃ｿ晏ｭ倥☆繧・
+    // 初期位置を設定する
     position_ = position;
 
-    // WaypointMover 繧貞・譛溷喧縺吶ｋ
+    // WaypointMover を初期化する
     waypointMover_.Initialize(object3dCommon, camera);
     waypointMover_.SetModel("enemy/enemy.obj");
     waypointMover_.SetScale(scale_);
@@ -34,7 +34,7 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     waypointMover_.SetMoveSpeed(moveSpeed_);
     waypointMover_.SetLoop(true);
 
-    // 蛻晄悄謠冗判陦悟・繧呈峩譁ｰ縺吶ｋ
+    // 初期状態を反映する
     waypointMover_.Update();
 }
 
@@ -45,74 +45,74 @@ void Enemy::Update()
         return;
     }
 
-    // 蜑阪ヵ繝ｬ繝ｼ繝菴咲ｽｮ繧剃ｿ晏ｭ倥☆繧・
+    // 前フレームの状態を保存する
     prevPosition_ = position_;
     wasChasing_ = isChasing_;
 
-    // 縺・▲縺溘ｓ迴ｾ蝨ｨ菴咲ｽｮ繧呈ｬ｡縺ｮ菴咲ｽｮ縺ｨ縺励※謖√▲縺ｦ縺翫￥
+    // 次に使う位置を現在の描画位置から取得する
     Vector3 nextPosition = object->GetTranslate();
 
-    // 繝励Ξ繧､繝､繝ｼ縺ｾ縺ｧ縺ｮXZ蟷ｳ髱｢霍晞屬繧定ｨ育ｮ励☆繧・
+    // プレイヤーまでのXZ方向ベクトルを求める
     Vector3 toPlayer = {
         targetPosition_.x - position_.x,
         0.0f,
         targetPosition_.z - position_.z
     };
 
-    // 繝励Ξ繧､繝､繝ｼ縺ｾ縺ｧ縺ｮ霍晞屬繧呈ｱゅａ繧・
+    // プレイヤーまでのXZ距離を求める
     float distanceToPlayer = std::sqrt(
         toPlayer.x * toPlayer.x +
         toPlayer.z * toPlayer.z
     );
     isTargetInSight_ = CheckTargetInSight();
 
-    // 縺ｾ縺霑ｽ蟆ｾ縺励※縺・↑縺・→縺阪・縲∬ｦ九▽縺代ｋ霍晞屬縺ｫ蜈･縺｣縺溘ｉ霑ｽ蟆ｾ髢句ｧ・
+    // 視界に入ったら追跡を開始する
     if (!isChasing_ && isTargetInSight_) {
-        // 繝励Ξ繧､繝､繝ｼ繧定ｦ九▽縺代◆縺ｮ縺ｧ霑ｽ蟆ｾ髢句ｧ・
+        // 追跡開始フラグを立てる
         isChasing_ = true;
     }
 
-    // 縺吶〒縺ｫ霑ｽ蟆ｾ荳ｭ縺ｪ繧峨√°縺ｪ繧企屬繧後ｋ縺ｾ縺ｧ霑ｽ蟆ｾ繧堤ｶ壹￠繧・
+    // 一定距離以上離れたら追跡をやめる
     if (isChasing_ && distanceToPlayer > chaseKeepRange_) {
-        // 繝励Ξ繧､繝､繝ｼ繧定ｦ句､ｱ縺｣縺溘・縺ｧ霑ｽ蟆ｾ邨ゆｺ・
+        // 追跡終了フラグを下ろす
         isChasing_ = false;
     }
 
-    // 霑ｽ蟆ｾ荳ｭ縺ｮ縺ｨ縺阪・繝励Ξ繧､繝､繝ｼ縺ｸ蜷代°縺｣縺ｦ遘ｻ蜍輔☆繧・
+    // 追跡終了時は巡回へ戻す
     if (wasChasing_ && !isChasing_) {
-        // 隕句､ｱ縺｣縺溽椪髢薙↓蟾｡蝗樒憾諷九∈謌ｻ縺励※縲∬ｦ句ｼｵ繧雁慍轤ｹ縺ｸ蠕ｩ蟶ｰ縺ｧ縺阪ｋ繧医≧縺ｫ縺吶ｋ
+        // 巡回ルートへ復帰する
         waypointMover_.ResumePatrol();
     }
 
     if (isChasing_ && distanceToPlayer > 0.001f) {
-        // 繝励Ξ繧､繝､繝ｼ譁ｹ蜷代∈縺ｮ蜊倅ｽ阪・繧ｯ繝医Ν繧剃ｽ懊ｋ
+        // 追跡方向の単位ベクトルを求める
         Vector3 direction = Normalize(toPlayer);
 
-        // 繝励Ξ繧､繝､繝ｼ縺ｮ譁ｹ蜷代∈遘ｻ蜍輔☆繧・
+        // 追跡方向へ移動する
         nextPosition.x += direction.x * moveSpeed_;
         nextPosition.z += direction.z * moveSpeed_;
 
-        // 繝励Ξ繧､繝､繝ｼ縺ｮ譁ｹ蜷代ｒ蜷代￥
+        // 追跡方向を向く
         rotation_.y = std::atan2(direction.x, direction.z);
     } else {
-        // 霑ｽ蟆ｾ縺励※縺・↑縺・→縺阪・莉翫∪縺ｧ騾壹ｊ繧ｦ繧ｧ繧､繝昴う繝ｳ繝育ｧｻ蜍輔☆繧・
+        // 追跡していないときは巡回を更新する
         waypointMover_.Update();
 
-        // 繧ｦ繧ｧ繧､繝昴う繝ｳ繝育ｧｻ蜍募ｾ後・菴咲ｽｮ縺ｨ蝗櫁ｻ｢繧貞女縺大叙繧・
+        // 巡回更新後の位置と回転を反映する
         nextPosition = object->GetTranslate();
         rotation_ = object->GetRotate();
     }
 
-    // Blender JSON 縺ｮ蠎翫さ繝ｩ繧､繝繝ｼ縺ｧ鬮倥＆繧貞粋繧上○繧・
+    // 床コライダーで高さを補正する
     ResolveGroundHeight(nextPosition);
 
-    // Blender JSON 縺ｮ螢√さ繝ｩ繧､繝繝ｼ縺ｧ讓ｪ遘ｻ蜍輔ｒ豁｢繧√ｋ
+    // 壁コライダーで衝突を解決する
     ResolveWallCollision(nextPosition);
 
-    // 陬懈ｭ｣蠕後・菴咲ｽｮ繧剃ｿ晏ｭ倥☆繧・
+    // 計算後の位置を確定する
     position_ = nextPosition;
 
-    // 陬懈ｭ｣蠕後・ transform 繧呈緒逕ｻ縺ｸ謌ｻ縺・
+    // transform を更新して描画へ反映する
     object->SetScale(scale_);
     object->SetRotate(rotation_);
     object->SetTranslate(position_);
@@ -125,16 +125,16 @@ void Enemy::Draw()
         return;
     }
 
-    // WaypointMover 縺梧戟縺､繧ｪ繝悶ず繧ｧ繧ｯ繝医ｒ謠冗判縺吶ｋ
+    // WaypointMover 経由で描画する
     waypointMover_.Draw();
 }
 
 void Enemy::SetPosition(const Vector3& position)
 {
-    // 螟悶°繧芽｣懈ｭ｣縺輔ｌ縺滉ｽ咲ｽｮ繧剃ｿ晏ｭ倥☆繧・
+    // 補正後の位置を設定する
     position_ = position;
 
-    // 謠冗判菴咲ｽｮ繧ょ酔縺伜ｺｧ讓吶∈蜷医ｏ縺帙ｋ
+    // 内部 Object3d の位置も更新する
     Object3d* object = waypointMover_.GetObject3d();
     if (object) {
         object->SetTranslate(position_);
@@ -143,44 +143,44 @@ void Enemy::SetPosition(const Vector3& position)
 
 Vector3 Enemy::GetWorldPosition() const
 {
-    // 迴ｾ蝨ｨ菴咲ｽｮ繧定ｿ斐☆
+    // 現在位置を返す
     return position_;
 }
 
 SphereCollider Enemy::GetCollider() const
 {
-    // 迴ｾ蝨ｨ菴咲ｽｮ縺ｨ蜊雁ｾ・°繧臥帥繧ｳ繝ｩ繧､繝繝ｼ繧定ｿ斐☆
+    // 位置と半径から球コライダーを作る
     return { position_, colliderRadius_ };
 }
 
 void Enemy::OnHit()
 {
-    // 蠖薙◆縺｣縺滓雰縺ｯ蛟偵☆
+    // 被弾したら倒れた扱いにする
     isDead_ = true;
 }
 
 void Enemy::SetTargetPosition(const Vector3& targetPosition)
 {
-    // 譌ｧ霑ｽ蟆ｾ繝ｭ繧ｸ繝・け莠呈鋤縺ｮ縺溘ａ谿九＠縺ｦ縺翫￥
+    // 追跡対象の位置を保存する
     targetPosition_ = targetPosition;
 }
 
 void Enemy::SetWaypoints(const std::vector<Vector3>& waypoints)
 {
-    // Blender JSON 縺九ｉ隱ｭ繧薙□邨瑚ｷｯ轤ｹ繧呈ｸ｡縺・
+    // JSON から読んだウェイポイントを設定する
     waypointMover_.SetWaypoints(waypoints);
 }
 
 void Enemy::SetMap(const MapChipField* mapField, float tileSize)
 {
-    // 譌ｧ CSV 蛻､螳夂畑縺ｮ蜿ら・繧剃ｿ晏ｭ倥☆繧・
+    // CSV マップへの参照を保存する
     mapField_ = mapField;
     tileSize_ = tileSize;
 }
 
 bool Enemy::CheckTargetInSight() const
 {
-    // 謨ｵ縺九ｉ繧ｿ繝ｼ繧ｲ繝・ヨ縺ｸ縺ｮ繝吶け繝医Ν繧剃ｽ懊ｋ
+    // 敵からターゲットへのベクトルを求める
     Vector3 toTarget = {
         targetPosition_.x - position_.x,
         targetPosition_.y - (position_.y + sightHeight_),
@@ -198,12 +198,12 @@ bool Enemy::CheckTargetInSight() const
         toTarget.z * toTarget.z
     );
 
-    // 霍晞屬螟悶ｄ蜷御ｽ咲ｽｮ縺ｯ隕夜㍽螟匁桶縺・↓縺吶ｋ
+    // 距離が短すぎるか射程外なら見えていない
     if (distance3D <= 0.0001f || distanceXZ > detectRange_) {
         return false;
     }
 
-    // 迴ｾ蝨ｨ縺ｮ蜷代″縺九ｉ蜑肴婿蜷代・繧ｯ繝医Ν繧剃ｽ懊ｋ
+    // 敵の向きから前方ベクトルを求める
     Vector3 forward = {
         std::sin(rotation_.y),
         0.0f,
@@ -224,29 +224,29 @@ bool Enemy::CheckTargetInSight() const
         dot = -1.0f;
     }
 
-    // 豌ｴ蟷ｳ蜊願ｧ剃ｻ･蜀・↑繧牙燕譁ｹ隕夜㍽縺ｫ蜈･縺｣縺ｦ縺・ｋ
+    // 水平方向の視野角を超えたら見えていない
     const float horizontalAngle = std::acos(dot);
     if (horizontalAngle > sightHalfAngleRad_) {
         return false;
     }
 
-    // 邵ｦ譁ｹ蜷代ｂ蜊願ｧ剃ｻ･蜀・↑繧芽ｦ夜㍽蜀・→縺ｿ縺ｪ縺・
+    // 垂直方向の視野角も判定する
     const float verticalAngle = std::atan2(std::fabs(toTarget.y), distanceXZ);
     return verticalAngle <= sightVerticalHalfAngleRad_;
 }
 
 void Enemy::AppendVisionDebugLines(DebugLine3D& debugLine) const
 {
-    // 視野の始点は敵の視界の高さに合わせる
+    // 視野の始点を目線の高さに合わせる
     Vector3 origin = position_;
     origin.y += sightHeight_;
 
-    // 左右の視野境界の向きを計算する
+    // 左右の視野角を計算する
     const float centerYaw = rotation_.y;
     const float leftYaw = centerYaw - sightHalfAngleRad_;
     const float rightYaw = centerYaw + sightHalfAngleRad_;
 
-    // 視野表示は2Dにして、XZ平面上の左右端点だけを使う
+    // 2D表示用にXZ平面上の左右端点だけを使う
     Vector3 leftEnd = {
         origin.x + std::sin(leftYaw) * detectRange_,
         origin.y,
@@ -258,12 +258,12 @@ void Enemy::AppendVisionDebugLines(DebugLine3D& debugLine) const
         origin.z + std::cos(rightYaw) * detectRange_
     };
 
-    // 視認中は緑、非視認時は黄色で表示する
+    // 見えているときは緑、見えていないときは黄色にする
     Vector4 edgeColor = isTargetInSight_
         ? Vector4{ 0.1f, 0.8f, 0.1f, 1.0f }
         : Vector4{ 0.9f, 0.5f, 0.1f, 1.0f };
 
-    // 真ん中の線は消して、左右の境界線と先端の辺だけを描く
+    // 中央線は描かず、左右の境界線と先端だけを描く
     debugLine.AddLine(origin, leftEnd, edgeColor);
     debugLine.AddLine(origin, rightEnd, edgeColor);
     debugLine.AddLine(leftEnd, rightEnd, edgeColor);
@@ -272,7 +272,7 @@ void Enemy::ResolveLeftCollisionWithMap(Vector3& pos)
 {
     const float halfSize = tileSize_ * 0.5f;
 
-    // 蟾ｦ縺ｫ蜍輔＞縺ｦ縺・↑縺・凾縺ｯ蜃ｦ逅・＠縺ｪ縺・
+    // 左へ動いていないときは判定しない
     if (pos.x >= prevPosition_.x) {
         return;
     }
@@ -330,7 +330,7 @@ void Enemy::ResolveRightCollisionWithMap(Vector3& pos)
 
     const float halfSize = tileSize_ * 0.5f;
 
-    // 蜿ｳ縺ｫ蜍輔＞縺ｦ縺・↑縺・凾縺ｯ蜃ｦ逅・＠縺ｪ縺・
+    // 右へ動いていないときは判定しない
     if (pos.x <= prevPosition_.x) {
         return;
     }
@@ -386,7 +386,7 @@ void Enemy::ResolveTopCollisionWithMap(Vector3& pos)
 {
     if (!mapField_) { return; }
 
-    // 荳翫↓蜍輔＞縺ｦ縺・↑縺・凾縺ｯ蜃ｦ逅・＠縺ｪ縺・
+    // 前へ動いていないときは判定しない
     if (pos.z <= prevPosition_.z) {
         return;
     }
@@ -434,7 +434,7 @@ void Enemy::ResolveBottomCollisionWithMap(Vector3& pos)
         return;
     }
 
-    // 荳九↓蜍輔＞縺ｦ縺・↑縺・凾縺ｯ蜃ｦ逅・＠縺ｪ縺・
+    // 後ろへ動いていないときは判定しない
     if (pos.z >= prevPosition_.z) {
         return;
     }
@@ -473,7 +473,7 @@ void Enemy::ResolveBottomCollisionWithMap(Vector3& pos)
 
 void Enemy::ResolveGroundHeight(Vector3& pos)
 {
-    // 蠎翫さ繝ｩ繧､繝繝ｼ縺檎┌縺代ｌ縺ｰ菴輔ｂ縺励↑縺・
+    // 床コライダーがなければ何もしない
     if (!floorColliders_) {
         return;
     }
@@ -481,9 +481,9 @@ void Enemy::ResolveGroundHeight(Vector3& pos)
     bool foundGround = false;
     float bestGroundY = -FLT_MAX;
 
-    // 謨ｵ縺ｮ莉翫・ XZ 蠎ｧ讓吶′荵励▲縺ｦ縺・ｋ蠎翫ｒ謗｢縺・
+    // XZ が床の範囲外なら無視する
     for (const LevelColliderData& collider : *floorColliders_) {
-        // BOX collider 莉･螟悶・莉翫・菴ｿ繧上↑縺・
+        // BOX コライダーだけを対象にする
         if (!collider.hasCollider || collider.type != "BOX") {
             continue;
         }
@@ -497,22 +497,22 @@ void Enemy::ResolveGroundHeight(Vector3& pos)
         float minZ = collider.center.z - halfZ;
         float maxZ = collider.center.z + halfZ;
 
-        // 謨ｵ縺後％縺ｮ蠎翫・荳翫↓縺・ｋ縺九ｒ XZ 縺ｧ蛻､螳壹☆繧・
+        // XZ 範囲に入っている床だけを調べる
         if (pos.x < minX || pos.x > maxX || pos.z < minZ || pos.z > maxZ) {
             continue;
         }
 
-        // 蠎翫・荳企擇 Y 繧呈ｱゅａ繧・
+        // 床の上面 Y 座標を求める
         float groundY = collider.center.y + halfY;
 
-        // 縺・■縺ｰ繧馴ｫ倥＞蠎翫ｒ謗｡逕ｨ縺吶ｋ
+        // 最も高い床を採用する
         if (!foundGround || groundY > bestGroundY) {
             bestGroundY = groundY;
             foundGround = true;
         }
     }
 
-    // 隕九▽縺九▲縺溷ｺ翫・荳翫↓謨ｵ繧剃ｹ励○繧・
+    // 接地できたら床の上に乗せる
     if (foundGround) {
         pos.y = bestGroundY + colliderRadius_;
     }
@@ -520,7 +520,7 @@ void Enemy::ResolveGroundHeight(Vector3& pos)
 
 void Enemy::ResolveWallCollision(Vector3& pos)
 {
-    // 螢√さ繝ｩ繧､繝繝ｼ縺檎┌縺代ｌ縺ｰ菴輔ｂ縺励↑縺・
+    // 壁コライダーがなければ何もしない
     if (!wallColliders_) {
         return;
     }
@@ -570,7 +570,7 @@ void Enemy::ResolveWallCollision(Vector3& pos)
 
 void Enemy::UpdateRenderOnly()
 {
-    // 繝・ヰ繝・げ繧ｫ繝｡繝ｩ遒ｺ隱咲畑縺ｫ謠冗判陦悟・縺縺第峩譁ｰ縺吶ｋ
+    // デバッグカメラ用に transform だけ更新する
     Object3d* object = waypointMover_.GetObject3d();
     if (object && !isDead_) {
         object->SetScale(scale_);
