@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "../../engine/3d/obj3d/DebugLine3D.h"
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
@@ -47,6 +48,8 @@ public:
 
     // 敵にマップ情報を渡す
     void SetMap(const MapChipField* mapField, float tileSize);
+    bool IsTargetInSight() const { return isTargetInSight_; }
+    void AppendVisionDebugLines(DebugLine3D& debugLine) const;
 
     // Blender JSON から読んだ床コライダー一覧を受け取る
     void SetFloorColliders(const std::vector<LevelColliderData>* floorColliders) {
@@ -77,6 +80,7 @@ private:
 
     // 壁コライダーとの横移動衝突を解決する
     void ResolveWallCollision(Vector3& pos);
+    bool CheckTargetInSight() const;
 private:
     // 敵の3Dオブジェクト
     WaypointMover waypointMover_;
@@ -121,13 +125,18 @@ private:
     const std::vector<LevelColliderData>* wallColliders_ = nullptr;
 
     // プレイヤーを見つける距離
-    float detectRange_ = 6.0f;
+    float detectRange_ = 12.0f;
+    float sightHalfAngleRad_ = 0.785398163f;
+    // 視界の上下半角は45度にして、tan()の発散でデバッグ線が壊れないようにする
+    float sightVerticalHalfAngleRad_ = 0.785398163f;
+    float sightHeight_ = 1.0f;
 
     // いったん見つけた後に追いかけ続ける距離
     float chaseKeepRange_ = 20.0f;
 
     // 追尾中かどうか
     bool isChasing_ = false;
+    bool isTargetInSight_ = false;
 
     // 1フレーム前に追跡していたかを保持する
     bool wasChasing_ = false;

@@ -13,6 +13,7 @@
 #include "../engine/3d/skybox/SkyboxCommon.h"
 #include "../engine/animation/Animation.h"
 #include "../../engine/3d/obj3d/Line3DCommon.h"
+#include "../../engine/3d/obj3d/DebugLine3D.h"
 #include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
 #include "../../game/camera/DebugCamera.h"
 #include "../../game/player/Player.h"
@@ -65,6 +66,8 @@ private:
 
     std::unique_ptr<DebugCamera> debugCamera_;
     std::unique_ptr<FollowCamera> followCamera_;
+    std::unique_ptr<Line3DCommon> line3dCommon_;
+    DebugLine3D enemyVisionDebug_;
 
 private:
     /// プレイヤー

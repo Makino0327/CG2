@@ -140,6 +140,11 @@ void GamePlayScene::Initialize()
     skybox_->Initialize(skyboxCommon_.get());
     skybox_->SetCamera(context_.camera);
 
+    // 敵の視野可視化に使う線描画を初期化する
+    line3dCommon_ = std::make_unique<Line3DCommon>();
+    line3dCommon_->Initialize(context_.dxCommon, context_.srvManager);
+    enemyVisionDebug_.Initialize(context_.dxCommon, line3dCommon_.get());
+
     debugCamera_ = std::make_unique<DebugCamera>();
 
     player_ = std::make_unique<Player>();
@@ -315,6 +320,23 @@ void GamePlayScene::Draw()
     for (auto& wallObject : wallObjects_) {
         wallObject->Draw();
     }
+
+    // 敵の視野をデバッグ線で可視化する
+    if (context_.camera && line3dCommon_) {
+        enemyVisionDebug_.Reset();
+
+        for (const auto& enemy : enemies_) {
+            if (enemy->IsDead()) {
+                continue;
+            }
+
+            enemy->AppendVisionDebugLines(enemyVisionDebug_);
+        }
+
+        enemyVisionDebug_.SetWVP(MakeIdentity4x4(), context_.camera->GetViewProjectionMatrix());
+        enemyVisionDebug_.Upload();
+        enemyVisionDebug_.Draw();
+    }
 }
 
 void GamePlayScene::Finalize()
@@ -325,6 +347,7 @@ void GamePlayScene::Finalize()
     particleSystem_.reset();
     skybox_.reset();
     skyboxCommon_.reset();
+    line3dCommon_.reset();
 
     materialResource_.Reset();
     directionalLightResource_.Reset();
