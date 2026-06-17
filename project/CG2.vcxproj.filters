@@ -78,6 +78,7 @@
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
     <ClCompile Include="scene\LevelLoader.cpp" />
     <ClCompile Include="game\common\WaypointMover.cpp" />
+    <ClCompile Include="engine\utils\LevelHotReload.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -132,6 +133,7 @@
     <ClInclude Include="scene\gameover\GameOverScene.h" />
     <ClInclude Include="scene\LevelLoader.h" />
     <ClInclude Include="game\common\WaypointMover.h" />
+    <ClInclude Include="engine\utils\LevelHotReload.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />
