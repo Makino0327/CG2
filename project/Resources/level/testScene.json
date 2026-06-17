@@ -1383,6 +1383,41 @@
                     1.0
                 ]
             }
+        },
+        {
+            "type": "MESH",
+            "name": "wall_15",
+            "transform": {
+                "translation": [
+                    -1.0,
+                    -29.0,
+                    1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
         }
     ]
 }

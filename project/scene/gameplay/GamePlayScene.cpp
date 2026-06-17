@@ -40,33 +40,33 @@
 
 namespace {
 
-    // 親子込みのワールド座標へ変換したオブジェクト一覧を作る
+    // 髫包ｽｪ陝・頃・ｾ・ｼ邵ｺ・ｿ邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生竏郁棔逕ｻ驪､邵ｺ蜉ｱ笳・ｹｧ・ｪ郢晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢昜ｺ包ｽｸﾂ髫包ｽｧ郢ｧ蜑・ｽｽ諛奇ｽ・
     void FlattenLevelObjectsRecursive(
         const LevelObjectData& objectData,
         const Vector3& parentTranslation,
         std::vector<LevelObjectData>& outObjects)
     {
-        // 今のオブジェクトをコピーする
+        // 闔臥ｿｫ繝ｻ郢ｧ・ｪ郢晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢晏現・堤ｹｧ・ｳ郢晄鱒繝ｻ邵ｺ蜷ｶ・・
         LevelObjectData worldObject = objectData;
 
-        // 親の座標を足してワールド座標にする
+        // 髫包ｽｪ邵ｺ・ｮ陟趣ｽｧ隶灘生・帝屆・ｳ邵ｺ蜉ｱ窶ｻ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生竊鍋ｸｺ蜷ｶ・・
         worldObject.translation.x += parentTranslation.x;
         worldObject.translation.y += parentTranslation.y;
         worldObject.translation.z += parentTranslation.z;
 
-        // 子配列はここでは使わないので空にしておく
+        // 陝・ｮ｣繝ｻ陋ｻ蜉ｱ繝ｻ邵ｺ阮呻ｼ・ｸｺ・ｧ邵ｺ・ｯ闖ｴ・ｿ郢ｧ荳岩・邵ｺ繝ｻ繝ｻ邵ｺ・ｧ驕ｨ・ｺ邵ｺ・ｫ邵ｺ蜉ｱ窶ｻ邵ｺ鄙ｫ・･
         worldObject.children.clear();
 
-        // 平坦化した一覧へ追加する
+        // 陝ｷ・ｳ陜ｮ・ｦ陋ｹ謔ｶ・邵ｺ貊会ｽｸﾂ髫包ｽｧ邵ｺ・ｸ髴托ｽｽ陷会｣ｰ邵ｺ蜷ｶ・・
         outObjects.push_back(worldObject);
 
-        // 子オブジェクトも親座標を引き継いで再帰する
+        // 陝・・縺檎ｹ晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢晏現・る囎・ｪ陟趣ｽｧ隶灘生・定題ｼ披ｳ驍ｯ蜷ｶ・樒ｸｺ・ｧ陷讎奇ｽｸ・ｰ邵ｺ蜷ｶ・・
         for (const LevelObjectData& child : objectData.children) {
             FlattenLevelObjectsRecursive(child, worldObject.translation, outObjects);
         }
     }
 
-    // レベル全体を親子込みのワールド座標オブジェクト一覧へ変換する
+    // 郢晢ｽｬ郢晏生ﾎ晁怦・ｨ闖ｴ阮呻ｽ帝囎・ｪ陝・頃・ｾ・ｼ邵ｺ・ｿ邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生縺檎ｹ晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢昜ｺ包ｽｸﾂ髫包ｽｧ邵ｺ・ｸ陞溽判驪､邵ｺ蜷ｶ・・
     std::vector<LevelObjectData> FlattenAllLevelObjects(const LevelData& levelData)
     {
         std::vector<LevelObjectData> allObjects;
@@ -78,6 +78,56 @@ namespace {
         return allObjects;
     }
 
+}
+
+void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
+{
+    // Flatten the hierarchy so the Player object can be found by name.
+    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+
+    for (const LevelObjectData& objectData : allObjects) {
+        // Use the Player object as the spawn position source.
+        if (objectData.name == "Player") {
+            if (player_) {
+                player_->SetSpawnPosition(objectData.translation);
+            }
+            return;
+        }
+    }
+}
+
+void GamePlayScene::ReloadLevel(bool isManualReload)
+{
+    // Load the latest level JSON file.
+    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
+
+    // Update the player spawn position from the level data.
+    ApplyPlayerSpawnFromLevelData(levelData);
+
+    // Rebuild walls, floors, and colliders from the current level data.
+    CreateMapObjects();
+
+    // Refresh the player collider references and return to the spawn position.
+    if (player_) {
+        player_->SetFloorColliders(&floorColliders_);
+        player_->SetWallColliders(&wallColliders_);
+        player_->Respawn();
+    }
+
+    // Recreate enemies from the current level data.
+    SpawnEnemies();
+
+    // Sync the current file timestamp after a successful reload.
+    levelHotReload_.SyncCurrentWriteTime();
+
+    // Show whether the reload came from F5 or automatic file watching.
+    if (isManualReload) {
+        reloadNoticeText_ = "Level reloaded by F5";
+    } else {
+        reloadNoticeText_ = "Level reloaded automatically";
+    }
+
+    reloadNoticeFrameCount_ = 180;
 }
 
 void GamePlayScene::Initialize()
@@ -140,7 +190,7 @@ void GamePlayScene::Initialize()
     skybox_->Initialize(skyboxCommon_.get());
     skybox_->SetCamera(context_.camera);
 
-    // 敵の視野可視化に使う線描画を初期化する
+    // 隰ｨ・ｵ邵ｺ・ｮ髫募､懊鎖陷ｿ・ｯ髫暮摩蝟ｧ邵ｺ・ｫ闖ｴ・ｿ邵ｺ繝ｻ・ｷ螢ｽ邱帝包ｽｻ郢ｧ雋槭・隴帶ｺｷ蝟ｧ邵ｺ蜷ｶ・・
     line3dCommon_ = std::make_unique<Line3DCommon>();
     line3dCommon_->Initialize(context_.dxCommon, context_.srvManager);
     enemyVisionDebug_.Initialize(context_.dxCommon, line3dCommon_.get());
@@ -149,13 +199,13 @@ void GamePlayScene::Initialize()
 
     player_ = std::make_unique<Player>();
 
-    // Blender の Player オブジェクトを探して開始位置に使う
+    // Blender 邵ｺ・ｮ Player 郢ｧ・ｪ郢晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢晏現・定ｬ暦ｽ｢邵ｺ蜉ｱ窶ｻ鬮｢蜿･・ｧ蛟ｶ・ｽ蜥ｲ・ｽ・ｮ邵ｺ・ｫ闖ｴ・ｿ邵ｺ繝ｻ
     {
         LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
         std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
         for (const LevelObjectData& objectData : allObjects) {
-            // 名前が Player のオブジェクトを開始位置として使う
+            // 陷ｷ讎顔√邵ｺ繝ｻPlayer 邵ｺ・ｮ郢ｧ・ｪ郢晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢晏現・帝ｫ｢蜿･・ｧ蛟ｶ・ｽ蜥ｲ・ｽ・ｮ邵ｺ・ｨ邵ｺ蜉ｱ窶ｻ闖ｴ・ｿ邵ｺ繝ｻ
             if (objectData.name == "Player") {
                 player_->SetSpawnPosition(objectData.translation);
                 break;
@@ -176,15 +226,30 @@ void GamePlayScene::Initialize()
     mapField_.LoadFromCsv("Resources/map.csv");
     player_->SetMap(&mapField_, tileSize_);
 
-    CreateMapObjects();
-    player_->SetFloorColliders(&floorColliders_);
-    player_->SetWallColliders(&wallColliders_);
-    SpawnEnemies();
+    // Initialize hot reload watching for the level JSON file.
+    levelHotReload_.Initialize(levelFilePath_);
+    // Load the level JSON and rebuild the player spawn, map objects, and enemies.
+    ReloadLevel(false);
 }
 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
+
+    // Count down the reload notice display time each frame.
+    if (reloadNoticeFrameCount_ > 0) {
+        reloadNoticeFrameCount_--;
+    }
+
+    // Reload the level JSON manually when F5 is pressed.
+    if (context_.input && context_.input->TriggerKey(DIK_F5)) {
+        ReloadLevel(true);
+    }
+
+    // Reload the level automatically after the file update becomes stable.
+    if (levelHotReload_.Update()) {
+        ReloadLevel(false);
+    }
 
     if (player_ && context_.input) {
         if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
@@ -259,13 +324,13 @@ void GamePlayScene::Update()
     }
 
     for (auto& enemy : enemies_) {
-        // 毎フレーム敵にプレイヤーの現在位置を渡す
+        // 雎亥ｼｱ繝ｵ郢晢ｽｬ郢晢ｽｼ郢晢｣ｰ隰ｨ・ｵ邵ｺ・ｫ郢晏干ﾎ樒ｹｧ・､郢晢ｽ､郢晢ｽｼ邵ｺ・ｮ霑ｴ・ｾ陜ｨ・ｨ闖ｴ蜥ｲ・ｽ・ｮ郢ｧ蜻茨ｽｸ・｡邵ｺ繝ｻ
         enemy->SetTargetPosition(player_->GetWorldPosition());
 
-        // 敵の更新を行う
+        // 隰ｨ・ｵ邵ｺ・ｮ隴厄ｽｴ隴・ｽｰ郢ｧ螳夲ｽ｡蠕娯鴬
         enemy->Update();
 
-        // 敵同士が重ならないように補正する
+        // 隰ｨ・ｵ陷ｷ謔滂ｽ｣・ｫ邵ｺ遒√裟邵ｺ・ｪ郢ｧ蟲ｨ竊醍ｸｺ繝ｻ・育ｸｺ繝ｻ竊馴勳諛茨ｽｭ・｣邵ｺ蜷ｶ・・
         ResolveEnemyOverlap();
     }
 
@@ -321,7 +386,7 @@ void GamePlayScene::Draw()
         wallObject->Draw();
     }
 
-    // 敵の視野をデバッグ線で可視化する
+    // 隰ｨ・ｵ邵ｺ・ｮ髫募､懊鎖郢ｧ蛛ｵ繝ｧ郢晁・繝｣郢ｧ・ｰ驍ｱ螢ｹ縲定愾・ｯ髫暮摩蝟ｧ邵ｺ蜷ｶ・・
     if (context_.camera && line3dCommon_) {
         enemyVisionDebug_.Reset();
 
@@ -419,6 +484,18 @@ void GamePlayScene::DrawImGui()
     ImGui::Text("Skybox and objects use this camera.");
     ImGui::End();
 
+    ImGui::Begin("Level Reload");
+    ImGui::Text("F5 : Manual Reload");
+    ImGui::Text("Watching : %s", levelHotReload_.GetFilePath().c_str());
+
+    if (reloadNoticeFrameCount_ > 0) {
+        ImGui::Text("%s", reloadNoticeText_.c_str());
+    } else {
+        ImGui::Text("Idle");
+    }
+
+    ImGui::End();
+
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->DrawDebugGameViewImGui();
         context_.offscreenRenderer->DrawImGui();
@@ -478,8 +555,8 @@ void GamePlayScene::CreateMapObjects()
     floorColliders_.clear();
     wallColliders_.clear();
 
-    LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
-    // 親子込みのワールド座標オブジェクト一覧を作る
+    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
+    // 髫包ｽｪ陝・頃・ｾ・ｼ邵ｺ・ｿ邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生縺檎ｹ晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢昜ｺ包ｽｸﾂ髫包ｽｧ郢ｧ蜑・ｽｽ諛奇ｽ・
     std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
     for (const LevelObjectData& objectData : allObjects) {
@@ -490,7 +567,7 @@ void GamePlayScene::CreateMapObjects()
         if (objectData.name.rfind("Enemy_", 0) == 0 || objectData.name.rfind("enemy_", 0) == 0) {
             continue;
         }
-        // Player は開始位置用なのでマップオブジェクトとしては描画しない
+        // Player 邵ｺ・ｯ鬮｢蜿･・ｧ蛟ｶ・ｽ蜥ｲ・ｽ・ｮ騾包ｽｨ邵ｺ・ｪ邵ｺ・ｮ邵ｺ・ｧ郢晄ｧｭ繝｣郢晏干縺檎ｹ晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢晏現竊堤ｸｺ蜉ｱ窶ｻ邵ｺ・ｯ隰蜀怜愛邵ｺ蜉ｱ竊醍ｸｺ繝ｻ
         if (objectData.name == "Player") {
             continue;
         }
@@ -540,44 +617,44 @@ void GamePlayScene::CreateMapObjects()
 
 void GamePlayScene::SpawnEnemies()
 {
-    // 既存の敵を消す
+    // 隴鯉ｽ｢陝・･繝ｻ隰ｨ・ｵ郢ｧ蜻茨ｽｶ蛹ｻ笘・
     enemies_.clear();
 
-    // Blender から出力した JSON を読み込む
-    LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
+    // Blender 邵ｺ荵晢ｽ芽怎・ｺ陷牙ｸ呻ｼ邵ｺ繝ｻJSON 郢ｧ螳夲ｽｪ・ｭ邵ｺ・ｿ髴趣ｽｼ郢ｧﾂ
+    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
 
-    // 敵の初期位置を名前ごとに保持する
+    // 隰ｨ・ｵ邵ｺ・ｮ陋ｻ譎・ｄ闖ｴ蜥ｲ・ｽ・ｮ郢ｧ雋樣倹陷鷹亂・・ｸｺ・ｨ邵ｺ・ｫ闖ｫ譎・亜邵ｺ蜷ｶ・・
     std::unordered_map<std::string, Vector3> enemySpawnMap;
 
-    // 敵ごとの waypoint を番号付きで保持する
+    // 隰ｨ・ｵ邵ｺ譁絶・邵ｺ・ｮ waypoint 郢ｧ蝣､蛻・愾・ｷ闔牙･窶ｳ邵ｺ・ｧ闖ｫ譎・亜邵ｺ蜷ｶ・・
     std::unordered_map<std::string, std::vector<std::pair<int, Vector3>>> enemyWaypointMap;
 
-    // 親子込みのワールド座標オブジェクト一覧を作る
+    // 髫包ｽｪ陝・頃・ｾ・ｼ邵ｺ・ｿ邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生縺檎ｹ晄じ縺夂ｹｧ・ｧ郢ｧ・ｯ郢昜ｺ包ｽｸﾂ髫包ｽｧ郢ｧ蜑・ｽｽ諛奇ｽ・
     std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
     for (const LevelObjectData& objectData : allObjects) {
         const std::string& name = objectData.name;
 
-        // Enemy_00_Waypoint_00 形式の経路点を集める
+        // Enemy_00_Waypoint_00 陟厄ｽ｢陟台ｸ翫・驍ｨ迹夲ｽｷ・ｯ霓､・ｹ郢ｧ蟶晏ｯ皮ｹｧ竏夲ｽ・
         size_t waypointPos = name.find("_Waypoint_");
         if (waypointPos != std::string::npos) {
             std::string enemyName = name.substr(0, waypointPos);
             std::string indexText = name.substr(waypointPos + std::string("_Waypoint_").size());
             int waypointIndex = std::stoi(indexText);
 
-            // waypoint のワールド座標を保存する
+            // waypoint 邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥・ｺ・ｧ隶灘生・定将譎擾ｽｭ蛟･笘・ｹｧ繝ｻ
             enemyWaypointMap[enemyName].push_back({ waypointIndex, objectData.translation });
             continue;
         }
 
-        // Enemy_ で始まるものを敵の初期位置として使う
+        // Enemy_ 邵ｺ・ｧ陝倶ｹ昶穐郢ｧ荵晢ｽらｸｺ・ｮ郢ｧ蜻磯峅邵ｺ・ｮ陋ｻ譎・ｄ闖ｴ蜥ｲ・ｽ・ｮ邵ｺ・ｨ邵ｺ蜉ｱ窶ｻ闖ｴ・ｿ邵ｺ繝ｻ
         if (name.rfind("Enemy_", 0) == 0 || name.rfind("enemy_", 0) == 0) {
-            // 敵のワールド初期位置を保存する
+            // 隰ｨ・ｵ邵ｺ・ｮ郢晢ｽｯ郢晢ｽｼ郢晢ｽｫ郢晉甥繝ｻ隴帶ｻ会ｽｽ蜥ｲ・ｽ・ｮ郢ｧ蜑・ｽｿ譎擾ｽｭ蛟･笘・ｹｧ繝ｻ
             enemySpawnMap[name] = objectData.translation;
         }
     }
 
-    // JSON 上の敵定義から敵を生成する
+    // JSON 闕ｳ鄙ｫ繝ｻ隰ｨ・ｵ陞ｳ螟ゑｽｾ・ｩ邵ｺ荵晢ｽ芽ｬｨ・ｵ郢ｧ蝣､蜃ｽ隰瑚・笘・ｹｧ繝ｻ
     for (const auto& enemyEntry : enemySpawnMap) {
         const std::string& enemyName = enemyEntry.first;
         const Vector3& spawnPosition = enemyEntry.second;
@@ -585,12 +662,12 @@ void GamePlayScene::SpawnEnemies()
         auto enemy = std::make_unique<Enemy>();
         enemy->Initialize(context_.object3dCommon, context_.camera, spawnPosition);
 
-        // 既存の参照もそのまま渡しておく
+        // 隴鯉ｽ｢陝・･繝ｻ陷ｿ繧峨・郢ｧ繧・落邵ｺ・ｮ邵ｺ・ｾ邵ｺ・ｾ雋ゑｽ｡邵ｺ蜉ｱ窶ｻ邵ｺ鄙ｫ・･
         enemy->SetMap(&mapField_, tileSize_);
         enemy->SetFloorColliders(&floorColliders_);
         enemy->SetWallColliders(&wallColliders_);
 
-        // waypoint を番号順に並べる
+        // waypoint 郢ｧ蝣､蛻・愾・ｷ鬯・・竊楢叉・ｦ邵ｺ・ｹ郢ｧ繝ｻ
         std::vector<Vector3> waypoints;
         auto found = enemyWaypointMap.find(enemyName);
         if (found != enemyWaypointMap.end()) {
@@ -608,7 +685,7 @@ void GamePlayScene::SpawnEnemies()
             }
         }
 
-        // JSON の経路点を敵へ渡す
+        // JSON 邵ｺ・ｮ驍ｨ迹夲ｽｷ・ｯ霓､・ｹ郢ｧ蜻磯峅邵ｺ・ｸ雋ゑｽ｡邵ｺ繝ｻ
         enemy->SetWaypoints(waypoints);
 
         enemies_.push_back(std::move(enemy));

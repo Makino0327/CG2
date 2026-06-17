@@ -20,6 +20,7 @@
 #include "../../game/camera/FollowCamera.h"
 #include "../../game/enemy/Enemy.h"
 #include "../../game/map/MapChipField.h"
+#include "../../engine/utils/LevelHotReload.h"
 
 #include "../LevelLoader.h"
 
@@ -50,6 +51,10 @@ private:
     void CreateMapObjects();
     // 敵をマップ内の空きマスに再生成する
     void SpawnEnemies();
+    // レベルJSONを読み直して、配置物と敵とプレイヤー初期位置をまとめて再構築する
+    void ReloadLevel(bool isManualReload);
+    // 読み込んだレベルデータからプレイヤーのスポーン位置を更新する
+    void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -99,4 +104,13 @@ private:
 
     // Blender JSON から読んだ壁コライダーを保持する
     std::vector<LevelColliderData> wallColliders_;
+
+    // レベルJSONの更新監視を担当する
+    LevelHotReload levelHotReload_;
+    // 監視対象のレベルJSONパス
+    std::string levelFilePath_ = "Resources/level/testScene.json";
+    // ImGuiに表示するリロード通知メッセージ
+    std::string reloadNoticeText_;
+    // ImGuiに通知を出しておく残りフレーム数
+    uint32_t reloadNoticeFrameCount_ = 0;
 };
