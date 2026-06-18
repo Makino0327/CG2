@@ -127,6 +127,10 @@ private:
 	// ライト用の定数バッファリソース
 	Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 	DirectionalLight* directionalLightData_ = nullptr;
+
+	// Shared light intensity for all Object3d instances.
+	static float lightIntensity_;
+
 	Microsoft::WRL::ComPtr<ID3D12Resource> cameraResource_;
 	CameraForGPU* cameraData_ = nullptr;
 
