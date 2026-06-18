@@ -43,17 +43,17 @@ public:
     void DrawImGui() override;
 
 private:
-    // プレイヤーと敵と弾の当たり判定をまとめて処理する
+    // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
-    // マップCSVから床と壁のオブジェクトを作る
+    // マップCSVとレベルデータから床と壁のオブジェクトを作る
     void CreateMapObjects();
-    // 敵をマップ内の空きマスに再生成する
+    // レベルデータから敵を生成する
     void SpawnEnemies();
-    // レベルJSONを読み直して、配置物と敵とプレイヤー初期位置をまとめて再構築する
+    // レベルデータを読み直してゲーム内オブジェクトを再構築する
     void ReloadLevel(bool isManualReload);
-    // 読み込んだレベルデータからプレイヤーのスポーン位置を更新する
+    // レベルデータからプレイヤーのスポーン位置を更新する
     void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
 private:
     std::unique_ptr<Object3d> object3d_;
@@ -82,35 +82,35 @@ private:
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
 
     /// 敵
-    // 敵を複数管理する
+    // 現在出現している敵
     std::vector<std::unique_ptr<Enemy>> enemies_;
-    // 出現させる敵の数
+    // 自動配置で出現させる敵の数
     uint32_t enemyCount_ = 10;
-    // プレイヤーから敵を配置する半径
+    // プレイヤー周辺に敵を自動配置するときの半径
     float enemySpawnRadius_ = 8.0f;
 
     /// マップ
-    // マップCSVの内容を保持する
+    // 読み込んだマップチップ情報
     MapChipField mapField_;
     // 1マス分の大きさ
     float tileSize_ = 2.0f;
-    // 床マスの描画用オブジェクトを持つ
+    // レベルデータから作った床オブジェクト
     std::vector<std::unique_ptr<Object3d>> floorObjects_;
-    // 壁マスの描画用オブジェクトを持つ
+    // レベルデータから作った壁オブジェクト
     std::vector<std::unique_ptr<Object3d>> wallObjects_;
 
-    // Blender JSON から読んだ床コライダーを保持する
+    // Blender JSONから読み込んだ床コライダー
     std::vector<LevelColliderData> floorColliders_;
 
-    // Blender JSON から読んだ壁コライダーを保持する
+    // Blender JSONから読み込んだ壁コライダー
     std::vector<LevelColliderData> wallColliders_;
 
-    // レベルJSONの更新監視を担当する
+    // レベルJSONの更新を監視する
     LevelHotReload levelHotReload_;
-    // 監視対象のレベルJSONパス
+    // 監視して再読み込みするレベルJSONのパス
     std::string levelFilePath_ = "Resources/level/testScene.json";
-    // ImGuiに表示するリロード通知メッセージ
+    // リロード後にImGuiへ表示するメッセージ
     std::string reloadNoticeText_;
-    // ImGuiに通知を出しておく残りフレーム数
+    // リロード通知をImGuiに表示する残りフレーム数
     uint32_t reloadNoticeFrameCount_ = 0;
 };
