@@ -3,6 +3,10 @@
 #include "../model/Model.h"
 #include "../model/ModelManager.h"
 
+#ifdef USE_IMGUI
+#include "../../../externals/imgui/imgui.h"
+#endif
+
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
     object3dCommon_ = object3dCommon;
@@ -456,4 +460,20 @@ void Object3d::ApplySkinningCompute()
     // 描画用の ResourceState へ戻したことを記録する
     skinCluster_.skinnedVertexCurrentState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
 
+}
+
+void Object3d::DrawLightImGui()
+{
+#ifdef USE_IMGUI
+    if (!directionalLightData_) {
+        return;
+    }
+
+    ImGui::Begin("Object Light");
+
+    // ライトの強さをImGuiで調整する
+    ImGui::DragFloat("Intensity", &directionalLightData_->intensity, 0.01f, 0.0f, 3.0f);
+
+    ImGui::End();
+#endif
 }

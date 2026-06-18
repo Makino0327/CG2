@@ -45,6 +45,8 @@ public:
 
 	void Draw();
 
+	void DrawLightImGui();
+
 	void DrawInstanced(UINT instanceCount);
 
 	static MaterialData  LoadMaterialTemplateFile(
