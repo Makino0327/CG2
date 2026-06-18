@@ -7,6 +7,9 @@
 #include "../../../externals/imgui/imgui.h"
 #endif
 
+// Shared light intensity for all Object3d instances.
+float Object3d::lightIntensity_ = 0.2f;
+
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
     object3dCommon_ = object3dCommon;
@@ -127,6 +130,9 @@ void Object3d::Draw()
 
     object3dCommon_->CommonDrawSetting();
 
+    // Apply the shared light intensity before drawing.
+    directionalLightData_->intensity = lightIntensity_;
+
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
@@ -218,7 +224,7 @@ void Object3d::InitializeDirectionalLight()
 
     directionalLightData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
     directionalLightData_->direction = Vector3(0.0f, -1.0f, 0.0f);
-    directionalLightData_->intensity = 0.2f;
+    directionalLightData_->intensity = lightIntensity_;
 }
 
 void Object3d::InitializeCameraForGPU()
@@ -312,6 +318,9 @@ void Object3d::DrawInstanced(UINT instanceCount)
     ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
     object3dCommon_->CommonDrawSetting();
+
+    // Apply the shared light intensity before drawing.
+    directionalLightData_->intensity = lightIntensity_;
 
     commandList->SetGraphicsRootConstantBufferView(
         0, materialResource_->GetGPUVirtualAddress());
@@ -471,8 +480,8 @@ void Object3d::DrawLightImGui()
 
     ImGui::Begin("Object Light");
 
-    // ライトの強さをImGuiで調整する
-    ImGui::DragFloat("Intensity", &directionalLightData_->intensity, 0.01f, 0.0f, 3.0f);
+    // Edit the shared light intensity from ImGui.
+    ImGui::DragFloat("Intensity", &lightIntensity_, 0.01f, 0.0f, 3.0f);
 
     ImGui::End();
 #endif
