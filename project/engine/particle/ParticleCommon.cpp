@@ -16,12 +16,18 @@ void ParticleCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 
 }
 
-void ParticleCommon::CommonDrawSetting()
+void ParticleCommon::CommonDrawSetting(ParticleBlendMode blendMode)
 {
     auto* commandList = dxCommon_->GetCommandList();
 
     commandList->SetGraphicsRootSignature(rootSignature_.Get());
-    commandList->SetPipelineState(pipelineState_.Get());
+
+    // エフェクトの用途に応じて加算合成と通常アルファ合成を切り替える
+    if (blendMode == ParticleBlendMode::Alpha) {
+        commandList->SetPipelineState(alphaPipelineState_.Get());
+    } else {
+        commandList->SetPipelineState(pipelineState_.Get());
+    }
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // ★ SrvManager のヒープをセット
@@ -173,6 +179,16 @@ void ParticleCommon::CreateGraphicsPipelineState()
     desc.SampleDesc.Count = 1;
 
     HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // 血や煙など発光しないエフェクト用の通常アルファ合成PSOを作る
+    D3D12_BLEND_DESC alphaBlendDesc = blendDesc;
+    alphaBlendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    desc.BlendState = alphaBlendDesc;
+
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(alphaPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }
 

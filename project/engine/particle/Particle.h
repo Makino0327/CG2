@@ -9,6 +9,7 @@
 #include "../base/srv/SrvManager.h"
 #include "Ring.h"
 #include "Cylinder.h"
+#include "ParticleCommon.h"
 
 class DirectXCommon;
 class ParticleCommon;
@@ -136,6 +137,9 @@ public:
     void ShowImGui(const char* windowName);
     void SetCamera(Camera* camera) { camera_ = camera; }
 
+    // パーティクルシステム単位で描画時の合成方式を設定する
+    void SetBlendMode(ParticleBlendMode blendMode) { blendMode_ = blendMode; }
+
 
     // エミッターのワールド座標を設定する
     void SetPosition(const Vector3& pos) { emitterPosition_ = pos; }
@@ -232,6 +236,9 @@ private:
     ParticleData          particles_[kNumInstance];
     ParticleEmitterParam  emitterParam_{};
     ParticleType          currentType_ = ParticleType::CircleBurst;
+
+    // 初期状態は発光エフェクト向けの加算合成を使用する
+    ParticleBlendMode blendMode_ = ParticleBlendMode::Additive;
 
     // エミッターのワールド座標
     Vector3 emitterPosition_{ 0.0f, 0.0f, 0.0f };
