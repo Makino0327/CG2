@@ -12,10 +12,15 @@
 
 #include "../../scene/LevelLoader.h"
 
+class ParticleSystem;
+
 class Player
 {
 public:
-    void Initialize(Object3dCommon* object3dCommon, Input* input);
+    void Initialize(
+        Object3dCommon* object3dCommon,
+        Input* input,
+        ParticleSystem* particleSystem);
 
     void Update(Camera* camera);
 
@@ -106,6 +111,9 @@ private:
     // 3Dオブジェクト共通設定を保持する
     Object3dCommon* object3dCommon_ = nullptr;
 
+    // プレイヤー弾が共有する軌跡用パーティクルシステム
+    ParticleSystem* particleSystem_ = nullptr;
+
     // 移動関係のパラメータ
     float moveSpeed_ = 0.2f;
     float velocityY_ = 0.0f;
@@ -156,7 +164,7 @@ private:
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;
 
     // 弾の速度
-    float bulletSpeed_ = 0.5f;
+    float bulletSpeed_ = 1.4f;
 
     // 弾の発射位置の高さ
     float bulletSpawnHeight_ = 0.5f;

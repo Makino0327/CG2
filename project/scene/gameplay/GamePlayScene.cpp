@@ -197,6 +197,15 @@ void GamePlayScene::Initialize()
 
     debugCamera_ = std::make_unique<DebugCamera>();
 
+    // 全プレイヤー弾で共有する軌跡用パーティクルを作る
+    particleSystem_ = std::make_unique<ParticleSystem>();
+    particleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::CircleBurst);
+
     player_ = std::make_unique<Player>();
 
     // Player初期化前に、BlenderのレベルデータからPlayer配置を読む
@@ -213,7 +222,10 @@ void GamePlayScene::Initialize()
         }
     }
 
-    player_->Initialize(context_.object3dCommon, context_.input);
+    player_->Initialize(
+        context_.object3dCommon,
+        context_.input,
+        particleSystem_.get());
 
     followCamera_ = std::make_unique<FollowCamera>();
     followCamera_->Initialize(context_.camera);
@@ -366,10 +378,6 @@ void GamePlayScene::Draw()
         skybox_->Draw();
     }
 
-    context_.particleCommon->CommonDrawSetting();
-
-    if (particleSystem_) { particleSystem_->Draw(); }
-
     if (player_) {
         player_->Draw();
     }
@@ -384,6 +392,11 @@ void GamePlayScene::Draw()
 
     for (auto& wallObject : wallObjects_) {
         wallObject->Draw();
+    }
+
+    // 透明な加算パーティクルは床や壁に上書きされないよう最後に描画する
+    if (particleSystem_) {
+        particleSystem_->Draw();
     }
 
     // 敵の視界範囲をデバッグ線で描画する

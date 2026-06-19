@@ -7,6 +7,7 @@
 #include "../../scene/LevelLoader.h"
 class Camera;
 class Input;
+class ParticleSystem;
 
 class PlayerBullet
 {
@@ -15,7 +16,8 @@ public:
         Object3dCommon* object3dCommon,
         const Vector3& position,
         const Vector3& velocity,
-        const std::vector<LevelColliderData>* wallColliders);
+        const std::vector<LevelColliderData>* wallColliders,
+        ParticleSystem* particleSystem);
 
     void Update();
     void Draw();
@@ -36,8 +38,14 @@ public:
 private:
     static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
 
+    // 1フレームの移動区間へ多層の発光粒子を並べる
+    void EmitTrail(const Vector3& start, const Vector3& end);
+
 private:
     std::unique_ptr<Object3d> object_;
+
+    // 弾が通過した位置へ軌跡を生成する共有パーティクルシステム
+    ParticleSystem* particleSystem_ = nullptr;
 
     // 弾の位置
     Vector3 position_ = { 0.0f, 0.0f, 0.0f };

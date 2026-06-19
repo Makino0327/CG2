@@ -1,10 +1,17 @@
 #include "Player.h"
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
+#include "../../engine/particle/Particle.h"
 
-void Player::Initialize(Object3dCommon* object3dCommon, Input* input)
+void Player::Initialize(
+    Object3dCommon* object3dCommon,
+    Input* input,
+    ParticleSystem* particleSystem)
 {
     input_ = input;
+
+    // 弾の軌跡を生成する共有パーティクルを保存する
+    particleSystem_ = particleSystem;
     // 3D描画の共通設定を保存する
     object3dCommon_ = object3dCommon;
 
@@ -472,7 +479,61 @@ void Player::FireBullet(Camera* camera)
         object3dCommon_,
         firePosition,
         velocity,
-        wallColliders_);
+        wallColliders_,
+        particleSystem_);
+
+    if (particleSystem_) {
+        // 発射口の外側へ広がるオレンジ色の光を作る
+        particleSystem_->Emit(
+            firePosition,
+            { 0.8f, 0.8f, 0.8f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.34f, 0.05f, 0.16f },
+            0.10f);
+
+        // 発射口の中央へ黄色い閃光を重ねる
+        particleSystem_->Emit(
+            firePosition,
+            { 0.42f, 0.42f, 0.42f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.72f, 0.22f, 0.55f },
+            0.07f);
+
+        // 最も明るい白い中心光を重ねる
+        particleSystem_->Emit(
+            firePosition,
+            { 0.16f, 0.16f, 0.16f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.95f, 0.72f, 0.9f },
+            0.045f);
+
+        // 発射方向に対して左右へ小さな火花を配置する
+        Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
+        Vector3 leftFlashPosition = {
+            firePosition.x + sideDirection.x * 0.18f,
+            firePosition.y,
+            firePosition.z + sideDirection.z * 0.18f
+        };
+        Vector3 rightFlashPosition = {
+            firePosition.x - sideDirection.x * 0.18f,
+            firePosition.y,
+            firePosition.z - sideDirection.z * 0.18f
+        };
+
+        particleSystem_->Emit(
+            leftFlashPosition,
+            { 0.18f, 0.18f, 0.18f },
+            { sideDirection.x * 0.6f, 0.0f, sideDirection.z * 0.6f },
+            { 1.0f, 0.46f, 0.08f, 0.4f },
+            0.08f);
+
+        particleSystem_->Emit(
+            rightFlashPosition,
+            { 0.18f, 0.18f, 0.18f },
+            { -sideDirection.x * 0.6f, 0.0f, -sideDirection.z * 0.6f },
+            { 1.0f, 0.46f, 0.08f, 0.4f },
+            0.08f);
+    }
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));

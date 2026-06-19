@@ -1,16 +1,19 @@
 #include "PlayerBullet.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "../camera/Camera.h"
 #include "../../engine/input/Input.h"
 #include "../../engine/base/winapp/WinApp.h"
+#include "../../engine/particle/Particle.h"
 
 void PlayerBullet::Initialize(
     Object3dCommon* object3dCommon,
     const Vector3& position,
     const Vector3& velocity,
-    const std::vector<LevelColliderData>* wallColliders)
+    const std::vector<LevelColliderData>* wallColliders,
+    ParticleSystem* particleSystem)
 {
     // 初期位置を保存する
     position_ = position;
@@ -20,6 +23,9 @@ void PlayerBullet::Initialize(
 
     // Blender JSON の壁コライダー一覧を保存する
     wallColliders_ = wallColliders;
+
+    // 全プレイヤー弾で共有する軌跡用パーティクルを保存する
+    particleSystem_ = particleSystem;
 
     // 弾オブジェクトを作る
     object_ = std::make_unique<Object3d>();
@@ -31,7 +37,16 @@ void PlayerBullet::Initialize(
     object_->SetModel("bullet/bullet.obj");
 
     // 大きさを設定する
-    object_->SetScale(scale_);
+    // 弾本体を細長くして光の芯として見せる
+    object_->SetScale({ 0.30f, 0.30f, 0.30f });
+
+    // 細長くしたZ軸を弾の進行方向へ向ける
+    float bulletAngle = std::atan2(velocity_.x, velocity_.z);
+    object_->SetRotate({ 0.0f, bulletAngle, 0.0f });
+
+    // ライトの影響を受けない明るい黄色にする
+    object_->SetColor({ 1.0f, 0.92f, 0.34f, 1.0f });
+    object_->GetMaterial()->lightingType = static_cast<int>(LightingType::None);
 
     // 位置を設定する
     object_->SetTranslate(position_);
@@ -44,7 +59,11 @@ void PlayerBullet::Update()
     }
 
     // 弾を進める
+    Vector3 previousPosition = position_;
     position_ = Add(position_, velocity_);
+
+    // 現在位置へ加算合成の粒子を残して発光する軌跡を作る
+    EmitTrail(previousPosition, position_);
 
     // Blender JSON の壁コライダーに入ったら弾を消す
     if (wallColliders_) {
@@ -108,6 +127,58 @@ void PlayerBullet::Draw()
 
     // 弾を描画する
     object_->Draw();
+}
+
+void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
+{
+    if (!particleSystem_) {
+        return;
+    }
+
+    // 高速移動しても軌跡に隙間ができないよう移動区間を細かく分割する
+    constexpr int kDivisionCount = 24;
+
+    for (int index = 0; index < kDivisionCount; ++index) {
+        float t = static_cast<float>(index) /
+            static_cast<float>(kDivisionCount - 1);
+
+        Vector3 trailPosition = {
+            start.x + (end.x - start.x) * t,
+            start.y + (end.y - start.y) * t,
+            start.z + (end.z - start.z) * t
+        };
+
+        // 暗い橙から淡い金色へ滑らかに変化させる
+        float green = 0.18f + (0.60f * t);
+        float blue = 0.025f + (0.15f * t);
+
+        // 先端側を早く消して後ろへ自然なグラデーションを残す
+        float lifeTime = 0.095f - (0.065f * t);
+
+        // 軌跡の外側へ薄い光を重ねる
+        particleSystem_->Emit(
+            trailPosition,
+            { 0.40f, 0.40f, 0.40f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, green, blue, 0.10f },
+            lifeTime);
+
+        // 軌跡の中心へ細く明るい線を重ねる
+        particleSystem_->Emit(
+            trailPosition,
+            { 0.15f, 0.15f, 0.15f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, green, blue, 0.62f },
+            lifeTime);
+    }
+
+    // 弾頭へ大きめの丸い黄色いグローを重ねる
+    particleSystem_->Emit(
+        end,
+        { 0.55f, 0.55f, 0.55f },
+        { 0.0f, 0.0f, 0.0f },
+        { 1.0f, 0.86f, 0.28f, 0.48f },
+        0.035f);
 }
 
 SphereCollider PlayerBullet::GetCollider() const
