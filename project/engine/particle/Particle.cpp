@@ -79,6 +79,7 @@ void ParticleSystem::Initialize(
         dxCommon_->CreateBufferResource(sizeof(ParticleForGPU) * kNumInstance);
 
     InitializeGPUParticleResource();
+    InitializeManualParticleResource();
     InitializePerViewResource();
 
     // GPU発生用のEmitter情報を作る
@@ -209,6 +210,121 @@ void ParticleSystem::ApplyPreset(ParticleType type)
 
 }
 
+bool ParticleSystem::Emit(
+    const Vector3& position,
+    const Vector3& scale,
+    const Vector3& velocity,
+    const Vector4& color,
+    float lifeTime)
+{
+    // 寿命がない場合や初期化前の場合は生成しない
+    if (lifeTime <= 0.0f || !manualParticleData_) {
+        return false;
+    }
+
+    // 前回使用した位置の続きから空きを探す
+    for (uint32_t offset = 0; offset < kNumInstance; ++offset) {
+        uint32_t index = (manualEmitCursor_ + offset) % kNumInstance;
+        ManualParticle& particle = manualParticles_[index];
+
+        if (particle.isAlive) {
+            continue;
+        }
+
+        // フェード処理に使用する初期値を保存する
+        particle.isAlive = true;
+        particle.initialScale = scale;
+        particle.initialColor = color;
+
+        // GPUへ送るパーティクル情報を設定する
+        particle.gpuData.translate = position;
+        particle.gpuData.scale = scale;
+        particle.gpuData.velocity = velocity;
+        particle.gpuData.lifeTime = lifeTime;
+        particle.gpuData.currentTime = 0.0f;
+        particle.gpuData.color = color;
+
+        // 今フレームから描画できるようにGPUバッファへ反映する
+        manualParticleData_[index] = particle.gpuData;
+
+        // 次回は今回使用した位置の次から空きを探す
+        manualEmitCursor_ = (index + 1) % kNumInstance;
+        return true;
+    }
+
+    // 全パーティクルが使用中の場合は生成できない
+    return false;
+}
+
+void ParticleSystem::UpdateManualParticles(float deltaTime)
+{
+    if (!manualParticleData_) {
+        return;
+    }
+
+    for (uint32_t index = 0; index < kNumInstance; ++index) {
+        ManualParticle& particle = manualParticles_[index];
+
+        if (!particle.isAlive) {
+            continue;
+        }
+
+        // パーティクルの経過時間を進める
+        particle.gpuData.currentTime += deltaTime;
+
+        // 寿命を迎えたパーティクルを非表示にする
+        if (particle.gpuData.currentTime >= particle.gpuData.lifeTime) {
+            KillManualParticle(index);
+            continue;
+        }
+
+        // 速度に応じて位置を更新する
+        particle.gpuData.translate.x += particle.gpuData.velocity.x * deltaTime;
+        particle.gpuData.translate.y += particle.gpuData.velocity.y * deltaTime;
+        particle.gpuData.translate.z += particle.gpuData.velocity.z * deltaTime;
+
+        // 寿命の進行度を0.0から1.0で求める
+        float progress = particle.gpuData.currentTime / particle.gpuData.lifeTime;
+
+        // 時間経過に応じて透明にする
+        particle.gpuData.color = particle.initialColor;
+        particle.gpuData.color.w = particle.initialColor.w * (1.0f - progress);
+
+        // 時間経過に応じて少し小さくする
+        float scaleRate = 1.0f - progress * 0.5f;
+        particle.gpuData.scale = {
+            particle.initialScale.x * scaleRate,
+            particle.initialScale.y * scaleRate,
+            particle.initialScale.z * scaleRate
+        };
+
+        // 更新結果をGPUバッファへ反映する
+        manualParticleData_[index] = particle.gpuData;
+    }
+}
+
+void ParticleSystem::KillManualParticle(uint32_t index)
+{
+    ManualParticle& particle = manualParticles_[index];
+
+    // CPU側を未使用状態へ戻す
+    particle.isAlive = false;
+    particle.initialScale = { 0.0f, 0.0f, 0.0f };
+    particle.initialColor = { 1.0f, 1.0f, 1.0f, 0.0f };
+
+    // GPU側も完全に非表示にする
+    particle.gpuData.translate = { 0.0f, 0.0f, 0.0f };
+    particle.gpuData.scale = { 0.0f, 0.0f, 0.0f };
+    particle.gpuData.velocity = { 0.0f, 0.0f, 0.0f };
+    particle.gpuData.lifeTime = 0.0f;
+    particle.gpuData.currentTime = 0.0f;
+    particle.gpuData.color = { 1.0f, 1.0f, 1.0f, 0.0f };
+
+    if (manualParticleData_) {
+        manualParticleData_[index] = particle.gpuData;
+    }
+}
+
 ParticleData ParticleSystem::MakeNewParticle()
 {
     // ランダム値の分布を用意する
@@ -303,6 +419,9 @@ void ParticleSystem::Update(float deltaTime)
     // VertexShader で使うビュー情報を更新する
     perViewData_->viewProjection = camera_->GetViewProjectionMatrix();
     perViewData_->billboardMatrix = camera_->GetBillboardMatrix();
+
+    // Emit関数で生成した手動パーティクルを更新する
+    UpdateManualParticles(deltaTime);
 
 
     // // Cylinder は動かさず、その場に1本だけ置く
@@ -496,6 +615,25 @@ void ParticleSystem::Draw()
         }
     }
 
+    // t0を手動パーティクルのStructuredBufferへ切り替える
+    cmd->SetGraphicsRootDescriptorTable(0, manualParticleSrvHandleGPU_);
+
+    // 手動パーティクルも同じ加算合成設定で描画する
+    if (meshType_ == EffectMeshType::Plane) {
+        Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
+        if (model) {
+            model->DrawInstanced(kNumInstance);
+        }
+    } else if (meshType_ == EffectMeshType::Ring) {
+        if (ring_) {
+            ring_->DrawInstanced(kNumInstance);
+        }
+    } else if (meshType_ == EffectMeshType::Cylinder) {
+        if (cylinder_) {
+            cylinder_->DrawInstanced(kNumInstance);
+        }
+    }
+
 }
 
 void ParticleSystem::ShowImGui(const char* windowName)
@@ -578,6 +716,39 @@ void ParticleSystem::SetMeshType(EffectMeshType type)
     // // 形状を変えたときに以前の粒子を消しておく
     for (uint32_t i = 0; i < kNumInstance; ++i) {
         particles_[i] = MakeDeadParticle();
+    }
+}
+
+void ParticleSystem::InitializeManualParticleResource()
+{
+    // CPUから毎フレーム書き込めるStructuredBufferを作る
+    manualParticleResource_ =
+        dxCommon_->CreateBufferResource(sizeof(ParticleCS) * kNumInstance);
+
+    // CPUから書き込めるようにMapする
+    HRESULT hr = manualParticleResource_->Map(
+        0,
+        nullptr,
+        reinterpret_cast<void**>(&manualParticleData_));
+    assert(SUCCEEDED(hr));
+
+    // VertexShaderから読み込むためのSRVを確保する
+    assert(srvManager_->CanAllocate());
+    manualParticleSrvIndex_ = srvManager_->Allocate();
+
+    srvManager_->CreateSRVforStructuredBuffer(
+        manualParticleSrvIndex_,
+        manualParticleResource_.Get(),
+        kNumInstance,
+        sizeof(ParticleCS));
+
+    // 描画時に使用するGPUハンドルを保存する
+    manualParticleSrvHandleGPU_ =
+        srvManager_->GetGPUDescriptorHandle(manualParticleSrvIndex_);
+
+    // 最初は全パーティクルを非表示にする
+    for (uint32_t index = 0; index < kNumInstance; ++index) {
+        KillManualParticle(index);
     }
 }
 

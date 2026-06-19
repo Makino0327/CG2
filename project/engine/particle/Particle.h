@@ -140,6 +140,14 @@ public:
     // エミッターのワールド座標を設定する
     void SetPosition(const Vector3& pos) { emitterPosition_ = pos; }
 
+    // 任意の位置へ手動でパーティクルを1個生成する
+    bool Emit(
+        const Vector3& position,
+        const Vector3& scale,
+        const Vector3& velocity,
+        const Vector4& color,
+        float lifeTime);
+
     // 初期化後にプリセットを切り替える
     void ApplyPreset(ParticleType type);
 
@@ -152,6 +160,21 @@ private:
     static const uint32_t kNumInstance = 1024;
     static const uint32_t kInstancingSrvIndex = 10;
 
+    // 手動生成したパーティクルのCPU側管理情報
+    struct ManualParticle {
+        // GPUへ送るパーティクル情報
+        ParticleCS gpuData{};
+
+        // フェード前の初期サイズ
+        Vector3 initialScale{ 0.0f, 0.0f, 0.0f };
+
+        // フェード前の初期色
+        Vector4 initialColor{ 1.0f, 1.0f, 1.0f, 0.0f };
+
+        // 現在使用中か
+        bool isAlive = false;
+    };
+
     DirectXCommon* dxCommon_ = nullptr;
     ParticleCommon* particleCommon_ = nullptr;
     Camera* camera_ = nullptr;
@@ -163,6 +186,24 @@ private:
 
     // GPU Particle 本体を保持する Resource
     Microsoft::WRL::ComPtr<ID3D12Resource> particleResource_;
+
+    // 手動パーティクルをVertexShaderへ渡すStructuredBuffer
+    Microsoft::WRL::ComPtr<ID3D12Resource> manualParticleResource_;
+
+    // Mapした手動パーティクルバッファの書き込み先
+    ParticleCS* manualParticleData_ = nullptr;
+
+    // 手動パーティクル用SRV番号
+    uint32_t manualParticleSrvIndex_ = 0;
+
+    // 手動パーティクル用SRVのGPUハンドル
+    D3D12_GPU_DESCRIPTOR_HANDLE manualParticleSrvHandleGPU_{};
+
+    // 手動生成したパーティクル一覧
+    ManualParticle manualParticles_[kNumInstance]{};
+
+    // 次に空きを探し始める配列位置
+    uint32_t manualEmitCursor_ = 0;
 
     // GPU Particle 用の SRV index
     uint32_t particleSrvIndex_ = 0;
@@ -244,6 +285,15 @@ private:
 
     // GPU Particle 用 Resource と View を作る
     void InitializeGPUParticleResource();
+
+    // 手動パーティクル用StructuredBufferを作る
+    void InitializeManualParticleResource();
+
+    // 手動生成したパーティクルを更新する
+    void UpdateManualParticles(float deltaTime);
+
+    // 指定した手動パーティクルを非表示にする
+    void KillManualParticle(uint32_t index);
 
     // VertexShader 用の PerView 定数バッファを作る
     void InitializePerViewResource();
