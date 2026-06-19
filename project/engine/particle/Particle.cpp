@@ -577,7 +577,7 @@ void ParticleSystem::Update(float deltaTime)
 
 void ParticleSystem::Draw()
 {
-    particleCommon_->CommonDrawSetting();
+    particleCommon_->CommonDrawSetting(blendMode_);
     ID3D12GraphicsCommandList* cmd = dxCommon_->GetCommandList();
 
     // t0: インスタンシング用 StructuredBuffer

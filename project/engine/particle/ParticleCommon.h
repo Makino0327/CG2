@@ -3,11 +3,17 @@
 #include "../base/DirectX/DirectXCommon.h"
 #include "../base/srv/SrvManager.h"
 
+// パーティクル描画で使用する合成方式
+enum class ParticleBlendMode {
+	Additive,
+	Alpha,
+};
+
 class ParticleCommon
 {
 public:
 	void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
-	void CommonDrawSetting();
+	void CommonDrawSetting(ParticleBlendMode blendMode = ParticleBlendMode::Additive);
 
 	DirectXCommon* GetDxCommon() const { return dxCommon_; }
 	// Particle 初期化用 ComputeShader の設定を commandList に入れる
@@ -45,6 +51,7 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> alphaPipelineState_;
 	
 	SrvManager* srvManager_ = nullptr;
 
