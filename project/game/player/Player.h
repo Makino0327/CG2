@@ -167,7 +167,10 @@ private:
     float bulletSpeed_ = 1.4f;
 
     // 弾の発射位置の高さ
-    float bulletSpawnHeight_ = 0.5f;
+    float bulletSpawnHeight_ = 0.7f;
+
+    // プレイヤー中心から射出口までの前方向距離
+    float bulletMuzzleDistance_ = 1.6f;
 
     // Blender JSON から読んだ床コライダー一覧
     const std::vector<LevelColliderData>* floorColliders_ = nullptr;

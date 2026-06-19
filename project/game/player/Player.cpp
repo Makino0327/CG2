@@ -464,6 +464,10 @@ void Player::FireBullet(Camera* camera)
         camera,
         input_);
 
+    // 弾と発射エフェクトをプレイヤー中心ではなく射出口へ移動する
+    firePosition.x += direction.x * bulletMuzzleDistance_;
+    firePosition.z += direction.z * bulletMuzzleDistance_;
+
     // 発射速度を作る
     Vector3 velocity = {
         direction.x * bulletSpeed_,
@@ -486,38 +490,38 @@ void Player::FireBullet(Camera* camera)
         // 発射口の外側へ広がるオレンジ色の光を作る
         particleSystem_->Emit(
             firePosition,
-            { 0.8f, 0.8f, 0.8f },
+            { 1.2f, 1.2f, 1.2f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, 0.34f, 0.05f, 0.16f },
-            0.10f);
+            { 1.0f, 0.34f, 0.05f, 0.38f },
+            0.16f);
 
         // 発射口の中央へ黄色い閃光を重ねる
         particleSystem_->Emit(
             firePosition,
-            { 0.42f, 0.42f, 0.42f },
+            { 0.68f, 0.68f, 0.68f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, 0.72f, 0.22f, 0.55f },
-            0.07f);
+            { 1.0f, 0.72f, 0.22f, 0.9f },
+            0.11f);
 
         // 最も明るい白い中心光を重ねる
         particleSystem_->Emit(
             firePosition,
-            { 0.16f, 0.16f, 0.16f },
+            { 0.30f, 0.30f, 0.30f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, 0.95f, 0.72f, 0.9f },
-            0.045f);
+            { 1.0f, 0.95f, 0.72f, 1.0f },
+            0.075f);
 
         // 発射方向に対して左右へ小さな火花を配置する
         Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
         Vector3 leftFlashPosition = {
-            firePosition.x + sideDirection.x * 0.18f,
+            firePosition.x + sideDirection.x * 0.30f,
             firePosition.y,
-            firePosition.z + sideDirection.z * 0.18f
+            firePosition.z + sideDirection.z * 0.30f
         };
         Vector3 rightFlashPosition = {
-            firePosition.x - sideDirection.x * 0.18f,
+            firePosition.x - sideDirection.x * 0.30f,
             firePosition.y,
-            firePosition.z - sideDirection.z * 0.18f
+            firePosition.z - sideDirection.z * 0.30f
         };
 
         particleSystem_->Emit(

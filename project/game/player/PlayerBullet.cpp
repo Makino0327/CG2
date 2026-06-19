@@ -64,6 +64,7 @@ void PlayerBullet::Update()
 
     // 現在位置へ加算合成の粒子を残して発光する軌跡を作る
     EmitTrail(previousPosition, position_);
+    EmitSparks();
 
     // Blender JSON の壁コライダーに入ったら弾を消す
     if (wallColliders_) {
@@ -126,7 +127,7 @@ void PlayerBullet::Draw()
     }
 
     // 弾を描画する
-    object_->Draw();
+    //object_->Draw();
 }
 
 void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
@@ -186,6 +187,74 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         { 0.0f, 0.0f, 0.0f },
         { 1.0f, 0.86f, 0.28f, 0.48f },
         0.035f);
+}
+
+void PlayerBullet::EmitSparks()
+{
+    if (!particleSystem_) {
+        return;
+    }
+
+    // 粒子数が増えすぎないよう2フレームごとに火花を出す
+    sparkFrame_++;
+    if ((sparkFrame_ % 2) != 0) {
+        return;
+    }
+
+    Vector3 direction = Normalize(velocity_);
+    Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
+
+    // 発生方向が機械的に見えないよう左右の強さを交互に変える
+    float variation = ((sparkFrame_ / 2) % 2 == 0) ? 1.0f : 0.65f;
+
+    Vector3 leftPosition = {
+        position_.x + sideDirection.x * 0.16f,
+        position_.y + 0.04f,
+        position_.z + sideDirection.z * 0.16f
+    };
+    Vector3 rightPosition = {
+        position_.x - sideDirection.x * 0.13f,
+        position_.y - 0.03f,
+        position_.z - sideDirection.z * 0.13f
+    };
+
+    // 左側へ剥がれる金色の火花
+    particleSystem_->Emit(
+        leftPosition,
+        { 0.11f, 0.11f, 0.11f },
+        {
+            sideDirection.x * 2.8f * variation - direction.x * 0.8f,
+            0.8f,
+            sideDirection.z * 2.8f * variation - direction.z * 0.8f
+        },
+        { 1.0f, 0.72f, 0.18f, 0.85f },
+        0.16f);
+
+    // 右側へ剥がれる濃い橙色の火花
+    particleSystem_->Emit(
+        rightPosition,
+        { 0.085f, 0.085f, 0.085f },
+        {
+            -sideDirection.x * 2.2f - direction.x * 1.0f,
+            -0.35f,
+            -sideDirection.z * 2.2f - direction.z * 1.0f
+        },
+        { 1.0f, 0.38f, 0.06f, 0.78f },
+        0.20f);
+
+    // ときどき上方向へ小さな白黄色の火花を追加する
+    if ((sparkFrame_ % 4) == 0) {
+        particleSystem_->Emit(
+            position_,
+            { 0.07f, 0.07f, 0.07f },
+            {
+                sideDirection.x * 0.8f,
+                1.8f,
+                sideDirection.z * 0.8f
+            },
+            { 1.0f, 0.9f, 0.45f, 0.9f },
+            0.13f);
+    }
 }
 
 SphereCollider PlayerBullet::GetCollider() const

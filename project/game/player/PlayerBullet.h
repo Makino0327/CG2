@@ -41,11 +41,17 @@ private:
     // 1フレームの移動区間へ多層の発光粒子を並べる
     void EmitTrail(const Vector3& start, const Vector3& end);
 
+    // 弾の周囲へ短時間で消える火花を生成する
+    void EmitSparks();
+
 private:
     std::unique_ptr<Object3d> object_;
 
     // 弾が通過した位置へ軌跡を生成する共有パーティクルシステム
     ParticleSystem* particleSystem_ = nullptr;
+
+    // 火花の生成間隔を管理するフレームカウンター
+    int sparkFrame_ = 0;
 
     // 弾の位置
     Vector3 position_ = { 0.0f, 0.0f, 0.0f };
