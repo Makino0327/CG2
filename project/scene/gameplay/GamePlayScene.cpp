@@ -206,6 +206,16 @@ void GamePlayScene::Initialize()
         context_.srvManager,
         ParticleType::CircleBurst);
 
+    // 血しぶきは発光しない通常アルファ合成で描画する
+    bloodParticleSystem_ = std::make_unique<ParticleSystem>();
+    bloodParticleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::CircleBurst);
+    bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
+
     player_ = std::make_unique<Player>();
 
     // Player初期化前に、BlenderのレベルデータからPlayer配置を読む
@@ -276,6 +286,7 @@ void GamePlayScene::Update()
 
     if (skybox_) { skybox_->Update(); }
     if (particleSystem_) { particleSystem_->Update(dt); }
+    if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
 
     if (debugCamera_ && context_.isDebugMode) {
         debugCamera_->Update(
@@ -395,6 +406,11 @@ void GamePlayScene::Draw()
     }
 
     // 透明な加算パーティクルは床や壁に上書きされないよう最後に描画する
+    // 血しぶきは発光する弾エフェクトより先に描画する
+    if (bloodParticleSystem_) {
+        bloodParticleSystem_->Draw();
+    }
+
     if (particleSystem_) {
         particleSystem_->Draw();
     }
@@ -423,6 +439,7 @@ void GamePlayScene::Finalize()
 
     object3d_.reset();
     particleSystem_.reset();
+    bloodParticleSystem_.reset();
     skybox_.reset();
     skyboxCommon_.reset();
     line3dCommon_.reset();
@@ -465,8 +482,19 @@ void GamePlayScene::CheckCollisions()
             }
 
             if (Collision::IsHit(bullet->GetCollider(), enemy->GetCollider())) {
+                Vector3 hitDirection = Normalize(bullet->GetVelocity());
+                SphereCollider enemyCollider = enemy->GetCollider();
+                SphereCollider bulletCollider = bullet->GetCollider();
+
+                // 弾が入ってきた側の敵コライダー表面を命中位置にする
+                Vector3 hitPosition = {
+                    enemyCollider.center.x - hitDirection.x * enemyCollider.radius,
+                    bulletCollider.center.y,
+                    enemyCollider.center.z - hitDirection.z * enemyCollider.radius
+                };
+
                 bullet->OnHit();
-                enemy->OnHit();
+                enemy->OnHit(hitPosition, hitDirection);
                 break;
             }
         }
@@ -679,6 +707,7 @@ void GamePlayScene::SpawnEnemies()
 
         auto enemy = std::make_unique<Enemy>();
         enemy->Initialize(context_.object3dCommon, context_.camera, spawnPosition);
+        enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
 
         // 敵にもプレイヤーと同じマップとコライダー情報を渡す
         enemy->SetMap(&mapField_, tileSize_);

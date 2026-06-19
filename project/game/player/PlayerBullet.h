@@ -30,6 +30,9 @@ public:
 
     bool IsDead() const { return isDead_; }
 
+    // 命中エフェクトへ弾の進行方向を渡すため速度を返す
+    const Vector3& GetVelocity() const { return velocity_; }
+
     static Vector3 CalcDirectionToMouseGround(
         const Vector3& startPosition,
         Camera* camera,

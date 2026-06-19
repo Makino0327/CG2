@@ -64,6 +64,9 @@ private:
     std::vector<std::unique_ptr<Sprite>> sprites_;
     std::unique_ptr<ParticleSystem> particleSystem_;
 
+    // 全敵で共有する通常アルファ合成の血しぶき用パーティクル
+    std::unique_ptr<ParticleSystem> bloodParticleSystem_;
+
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 

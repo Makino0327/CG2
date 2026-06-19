@@ -11,6 +11,7 @@
 #include "../../scene/LevelLoader.h"
 
 class Object3dCommon;
+class ParticleSystem;
 
 class Enemy
 {
@@ -34,7 +35,15 @@ public:
     SphereCollider GetCollider() const;
 
     // 被弾時の処理を行う
-    void OnHit();
+    void OnHit(const Vector3& hitPosition, const Vector3& hitDirection);
+
+    // シーンが所有する血しぶき用パーティクルを設定する
+    void SetBloodParticleSystem(ParticleSystem* particleSystem) {
+        bloodParticleSystem_ = particleSystem;
+    }
+
+    // 現在HPを返す
+    int GetHp() const { return hp_; }
 
     // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
@@ -81,6 +90,9 @@ private:
     // 壁コライダーとの衝突を解決する
     void ResolveWallCollision(Vector3& pos);
     bool CheckTargetInSight() const;
+
+    // 被弾方向へ血しぶきを生成する
+    void EmitBloodSplatter(const Vector3& hitPosition, const Vector3& hitDirection);
 private:
     // 敵の移動と描画を管理する
     WaypointMover waypointMover_;
@@ -99,6 +111,15 @@ private:
 
     // 撃破フラグ
     bool isDead_ = false;
+
+    // 敵の現在HP
+    int hp_ = 3;
+
+    // 敵の最大HP
+    int maxHp_ = 3;
+
+    // シーンで共有する血しぶき用パーティクル
+    ParticleSystem* bloodParticleSystem_ = nullptr;
 
     // 追跡対象の位置
     Vector3 targetPosition_ = { 0.0f, 0.0f, 0.0f };
