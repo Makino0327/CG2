@@ -45,7 +45,7 @@ void PlayerBullet::Initialize(
     object_->SetRotate({ 0.0f, bulletAngle, 0.0f });
 
     // ライトの影響を受けない明るい黄色にする
-    object_->SetColor({ 1.0f, 0.92f, 0.34f, 1.0f });
+    object_->SetColor({ 1.0f, 0.92f, 0.34f, 0.65f });
     object_->GetMaterial()->lightingType = static_cast<int>(LightingType::None);
 
     // 位置を設定する
@@ -148,19 +148,26 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             start.z + (end.z - start.z) * t
         };
 
-        // 暗い橙から淡い金色へ滑らかに変化させる
-        float green = 0.18f + (0.60f * t);
-        float blue = 0.025f + (0.15f * t);
+        // 境目が帯状にならないよう滑らかな補間率へ変換する
+        float smoothT = t * t * (3.0f - 2.0f * t);
+
+        // 外光は柔らかい橙から金色へ変化させる
+        float outerGreen = 0.20f + (0.50f * smoothT);
+        float outerBlue = 0.025f + (0.11f * smoothT);
+
+        // 中心光は金色から白に近い黄色へ変化させる
+        float coreGreen = 0.30f + (0.52f * smoothT);
+        float coreBlue = 0.035f + (0.23f * smoothT);
 
         // 先端側を早く消して後ろへ自然なグラデーションを残す
-        float lifeTime = 0.095f - (0.065f * t);
+        float lifeTime = 0.16f - (0.10f * smoothT);
 
         // 軌跡の外側へ薄い光を重ねる
         particleSystem_->Emit(
             trailPosition,
             { 0.40f, 0.40f, 0.40f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, green, blue, 0.10f },
+            { 1.0f, outerGreen, outerBlue, 0.24f },
             lifeTime);
 
         // 軌跡の中心へ細く明るい線を重ねる
@@ -168,7 +175,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             trailPosition,
             { 0.15f, 0.15f, 0.15f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, green, blue, 0.62f },
+            { 1.0f, coreGreen, coreBlue, 0.92f },
             lifeTime);
     }
 
