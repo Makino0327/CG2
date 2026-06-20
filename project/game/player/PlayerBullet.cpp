@@ -62,9 +62,8 @@ void PlayerBullet::Update()
     Vector3 previousPosition = position_;
     position_ = Add(position_, velocity_);
 
-    // 現在位置へ加算合成の粒子を残して発光する軌跡を作る
+    // 点状の火花を重ねず、移動区間へ連続した発光軌跡だけを作る
     EmitTrail(previousPosition, position_);
-    EmitSparks();
 
     // Blender JSON の壁コライダーに入ったら弾を消す
     if (wallColliders_) {
@@ -136,12 +135,14 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         return;
     }
 
-    // 高速移動しても軌跡に隙間ができないよう移動区間を細かく分割する
-    constexpr int kDivisionCount = 24;
+    // 丸い粒子の中心間隔を狭くし、加算合成の明るさを均一にする
+    constexpr int kDivisionCount = 48;
 
     for (int index = 0; index < kDivisionCount; ++index) {
-        float t = static_cast<float>(index) /
-            static_cast<float>(kDivisionCount - 1);
+        // 区間の端ではなく各分割の中央へ置き、フレーム境界の粒子重複を防ぐ
+        const float t =
+            (static_cast<float>(index) + 0.5f) /
+            static_cast<float>(kDivisionCount);
 
         Vector3 trailPosition = {
             start.x + (end.x - start.x) * t,
@@ -149,44 +150,26 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             start.z + (end.z - start.z) * t
         };
 
-        // 境目が帯状にならないよう滑らかな補間率へ変換する
-        float smoothT = t * t * (3.0f - 2.0f * t);
+        // 後ろ側の赤橙色から先端側の黄色へ滑らかに変化させる
+        const float trailGreen = 0.22f + 0.40f * t;
+        const float trailBlue = 0.015f + 0.065f * t;
 
-        // 外光は柔らかい橙から金色へ変化させる
-        float outerGreen = 0.20f + (0.50f * smoothT);
-        float outerBlue = 0.025f + (0.11f * smoothT);
-
-        // 中心光は金色から白に近い黄色へ変化させる
-        float coreGreen = 0.30f + (0.52f * smoothT);
-        float coreBlue = 0.035f + (0.23f * smoothT);
-
-        // 先端側を早く消して後ろへ自然なグラデーションを残す
-        float lifeTime = 0.16f - (0.10f * smoothT);
-
-        // 軌跡の外側へ薄い光を重ねる
+        // 粒子を少し大きくし、密に重ねて太めの一本線に見せる
         particleSystem_->Emit(
             trailPosition,
-            { 0.40f, 0.40f, 0.40f },
+            { 0.30f, 0.30f, 0.30f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, outerGreen, outerBlue, 0.24f },
-            lifeTime);
-
-        // 軌跡の中心へ細く明るい線を重ねる
-        particleSystem_->Emit(
-            trailPosition,
-            { 0.15f, 0.15f, 0.15f },
-            { 0.0f, 0.0f, 0.0f },
-            { 1.0f, coreGreen, coreBlue, 0.92f },
-            lifeTime);
+            { 1.0f, trailGreen, trailBlue, 0.20f },
+            0.11f);
     }
 
-    // 弾頭へ大きめの丸い黄色いグローを重ねる
+    // 軌跡の先端だけ少し明るくし、弾の現在位置を分かりやすくする
     particleSystem_->Emit(
         end,
-        { 0.55f, 0.55f, 0.55f },
+        { 0.38f, 0.38f, 0.38f },
         { 0.0f, 0.0f, 0.0f },
-        { 1.0f, 0.86f, 0.28f, 0.48f },
-        0.035f);
+        { 1.0f, 0.82f, 0.24f, 0.32f },
+        0.045f);
 }
 
 void PlayerBullet::EmitSparks()
