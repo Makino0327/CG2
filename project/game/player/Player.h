@@ -9,6 +9,7 @@
 #include "../camera/Camera.h"
 #include "../collision/Collision.h"
 #include "PlayerBullet.h"
+#include "PlayerGrenade.h"
 
 #include "../../scene/LevelLoader.h"
 
@@ -48,6 +49,17 @@ public:
 
     // プレイヤーが持つ弾一覧を参照できるようにする
     const std::vector<std::unique_ptr<PlayerBullet>>& GetBullets() const { return bullets_; }
+
+    // グレネード爆発によるカメラシェイク要求を一度だけ返す
+    bool ConsumeGrenadeShakeRequest();
+
+    // 未処理のグレネード爆発位置をSceneへまとめて渡す
+    std::vector<Vector3> ConsumeGrenadeExplosions();
+
+    // Sceneが所有する煙用の通常アルファパーティクルを設定する
+    void SetGrenadeSmokeParticleSystem(ParticleSystem* particleSystem) {
+        grenadeSmokeParticleSystem_ = particleSystem;
+    }
 
     // プレイヤーの現在HPを返す
     int GetHp() const { return hp_; }
@@ -90,6 +102,15 @@ private:
     // 弾を更新する
     void UpdateBullets();
 
+    // プレイヤーの向いている方向へグレネードを投げる
+    void ThrowGrenade(Camera* camera);
+
+    // 投げたグレネードを更新して、爆発後に削除する
+    void UpdateGrenades();
+
+    // 指定位置へ爆発パーティクルを発生させる
+    void EmitGrenadeExplosion(const Vector3& explosionPosition);
+
     // マウスの方向へプレイヤーを向ける
     void RotateToMouse(Camera* camera);
 
@@ -113,6 +134,9 @@ private:
 
     // プレイヤー弾が共有する軌跡用パーティクルシステム
     ParticleSystem* particleSystem_ = nullptr;
+
+    // グレネード爆発後に残す煙用パーティクルシステム
+    ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;
 
     // 移動関係のパラメータ
     float moveSpeed_ = 0.2f;
@@ -163,6 +187,15 @@ private:
     // プレイヤーが撃った弾
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;
 
+    // プレイヤーが投げたグレネード
+    std::vector<std::unique_ptr<PlayerGrenade>> grenades_;
+
+    // GamePlaySceneへまだ渡していないカメラシェイク要求
+    bool grenadeShakeRequested_ = false;
+
+    // 敵との爆発判定をまだ処理していない爆発位置
+    std::vector<Vector3> pendingGrenadeExplosions_;
+
     // 弾の速度
     float bulletSpeed_ = 1.4f;
 
@@ -171,6 +204,12 @@ private:
 
     // プレイヤー中心から射出口までの前方向距離
     float bulletMuzzleDistance_ = 1.6f;
+
+    // グレネードの投擲開始位置の高さ
+    float grenadeSpawnHeight_ = 0.8f;
+
+    // プレイヤー中心からグレネードを出す前方向距離
+    float grenadeMuzzleDistance_ = 0.8f;
 
     // Blender JSON から読んだ床コライダー一覧
     const std::vector<LevelColliderData>* floorColliders_ = nullptr;

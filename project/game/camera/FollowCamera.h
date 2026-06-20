@@ -16,6 +16,9 @@ public:
     // 追従対象のワールド座標を設定する
     void SetTarget(const Vector3& targetPosition);
 
+    // 指定した強さとフレーム数でカメラシェイクを開始する
+    void StartShake(float power = 0.85f, int durationFrames = 24);
+
 private:
     // 実際に動かすカメラ
     Camera* camera_ = nullptr;
@@ -31,6 +34,18 @@ private:
 
     // 追従のなめらかさ
     float easeRate_ = 0.08f;
+
+    // 追従補間だけを行った、シェイク前のカメラ位置
+    Vector3 smoothedPosition_ = { 0.0f, 0.0f, 0.0f };
+
+    // シェイクの最大振れ幅
+    float shakePower_ = 0.0f;
+
+    // シェイク全体のフレーム数
+    int shakeDurationFrames_ = 0;
+
+    // シェイクの残りフレーム数
+    int shakeRemainingFrames_ = 0;
 
     // 初回だけ補間なしで合わせるためのフラグ
     bool isFirstUpdate_ = true;

@@ -38,6 +38,9 @@ public:
     // 被弾時の処理を行う
     void OnHit(const Vector3& hitPosition, const Vector3& hitDirection);
 
+    // グレネードの爆発範囲へ入った敵を即死させる
+    void OnExplosionHit();
+
     // シーンが所有する血しぶき用パーティクルを設定する
     void SetBloodParticleSystem(ParticleSystem* particleSystem) {
         bloodParticleSystem_ = particleSystem;

@@ -45,6 +45,9 @@ public:
 private:
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
+
+    // グレネード爆発範囲に入った敵を即死させる
+    void CheckGrenadeExplosions();
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
     // マップCSVとレベルデータから床と壁のオブジェクトを作る
@@ -66,6 +69,9 @@ private:
 
     // 全敵で共有する通常アルファ合成の血しぶき用パーティクル
     std::unique_ptr<ParticleSystem> bloodParticleSystem_;
+
+    // グレネード爆発後に長く残す煙用パーティクル
+    std::unique_ptr<ParticleSystem> grenadeSmokeParticleSystem_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
@@ -91,6 +97,9 @@ private:
     uint32_t enemyCount_ = 10;
     // プレイヤー周辺に敵を自動配置するときの半径
     float enemySpawnRadius_ = 8.0f;
+
+    // グレネード爆発で敵を即死させる半径
+    float grenadeExplosionRadius_ = 4.0f;
 
     /// マップ
     // 読み込んだマップチップ情報

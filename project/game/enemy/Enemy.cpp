@@ -204,6 +204,19 @@ void Enemy::OnHit(const Vector3& hitPosition, const Vector3& hitDirection)
     }
 }
 
+void Enemy::OnExplosionHit()
+{
+    if (isDead_) {
+        return;
+    }
+
+    // 通常HPに関係なく、その場で撃破状態へ移行する
+    hp_ = 0;
+    isDead_ = true;
+
+    // 通常死亡と同じOBJ破片と血しぶき演出を開始する
+    StartDeathEffect();
+}
 void Enemy::EmitBloodSplatter(
     const Vector3& hitPosition,
     const Vector3& hitDirection)

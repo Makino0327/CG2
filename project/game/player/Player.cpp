@@ -1,6 +1,7 @@
 #include "Player.h"
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
+#include <random>
 #include "../../engine/particle/Particle.h"
 
 void Player::Initialize(
@@ -106,8 +107,14 @@ void Player::Update(Camera* camera)
         FireBullet(camera);
     }
 
-    // 弾を更新する
+    // Gキーを押した瞬間にグレネードを1個投げる
+    if (input_->TriggerKey(DIK_G)) {
+        ThrowGrenade(camera);
+    }
+
+    // 弾とグレネードを更新する
     UpdateBullets();
+    UpdateGrenades();
 
     // 無敵時間を減らす
     if (invincibleTimer_ > 0) {
@@ -142,6 +149,11 @@ void Player::Draw()
     // プレイヤーの弾を描画する
     for (auto& bullet : bullets_) {
         bullet->Draw();
+    }
+
+    // プレイヤーが投げたグレネードを描画する
+    for (auto& grenade : grenades_) {
+        grenade->Draw();
     }
 }
 
@@ -541,6 +553,188 @@ void Player::FireBullet(Camera* camera)
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));
+}
+
+void Player::ThrowGrenade(Camera* camera)
+{
+    if (!object_ || !camera || !input_) {
+        return;
+    }
+
+    // プレイヤーからマウス方向への水平な投擲方向を求める
+    Vector3 playerPosition = object_->GetTranslate();
+    Vector3 throwDirection = PlayerBullet::CalcDirectionToMouseGround(
+        playerPosition,
+        camera,
+        input_);
+
+    if (throwDirection.x == 0.0f && throwDirection.z == 0.0f) {
+        return;
+    }
+
+    // プレイヤーの少し上かつ前方を投擲開始位置にする
+    Vector3 throwPosition = {
+        playerPosition.x + throwDirection.x * grenadeMuzzleDistance_,
+        playerPosition.y + grenadeSpawnHeight_,
+        playerPosition.z + throwDirection.z * grenadeMuzzleDistance_
+    };
+
+    // Playerは生成と所有だけを担当し、飛行処理はPlayerGrenadeへ任せる
+    auto grenade = std::make_unique<PlayerGrenade>();
+    grenade->Initialize(
+        object3dCommon_,
+        camera,
+        throwPosition,
+        throwDirection,
+        floorColliders_,
+        wallColliders_);
+
+    grenades_.push_back(std::move(grenade));
+}
+
+void Player::UpdateGrenades()
+{
+    // 投げた全グレネードの物理挙動と爆発タイマーを更新する
+    for (auto& grenade : grenades_) {
+        grenade->Update();
+
+        Vector3 explosionPosition{};
+        if (grenade->ConsumeExplosion(explosionPosition)) {
+            // 爆発位置へパーティクルを出し、Sceneへシェイク開始を要求する
+            EmitGrenadeExplosion(explosionPosition);
+            grenadeShakeRequested_ = true;
+
+            // Scene側で敵への即死判定に使う爆発位置を保存する
+            pendingGrenadeExplosions_.push_back(explosionPosition);
+        }
+    }
+
+    // Explodeが終わったグレネードを一覧から削除する
+    grenades_.erase(
+        std::remove_if(
+            grenades_.begin(),
+            grenades_.end(),
+            [](const std::unique_ptr<PlayerGrenade>& grenade) {
+                return grenade->IsDead();
+            }),
+        grenades_.end());
+}
+
+bool Player::ConsumeGrenadeShakeRequest()
+{
+    // 要求が無ければカメラを揺らさない
+    if (!grenadeShakeRequested_) {
+        return false;
+    }
+
+    // 同じ爆発で何度も揺れないよう、返すと同時に要求を下ろす
+    grenadeShakeRequested_ = false;
+    return true;
+}
+
+std::vector<Vector3> Player::ConsumeGrenadeExplosions()
+{
+    // 保存中の爆発位置を呼び出し側へ移し、Player側を空にする
+    std::vector<Vector3> explosions;
+    explosions.swap(pendingGrenadeExplosions_);
+    return explosions;
+}
+void Player::EmitGrenadeExplosion(const Vector3& explosionPosition)
+{
+    if (!particleSystem_) {
+        return;
+    }
+
+    // 爆発ごとに飛ぶ方向と大きさを変える乱数を用意する
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> horizontalDistribution(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> upwardDistribution(0.25f, 1.0f);
+    std::uniform_real_distribution<float> speedDistribution(3.0f, 6.5f);
+    std::uniform_real_distribution<float> sizeDistribution(0.90f, 1.80f);
+    std::uniform_real_distribution<float> lifeDistribution(0.30f, 0.65f);
+
+    // 中心から全方向へ火球の粒子を飛ばす
+    constexpr int kExplosionParticleCount = 80;
+    for (int index = 0; index < kExplosionParticleCount; ++index) {
+        Vector3 direction = {
+            horizontalDistribution(randomEngine),
+            upwardDistribution(randomEngine),
+            horizontalDistribution(randomEngine)
+        };
+        direction = Normalize(direction);
+
+        const float speed = speedDistribution(randomEngine);
+        const float size = sizeDistribution(randomEngine);
+
+        Vector3 velocity = {
+            direction.x * speed,
+            direction.y * speed,
+            direction.z * speed
+        };
+
+        // 中心は黄色、外へ飛ぶ粒子は赤橙色を混ぜる
+        Vector4 color = (index % 3 == 0)
+            ? Vector4{ 1.0f, 0.20f, 0.015f, 0.70f }
+            : Vector4{ 1.0f, 0.58f, 0.045f, 0.78f };
+
+        particleSystem_->Emit(
+            explosionPosition,
+            { size, size, size },
+            velocity,
+            color,
+            lifeDistribution(randomEngine));
+    }
+
+    // 爆発中心へ短時間だけ大きな白黄色の閃光を重ねる
+    particleSystem_->Emit(
+        explosionPosition,
+        { 6.5f, 6.5f, 6.5f },
+        { 0.0f, 0.0f, 0.0f },
+        { 1.0f, 0.90f, 0.42f, 0.85f },
+        0.16f);
+
+    // 少し遅れて残る赤い火球を中心へ追加する
+    particleSystem_->Emit(
+        explosionPosition,
+        { 4.2f, 4.2f, 4.2f },
+        { 0.0f, 0.35f, 0.0f },
+        { 0.95f, 0.12f, 0.015f, 0.62f },
+        0.48f);
+
+    if (grenadeSmokeParticleSystem_) {
+        // 小さい粒子を多数重ね、上へ漂いながら長く残る細かな煙を作る
+        std::uniform_real_distribution<float> smokeSideDistribution(-1.05f, 1.05f);
+        std::uniform_real_distribution<float> smokeUpDistribution(0.30f, 1.15f);
+        std::uniform_real_distribution<float> smokeSizeDistribution(0.55f, 1.20f);
+        std::uniform_real_distribution<float> smokeLifeDistribution(1.3f, 2.3f);
+
+        constexpr int kSmokeParticleCount = 64;
+        for (int index = 0; index < kSmokeParticleCount; ++index) {
+            const float smokeSize = smokeSizeDistribution(randomEngine);
+            Vector3 smokePosition = {
+                explosionPosition.x + smokeSideDistribution(randomEngine) * 0.55f,
+                explosionPosition.y + 0.25f,
+                explosionPosition.z + smokeSideDistribution(randomEngine) * 0.55f
+            };
+            Vector3 smokeVelocity = {
+                smokeSideDistribution(randomEngine),
+                smokeUpDistribution(randomEngine),
+                smokeSideDistribution(randomEngine)
+            };
+
+            // 濃い灰色と焦げ茶色を混ぜ、火球とは別の煙に見せる
+            Vector4 smokeColor = (index % 3 == 0)
+                ? Vector4{ 0.16f, 0.11f, 0.08f, 0.27f }
+                : Vector4{ 0.12f, 0.12f, 0.12f, 0.22f };
+
+            grenadeSmokeParticleSystem_->Emit(
+                smokePosition,
+                { smokeSize, smokeSize, smokeSize },
+                smokeVelocity,
+                smokeColor,
+                smokeLifeDistribution(randomEngine));
+        }
+    }
 }
 
 void Player::UpdateBullets()

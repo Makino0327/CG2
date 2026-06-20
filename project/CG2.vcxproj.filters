@@ -71,6 +71,7 @@
     <ClCompile Include="engine\animation\SkinCluster.cpp" />
     <ClCompile Include="game\camera\DebugCamera.cpp" />
     <ClCompile Include="game\player\PlayerBullet.cpp" />
+    <ClCompile Include="game\player\PlayerGrenade.cpp" />
     <ClCompile Include="game\camera\FollowCamera.cpp" />
     <ClCompile Include="game\enemy\Enemy.cpp" />
     <ClCompile Include="game\collision\Collision.cpp" />
@@ -126,6 +127,7 @@
     <ClInclude Include="engine\animation\SkinCluster.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
+    <ClInclude Include="game\player\PlayerGrenade.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\collision\Collision.h" />

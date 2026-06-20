@@ -154,6 +154,8 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("cube.obj");
     ModelManager::GetInstance()->LoadModel("player/player.obj");
     ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
+    // Gキーで投げるグレネードモデルを読み込む
+    ModelManager::GetInstance()->LoadModel("grenade/grenade.obj");
     ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
     ModelManager::GetInstance()->LoadModel("block/block.obj");
 
@@ -216,6 +218,16 @@ void GamePlayScene::Initialize()
         ParticleType::CircleBurst);
     bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
 
+    // 爆発後の煙は発光させず、通常アルファ合成で長く残す
+    grenadeSmokeParticleSystem_ = std::make_unique<ParticleSystem>();
+    grenadeSmokeParticleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::Smoke);
+    grenadeSmokeParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
+
     player_ = std::make_unique<Player>();
 
     // Player初期化前に、BlenderのレベルデータからPlayer配置を読む
@@ -236,6 +248,9 @@ void GamePlayScene::Initialize()
         context_.object3dCommon,
         context_.input,
         particleSystem_.get());
+
+    // グレネード爆発後の煙用パーティクルをPlayerへ渡す
+    player_->SetGrenadeSmokeParticleSystem(grenadeSmokeParticleSystem_.get());
 
     followCamera_ = std::make_unique<FollowCamera>();
     followCamera_->Initialize(context_.camera);
@@ -287,6 +302,7 @@ void GamePlayScene::Update()
     if (skybox_) { skybox_->Update(); }
     if (particleSystem_) { particleSystem_->Update(dt); }
     if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
+    if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
 
     if (debugCamera_ && context_.isDebugMode) {
         debugCamera_->Update(
@@ -326,10 +342,18 @@ void GamePlayScene::Update()
 
     if (player_) {
         player_->Update(context_.camera);
+
+        // Player更新中に発生したグレネード爆発を敵へ反映する
+        CheckGrenadeExplosions();
     }
     if (context_.camera) { context_.camera->Update(); }
 
     if (player_ && followCamera_) {
+        // グレネード爆発通知を受け取ったフレームからカメラを揺らす
+        if (player_->ConsumeGrenadeShakeRequest()) {
+            followCamera_->StartShake();
+        }
+
         followCamera_->SetTarget(player_->GetWorldPosition());
         followCamera_->Update();
     }
@@ -407,6 +431,11 @@ void GamePlayScene::Draw()
 
     // 透明な加算パーティクルは床や壁に上書きされないよう最後に描画する
     // 血しぶきは発光する弾エフェクトより先に描画する
+    // 煙を発光エフェクトより先に通常アルファ合成で描画する
+    if (grenadeSmokeParticleSystem_) {
+        grenadeSmokeParticleSystem_->Draw();
+    }
+
     if (bloodParticleSystem_) {
         bloodParticleSystem_->Draw();
     }
@@ -440,6 +469,7 @@ void GamePlayScene::Finalize()
     object3d_.reset();
     particleSystem_.reset();
     bloodParticleSystem_.reset();
+    grenadeSmokeParticleSystem_.reset();
     skybox_.reset();
     skyboxCommon_.reset();
     line3dCommon_.reset();
@@ -454,6 +484,38 @@ void GamePlayScene::Finalize()
     enemies_.clear();
 }
 
+void GamePlayScene::CheckGrenadeExplosions()
+{
+    if (!player_) {
+        return;
+    }
+
+    // このフレームに発生した全爆発位置をPlayerから受け取る
+    const std::vector<Vector3> explosionPositions =
+        player_->ConsumeGrenadeExplosions();
+    const float explosionRadiusSq =
+        grenadeExplosionRadius_ * grenadeExplosionRadius_;
+
+    for (const Vector3& explosionPosition : explosionPositions) {
+        for (auto& enemy : enemies_) {
+            if (enemy->IsDead()) {
+                continue;
+            }
+
+            const Vector3 enemyPosition = enemy->GetWorldPosition();
+            const float diffX = enemyPosition.x - explosionPosition.x;
+            const float diffY = enemyPosition.y - explosionPosition.y;
+            const float diffZ = enemyPosition.z - explosionPosition.z;
+            const float distanceSq =
+                diffX * diffX + diffY * diffY + diffZ * diffZ;
+
+            // 爆発半径内なら残りHPに関係なく即死させる
+            if (distanceSq <= explosionRadiusSq) {
+                enemy->OnExplosionHit();
+            }
+        }
+    }
+}
 void GamePlayScene::CheckCollisions()
 {
     if (!player_) {
