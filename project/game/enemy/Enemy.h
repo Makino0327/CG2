@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <array>
 #include <memory>
 
 #include "../../engine/3d/obj3d/DebugLine3D.h"
@@ -48,6 +49,9 @@ public:
     // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
 
+    // 死亡演出が終わり、敵を配列から削除してよいか返す
+    bool IsReadyToRemove() const { return isReadyToRemove_; }
+
     // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
     void SetWaypoints(const std::vector<Vector3>& waypoints);
@@ -93,6 +97,18 @@ private:
 
     // 被弾方向へ血しぶきを生成する
     void EmitBloodSplatter(const Vector3& hitPosition, const Vector3& hitDirection);
+
+    // 死亡時の大きな血しぶきと破片を開始する
+    void StartDeathEffect();
+
+    // 死亡時の大きな血しぶきを敵の中心から発生させる
+    void EmitDeathBurst();
+
+    // 飛んでいる敵の破片を更新する
+    void UpdateDeathFragments();
+
+    // 指定したXZ座標にある床の高さを取得する
+    bool GetGroundHeight(float x, float z, float& groundY) const;
 private:
     // 敵の移動と描画を管理する
     WaypointMover waypointMover_;
@@ -161,4 +177,43 @@ private:
 
     // 前フレームで追跡していたか
     bool wasChasing_ = false;
+
+    // 敵OBJを再利用した破片1個分の情報
+    struct DeathFragment {
+        // 破片として描画する3Dオブジェクト
+        std::unique_ptr<Object3d> object;
+
+        // 現在位置
+        Vector3 position = { 0.0f, 0.0f, 0.0f };
+
+        // 現在の回転
+        Vector3 rotation = { 0.0f, 0.0f, 0.0f };
+
+        // 移動速度
+        Vector3 velocity = { 0.0f, 0.0f, 0.0f };
+
+        // 回転速度
+        Vector3 angularVelocity = { 0.0f, 0.0f, 0.0f };
+
+        // 破片の大きさ
+        Vector3 scale = { 0.25f, 0.25f, 0.25f };
+
+        // 床に落ちて停止したか
+        bool isLanded = false;
+    };
+
+    // 死亡時に飛ばす破片
+    std::array<DeathFragment, 7> deathFragments_;
+
+    // 破片生成に使用する描画共通情報
+    Object3dCommon* object3dCommon_ = nullptr;
+
+    // 破片へ設定するカメラ
+    Camera* camera_ = nullptr;
+
+    // 死亡演出の経過時間
+    float deathEffectTimer_ = 0.0f;
+
+    // 死亡演出終了後、削除可能になったか
+    bool isReadyToRemove_ = false;
 };

@@ -505,7 +505,8 @@ void GamePlayScene::CheckCollisions()
             enemies_.begin(),
             enemies_.end(),
             [](const std::unique_ptr<Enemy>& enemy) {
-                return enemy->IsDead();
+                // 死亡直後には消さず、破片演出が終わってから削除する
+                return enemy->IsReadyToRemove();
             }),
         enemies_.end());
 }

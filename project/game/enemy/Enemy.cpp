@@ -24,9 +24,17 @@ namespace {
 
 void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vector3& position)
 {
+    // 死亡時の破片生成に使用する情報を保存する
+    object3dCommon_ = object3dCommon;
+    camera_ = camera;
+
     // 再生成時はHPと死亡状態を初期値へ戻す
     hp_ = maxHp_;
     isDead_ = false;
+
+    // 死亡演出の状態も初期化する
+    deathEffectTimer_ = 0.0f;
+    isReadyToRemove_ = false;
 
     // 初期位置を設定する
     position_ = position;
@@ -46,8 +54,14 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
 
 void Enemy::Update()
 {
+    // 死亡後は通常移動を止め、破片だけを更新する
+    if (isDead_) {
+        UpdateDeathFragments();
+        return;
+    }
+
     Object3d* object = waypointMover_.GetObject3d();
-    if (!object || isDead_) {
+    if (!object) {
         return;
     }
 
@@ -127,12 +141,18 @@ void Enemy::Update()
 
 void Enemy::Draw()
 {
-    if (isDead_) {
+    // 生存中は通常の敵モデルを描画する
+    if (!isDead_) {
+        waypointMover_.Draw();
         return;
     }
 
-    // WaypointMover 経由で描画する
-    waypointMover_.Draw();
+    // 死亡後は敵モデルの代わりに破片を描画する
+    for (DeathFragment& fragment : deathFragments_) {
+        if (fragment.object) {
+            fragment.object->Draw();
+        }
+    }
 }
 
 void Enemy::SetPosition(const Vector3& position)
@@ -173,8 +193,14 @@ void Enemy::OnHit(const Vector3& hitPosition, const Vector3& hitDirection)
 
     // HPが0になったときだけ撃破扱いにする
     if (hp_ <= 0) {
+        // HPを0で止める
         hp_ = 0;
+
+        // 死亡状態にして、通常の敵モデルを非表示にする
         isDead_ = true;
+
+        // 大きな血しぶきとOBJ破片を発生させる
+        StartDeathEffect();
     }
 }
 
@@ -262,6 +288,270 @@ void Enemy::EmitBloodSplatter(
         0.22f);
 }
 
+void Enemy::StartDeathEffect()
+{
+    // 死亡演出の時間を最初から開始する
+    deathEffectTimer_ = 0.0f;
+    isReadyToRemove_ = false;
+
+    // 敵の中心から通常より大きな血しぶきを出す
+    EmitDeathBurst();
+
+    // 毎回同じ飛び方にならないよう乱数を用意する
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> offsetDistribution(-0.45f, 0.45f);
+    std::uniform_real_distribution<float> sideVelocityDistribution(-2.8f, 2.8f);
+    std::uniform_real_distribution<float> upVelocityDistribution(3.5f, 6.0f);
+    std::uniform_real_distribution<float> rotationDistribution(-3.14f, 3.14f);
+    std::uniform_real_distribution<float> angularDistribution(-7.0f, 7.0f);
+    std::uniform_real_distribution<float> scaleDistribution(0.18f, 0.32f);
+
+    for (DeathFragment& fragment : deathFragments_) {
+        // enemy.objを小さく表示するObject3dを作る
+        fragment.object = std::make_unique<Object3d>();
+        fragment.object->Initialize(object3dCommon_);
+        fragment.object->SetCamera(camera_);
+        fragment.object->SetModel("enemy/enemy.obj");
+
+        // 敵の中心付近から破片を発生させる
+        fragment.position = {
+            position_.x + offsetDistribution(randomEngine),
+            position_.y + offsetDistribution(randomEngine),
+            position_.z + offsetDistribution(randomEngine)
+        };
+
+        // 横方向へ散らしながら上へ飛ばす
+        fragment.velocity = {
+            sideVelocityDistribution(randomEngine),
+            upVelocityDistribution(randomEngine),
+            sideVelocityDistribution(randomEngine)
+        };
+
+        // 落下中に破片を回転させる
+        fragment.rotation = {
+            rotationDistribution(randomEngine),
+            rotationDistribution(randomEngine),
+            rotationDistribution(randomEngine)
+        };
+        fragment.angularVelocity = {
+            angularDistribution(randomEngine),
+            angularDistribution(randomEngine),
+            angularDistribution(randomEngine)
+        };
+
+        // 同じOBJでも大きさを少し変えて破片らしく見せる
+        const float fragmentScale = scaleDistribution(randomEngine);
+        fragment.scale = {
+            fragmentScale,
+            fragmentScale * 0.7f,
+            fragmentScale
+        };
+        fragment.isLanded = false;
+
+        // 作成直後のTransformを反映する
+        fragment.object->SetScale(fragment.scale);
+        fragment.object->SetRotate(fragment.rotation);
+        fragment.object->SetTranslate(fragment.position);
+        fragment.object->Update();
+    }
+}
+
+void Enemy::EmitDeathBurst()
+{
+    if (!bloodParticleSystem_) {
+        return;
+    }
+
+    // 敵モデルのおおよその中心を発生位置にする
+    Vector3 centerPosition = position_;
+    centerPosition.y += 0.25f;
+
+    // 通常被弾より多い粒子を使い、死亡時の塊を作る
+    constexpr int kDeathParticleCount = 48;
+
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> directionDistribution(-1.0f, 1.0f);
+    std::uniform_real_distribution<float> upwardDistribution(0.4f, 2.8f);
+    std::uniform_real_distribution<float> sizeDistribution(1.1f, 2.0f);
+    std::uniform_real_distribution<float> lifeDistribution(0.75f, 1.25f);
+    std::uniform_real_distribution<float> positionDistribution(-0.3f, 0.3f);
+
+    for (int index = 0; index < kDeathParticleCount; ++index) {
+        // 中心から全方向へ広がる速度を作る
+        Vector3 velocity = {
+            directionDistribution(randomEngine) * 2.8f,
+            upwardDistribution(randomEngine),
+            directionDistribution(randomEngine) * 2.8f
+        };
+
+        // 完全に一点へ重ならないよう中心付近で少しだけ散らす
+        Vector3 spawnPosition = {
+            centerPosition.x + positionDistribution(randomEngine),
+            centerPosition.y + positionDistribution(randomEngine),
+            centerPosition.z + positionDistribution(randomEngine)
+        };
+
+        const float size = sizeDistribution(randomEngine);
+        const float lifeTime = lifeDistribution(randomEngine);
+
+        // 暗い赤と明るい赤を混ぜて立体感を出す
+        Vector4 color = (index % 2 == 0)
+            ? Vector4{ 0.55f, 0.01f, 0.005f, 0.65f }
+            : Vector4{ 0.82f, 0.025f, 0.008f, 0.55f };
+
+        bloodParticleSystem_->Emit(
+            spawnPosition,
+            { size, size, size },
+            velocity,
+            color,
+            lifeTime);
+    }
+
+    // 中央に大きく、少し長く残る血の塊を追加する
+    bloodParticleSystem_->Emit(
+        centerPosition,
+        { 3.0f, 3.0f, 3.0f },
+        { 0.0f, 0.25f, 0.0f },
+        { 0.42f, 0.005f, 0.003f, 0.72f },
+        1.35f);
+}
+
+void Enemy::UpdateDeathFragments()
+{
+    // 現在のEnemy::Updateがフレーム単位なので60FPS相当で計算する
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+
+    // 破片を床へ落とす重力加速度
+    constexpr float kGravity = 12.0f;
+
+    // この時間を過ぎたら破片を徐々に小さくする
+    constexpr float kShrinkStartTime = 1.2f;
+
+    // この時間で死亡演出を終了する
+    constexpr float kDeathEffectDuration = 2.2f;
+
+    deathEffectTimer_ += kDeltaTime;
+
+    // 縮小開始までは元の大きさを保つ
+    float shrinkRatio = 1.0f;
+
+    if (deathEffectTimer_ > kShrinkStartTime) {
+        // 縮小開始から演出終了まで、1.0から0.0へ変化させる
+        shrinkRatio = 1.0f -
+            (deathEffectTimer_ - kShrinkStartTime) /
+            (kDeathEffectDuration - kShrinkStartTime);
+
+        // フレームずれで負の大きさにならないよう0.0で止める
+        if (shrinkRatio < 0.0f) {
+            shrinkRatio = 0.0f;
+        }
+    }
+
+    for (DeathFragment& fragment : deathFragments_) {
+        if (!fragment.object) {
+            continue;
+        }
+
+        if (!fragment.isLanded) {
+            // 重力でY方向の速度を下げる
+            fragment.velocity.y -= kGravity * kDeltaTime;
+
+            // 速度に従って位置を動かす
+            fragment.position.x += fragment.velocity.x * kDeltaTime;
+            fragment.position.y += fragment.velocity.y * kDeltaTime;
+            fragment.position.z += fragment.velocity.z * kDeltaTime;
+
+            // 飛んでいる間は回転させる
+            fragment.rotation.x += fragment.angularVelocity.x * kDeltaTime;
+            fragment.rotation.y += fragment.angularVelocity.y * kDeltaTime;
+            fragment.rotation.z += fragment.angularVelocity.z * kDeltaTime;
+
+            float groundY = 0.0f;
+
+            // 破片のXZ位置にある床の高さを調べる
+            if (GetGroundHeight(fragment.position.x, fragment.position.z, groundY)) {
+                // 破片の中心が床より下へ入ったら接地させる
+                const float fragmentBottomOffset = fragment.scale.y;
+
+                if (fragment.position.y <= groundY + fragmentBottomOffset) {
+                    fragment.position.y = groundY + fragmentBottomOffset;
+
+                    // 落下速度が大きい間は小さく跳ね返す
+                    if (fragment.velocity.y < -1.2f) {
+                        fragment.velocity.y *= -0.22f;
+                        fragment.velocity.x *= 0.55f;
+                        fragment.velocity.z *= 0.55f;
+                    } else {
+                        // 勢いが弱くなったら床で停止させる
+                        fragment.velocity = { 0.0f, 0.0f, 0.0f };
+                        fragment.angularVelocity = { 0.0f, 0.0f, 0.0f };
+                        fragment.isLanded = true;
+                    }
+                }
+            }
+        }
+
+        // 当たり判定用の大きさは変えず、描画サイズだけを徐々に小さくする
+        Vector3 drawScale = {
+            fragment.scale.x * shrinkRatio,
+            fragment.scale.y * shrinkRatio,
+            fragment.scale.z * shrinkRatio
+        };
+
+        // 計算した位置、回転、縮小後の大きさを描画へ反映する
+        fragment.object->SetScale(drawScale);
+        fragment.object->SetRotate(fragment.rotation);
+        fragment.object->SetTranslate(fragment.position);
+        fragment.object->Update();
+    }
+
+    // 破片が完全に小さくなってから削除可能にする
+    if (deathEffectTimer_ >= kDeathEffectDuration) {
+        isReadyToRemove_ = true;
+    }
+}
+
+bool Enemy::GetGroundHeight(float x, float z, float& groundY) const
+{
+    if (!floorColliders_) {
+        return false;
+    }
+
+    bool foundGround = false;
+    float highestGroundY = -FLT_MAX;
+
+    for (const LevelColliderData& collider : *floorColliders_) {
+        // BOX型の床だけを調べる
+        if (!collider.hasCollider || collider.type != "BOX") {
+            continue;
+        }
+
+        const float halfX = collider.size.x * 0.5f;
+        const float halfY = collider.size.y * 0.5f;
+        const float halfZ = collider.size.z * 0.5f;
+
+        // 破片のXZ位置が床の範囲内か調べる
+        if (x < collider.center.x - halfX ||
+            x > collider.center.x + halfX ||
+            z < collider.center.z - halfZ ||
+            z > collider.center.z + halfZ) {
+            continue;
+        }
+
+        // 複数の床が重なった場合は一番高い床を使用する
+        const float topY = collider.center.y + halfY;
+        if (!foundGround || topY > highestGroundY) {
+            highestGroundY = topY;
+            foundGround = true;
+        }
+    }
+
+    if (foundGround) {
+        groundY = highestGroundY;
+    }
+
+    return foundGround;
+}
 void Enemy::SetTargetPosition(const Vector3& targetPosition)
 {
     // 追跡対象の位置を保存する
