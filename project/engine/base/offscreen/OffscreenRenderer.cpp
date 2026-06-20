@@ -126,6 +126,16 @@ void OffscreenRenderer::DrawToBackBuffer()
         commandList->ResourceBarrier(1, &depthBarrier); // // Depth繧呈嶌縺崎ｾｼ縺ｿ逕ｨ縺九ｉ隱ｭ縺ｿ霎ｼ縺ｿ逕ｨ縺ｸ蛻・ｊ譖ｿ縺医ｋ
     }
 
+    // シーン描画先をRenderTargetからPixelShaderの読み込み用へ切り替える
+    D3D12_RESOURCE_BARRIER renderTextureToRead{};
+    renderTextureToRead.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    renderTextureToRead.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    renderTextureToRead.Transition.pResource = renderTexture_->GetResource();
+    renderTextureToRead.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    renderTextureToRead.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    renderTextureToRead.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &renderTextureToRead);
+
     commandList->OMSetRenderTargets(1, &backBufferRTVHandle, FALSE, nullptr);
     const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     commandList->ClearRenderTargetView(backBufferRTVHandle, clearColor, 0, nullptr);
@@ -212,6 +222,16 @@ void OffscreenRenderer::DrawToBackBuffer()
 
 
     commandList->DrawInstanced(3, 1, 0, 0);
+
+    // 画面へのコピー完了後、次フレームのシーン描画用へ戻す
+    D3D12_RESOURCE_BARRIER renderTextureToWrite{};
+    renderTextureToWrite.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    renderTextureToWrite.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    renderTextureToWrite.Transition.pResource = renderTexture_->GetResource();
+    renderTextureToWrite.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    renderTextureToWrite.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    renderTextureToWrite.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    commandList->ResourceBarrier(1, &renderTextureToWrite);
 }
 
 
