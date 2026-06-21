@@ -87,6 +87,15 @@ public:
 	void SetEnvironmentCoefficient(float coefficient);
 	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
 
+	// このオブジェクトだけにディゾルブを適用するか設定する
+	void SetDissolveEnabled(bool enabled);
+	// 0.0fで表示、1.0fで完全に消える進行度を設定する
+	void SetDissolveThreshold(float threshold);
+	// 消える境界線の太さを設定する
+	void SetDissolveEdgeWidth(float edgeWidth);
+	// 消える境界線の色を設定する
+	void SetDissolveEdgeColor(const Vector4& edgeColor);
+
 	// アニメーション関連
 	void SetAnimation(const Animation& animation) { animation_ = animation; }
 	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
@@ -108,6 +117,15 @@ private:
 	struct SkinningInformationForGPU {
 		uint32_t numVertices;
 		uint32_t padding[3];
+	};
+
+	// ピクセルシェーダーへ渡すオブジェクト単位のディゾルブ設定
+	struct DissolveData {
+		float threshold;
+		float edgeWidth;
+		uint32_t isEnabled;
+		float padding;
+		Vector4 edgeColor;
 	};
 
 	// ComputeShader 用の定数バッファを初期化する
@@ -142,6 +160,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
 	Material* materialData_ = nullptr;
 	Camera* camera_ = nullptr;
+
+	// オブジェクトごとに保持するディゾルブ用定数バッファ
+	Microsoft::WRL::ComPtr<ID3D12Resource> dissolveResource_;
+	DissolveData* dissolveData_ = nullptr;
 	std::string environmentTextureFilePath_ = "Resources/skybox.dds";
 
 	Matrix4x4 viewProjectionMatrix_{};

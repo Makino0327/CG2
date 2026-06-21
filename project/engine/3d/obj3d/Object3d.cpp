@@ -141,6 +141,9 @@ void Object3d::Draw()
         2, transformationMatrixResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
+    // このオブジェクト専用のディゾルブ設定をb4へ渡す
+    commandList->SetGraphicsRootConstantBufferView(
+        7, dissolveResource_->GetGPUVirtualAddress());
 
     if (model_) {
         // モデルに設定されているテクスチャを t1 に設定する
@@ -289,6 +292,15 @@ void Object3d::InitializeMaterial()
     materialData_->lightingType = static_cast<int>(LightingType::HalfLambert);
     materialData_->environmentCoefficient = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
+
+    // ディゾルブを使わない通常表示の状態で初期化する
+    dissolveResource_ = dxCommon->CreateBufferResource(sizeof(DissolveData));
+    dissolveResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveData_));
+    dissolveData_->threshold = 0.0f;
+    dissolveData_->edgeWidth = 0.04f;
+    dissolveData_->isEnabled = 0;
+    dissolveData_->padding = 0.0f;
+    dissolveData_->edgeColor = Vector4(1.0f, 0.85f, 0.35f, 1.0f);
 }
 
 void Object3d::SetColor(const Vector4& color)
@@ -311,6 +323,43 @@ void Object3d::SetEnvironmentCoefficient(float coefficient)
     }
 }
 
+void Object3d::SetDissolveEnabled(bool enabled)
+{
+    if (dissolveData_) {
+        // HLSL側で扱いやすいように真偽値を0か1で保存する
+        dissolveData_->isEnabled = enabled ? 1u : 0u;
+    }
+}
+
+void Object3d::SetDissolveThreshold(float threshold)
+{
+    if (dissolveData_) {
+        // 想定外の値で全体が消えないよう0.0fから1.0fへ制限する
+        if (threshold < 0.0f) {
+            threshold = 0.0f;
+        } else if (threshold > 1.0f) {
+            threshold = 1.0f;
+        }
+        dissolveData_->threshold = threshold;
+    }
+}
+
+void Object3d::SetDissolveEdgeWidth(float edgeWidth)
+{
+    if (dissolveData_) {
+        // 境界幅が負にならないようにする
+        dissolveData_->edgeWidth = edgeWidth < 0.0f ? 0.0f : edgeWidth;
+    }
+}
+
+void Object3d::SetDissolveEdgeColor(const Vector4& edgeColor)
+{
+    if (dissolveData_) {
+        // ディゾルブ境界へ加算する色を保存する
+        dissolveData_->edgeColor = edgeColor;
+    }
+}
+
 void Object3d::DrawInstanced(UINT instanceCount)
 {
     assert(object3dCommon_);
@@ -330,6 +379,9 @@ void Object3d::DrawInstanced(UINT instanceCount)
         2, transformationMatrixResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
+    // インスタンシング描画でも同じディゾルブ設定をb4へ渡す
+    commandList->SetGraphicsRootConstantBufferView(
+        7, dissolveResource_->GetGPUVirtualAddress());
 
     if (model_) {
         // モデルに設定されているテクスチャを t1 に設定する
