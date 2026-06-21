@@ -105,6 +105,17 @@ void PlayerGrenade::Update()
     if (hasTouchedGround_) {
         // 床へ接触してから約1秒経過したら爆発させる
         fuseTimer_++;
+
+        // Blink faster as the grenade approaches detonation.
+        const int remainingFrames = fuseDuration_ - fuseTimer_;
+        const int blinkInterval = (remainingFrames < 30) ? 3 : 8;
+
+        if ((fuseTimer_ / blinkInterval) % 2 == 0) {
+            object_->SetColor({ 1.0f, 0.15f, 0.05f, 1.0f });
+        } else {
+            object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+
         if (fuseTimer_ >= fuseDuration_) {
             Explode();
             return;

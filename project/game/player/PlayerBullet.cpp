@@ -100,6 +100,42 @@ void PlayerBullet::Update()
 
             // 壁に重なったら消す
             if (distanceSq <= colliderRadius_ * colliderRadius_) {
+                if (particleSystem_) {
+                    // Emit sparks in the direction opposite to the bullet travel.
+                    Vector3 impactDirection = Normalize(Vector3{
+                        -velocity_.x,
+                        0.35f,
+                        -velocity_.z
+                    });
+
+                    // Alternate yellow and orange colors for the impact sparks.
+                    for (int index = 0; index < 10; ++index) {
+                        const float sideOffset =
+                            (static_cast<float>(index % 5) - 2.0f) * 0.35f;
+
+                        particleSystem_->Emit(
+                            position_,
+                            { 0.12f, 0.12f, 0.12f },
+                            {
+                                impactDirection.x * 2.5f + sideOffset,
+                                impactDirection.y * 2.5f + index * 0.08f,
+                                impactDirection.z * 2.5f - sideOffset
+                            },
+                            index % 2 == 0
+                                ? Vector4{ 1.0f, 0.75f, 0.20f, 0.90f }
+                                : Vector4{ 1.0f, 0.30f, 0.04f, 0.80f },
+                            0.18f);
+                    }
+
+                    // Add a short-lived flash at the impact position.
+                    particleSystem_->Emit(
+                        position_,
+                        { 0.55f, 0.55f, 0.55f },
+                        { 0.0f, 0.0f, 0.0f },
+                        { 1.0f, 0.90f, 0.50f, 0.85f },
+                        0.08f);
+                }
+
                 isDead_ = true;
                 return;
             }
