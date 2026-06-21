@@ -8,7 +8,7 @@
 #endif
 
 // Shared light intensity for all Object3d instances.
-float Object3d::lightIntensity_ = 0.2f;
+float Object3d::lightIntensity_ = 0.5f;
 
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
