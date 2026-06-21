@@ -104,7 +104,7 @@ void Game::Initialize() {
     sceneManager_->SetContext(context);
 
     // 最初はタイトルシーンから始める
-    sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+    sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
 
 }
 
