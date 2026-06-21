@@ -18,6 +18,16 @@ TextureCube<float4> gEnvironmentTexture : register(t2);
 
 SamplerState gSampler : register(s0);
 
+// オブジェクトごとに設定されるディゾルブ用パラメータ
+cbuffer DissolveParameter : register(b4)
+{
+    float gDissolveThreshold;
+    float gDissolveEdgeWidth;
+    uint gDissolveEnabled;
+    float gDissolvePadding;
+    float4 gDissolveEdgeColor;
+};
+
 
 struct PixelShaderOutput
 {
@@ -34,6 +44,26 @@ PixelShaderOutput main(VertexShaderOutput input)
     if (textureColor.a <= 0.1f)
     {
         discard;
+    }
+
+    float dissolveEdge = 0.0f;
+    if (gDissolveEnabled != 0)
+    {
+        // UV座標からオブジェクトごとに使える疑似ノイズを作る
+        float dissolveMask =
+            frac(sin(dot(input.texcoord, float2(12.9898f, 78.233f))) * 43758.5453f);
+
+        // 進行度より小さいノイズ領域を描画しない
+        if (dissolveMask < gDissolveThreshold)
+        {
+            discard;
+        }
+
+        // 消える領域との境界だけを発光色として残す
+        dissolveEdge = 1.0f - smoothstep(
+            gDissolveThreshold,
+            gDissolveThreshold + gDissolveEdgeWidth,
+            dissolveMask);
     }
 
     float3 normal = normalize(input.normal);
@@ -72,6 +102,9 @@ PixelShaderOutput main(VertexShaderOutput input)
         : baseColor * gDirectionalLight.color.rgb * gDirectionalLight.intensity * lighting;
 
     finalColor += environmentColor;
+
+    // ディゾルブ境界色はライトの影響を受けない加算色として扱う
+    finalColor += dissolveEdge * gDissolveEdgeColor.rgb;
 
     output.color = float4(finalColor, gMaterial.color.a * textureColor.a);
     return output;

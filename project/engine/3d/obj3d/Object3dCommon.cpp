@@ -62,7 +62,7 @@ void Object3dCommon::CreateRootSignature()
 
 
     // --- RootParameter ---
-    D3D12_ROOT_PARAMETER rootParameters[7]{};
+    D3D12_ROOT_PARAMETER rootParameters[8]{};
 
 
     // b0 : Material
@@ -103,6 +103,11 @@ void Object3dCommon::CreateRootSignature()
     rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[6].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[6].DescriptorTable.pDescriptorRanges = &environmentDescriptorRange;
+
+    // b4 : オブジェクト単位のディゾルブ設定
+    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[7].Descriptor.ShaderRegister = 4;
 
 
     // --- Sampler ---
