@@ -45,7 +45,7 @@ public:
     SphereCollider GetCollider() const;
 
     // プレイヤーが何かに当たった時の処理
-    void OnHit();
+    void OnHit(const Vector3& hitDirection);
 
     // プレイヤーが持つ弾一覧を参照できるようにする
     const std::vector<std::unique_ptr<PlayerBullet>>& GetBullets() const { return bullets_; }
@@ -61,8 +61,15 @@ public:
         grenadeSmokeParticleSystem_ = particleSystem;
     }
 
+    // シーンが所有する血しぶき用パーティクルを設定する
+    void SetBloodParticleSystem(ParticleSystem* particleSystem) {
+        bloodParticleSystem_ = particleSystem;
+    }
+
     // プレイヤーの現在HPを返す
     int GetHp() const { return hp_; }
+    // プレイヤーの最大HPを返す
+    int GetMaxHp() const { return maxHp_; }
 
     // プレイヤーが消えたかを返す
     bool IsDead() const { return isDead_; }
@@ -111,6 +118,18 @@ private:
     // 指定位置へ爆発パーティクルを発生させる
     void EmitGrenadeExplosion(const Vector3& explosionPosition);
 
+    // 被弾方向へプレイヤーの血しぶきを生成する
+    void EmitBloodSplatter(const Vector3& hitDirection);
+
+    // Hキー入力時にHPを1回復できるか判定する
+    void TryHeal();
+
+    // 回復成功時に緑色の上昇粒子を生成する
+    void EmitHealEffect();
+
+    // 回復中に上昇する光柱と光点を更新する
+    void UpdateHealEffect();
+
     // マウスの方向へプレイヤーを向ける
     void RotateToMouse(Camera* camera);
 
@@ -137,6 +156,9 @@ private:
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;
+
+    // 敵と共有する通常アルファ合成の血しぶき用パーティクル
+    ParticleSystem* bloodParticleSystem_ = nullptr;
 
     // 移動関係のパラメータ
     float moveSpeed_ = 0.2f;
@@ -183,6 +205,18 @@ private:
 
     // 消えたかどうか
     bool isDead_ = false;
+
+    // 被弾時に加えるノックバック速度
+    Vector3 knockbackVelocity_ = { 0.0f, 0.0f, 0.0f };
+    // 毎フレームのノックバック減衰率
+    float knockbackDamping_ = 0.82f;
+
+    // 回復演出を再生中かどうか
+    bool isHealEffectPlaying_ = false;
+    // 回復演出の経過時間
+    float healEffectTimer_ = 0.0f;
+    // 回復演出を表示する時間
+    float healEffectDuration_ = 0.90f;
 
     // プレイヤーが撃った弾
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;

@@ -84,7 +84,8 @@ void Enemy::Update()
         toPlayer.x * toPlayer.x +
         toPlayer.z * toPlayer.z
     );
-    isTargetInSight_ = CheckTargetInSight();
+    // 追跡対象が有効な間だけプレイヤーの視認判定を行う
+    isTargetInSight_ = isTargetActive_ && CheckTargetInSight();
 
     // 視界に入ったら追跡を開始する
     if (!isChasing_ && isTargetInSight_) {
@@ -569,6 +570,19 @@ void Enemy::SetTargetPosition(const Vector3& targetPosition)
 {
     // 追跡対象の位置を保存する
     targetPosition_ = targetPosition;
+}
+
+void Enemy::SetTargetActive(bool isActive)
+{
+    // プレイヤーが死亡した瞬間に追跡を終了して巡回経路へ戻す
+    if (isTargetActive_ && !isActive) {
+        isChasing_ = false;
+        isTargetInSight_ = false;
+        waypointMover_.ResumePatrol();
+    }
+
+    // 次の更新で視認判定を行うか保存する
+    isTargetActive_ = isActive;
 }
 
 void Enemy::SetWaypoints(const std::vector<Vector3>& waypoints)

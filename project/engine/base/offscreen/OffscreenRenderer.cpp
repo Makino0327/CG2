@@ -38,6 +38,14 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     radialBlurData_->blurWidth = 0.01f;
     radialBlurData_->padding = 0.0f;
 
+    // 通常時は画面へ影響しないビネット設定で初期化する
+    vignetteResource_ = dxCommon_->CreateBufferResource(sizeof(VignetteData));
+    vignetteResource_->Map(0, nullptr, reinterpret_cast<void**>(&vignetteData_));
+    vignetteData_->color = { 0.65f, 0.0f, 0.0f, 1.0f };
+    vignetteData_->intensity = 0.0f;
+    vignetteData_->darkness = 0.0f;
+    vignetteData_->padding = { 0.0f, 0.0f };
+
     TextureManager* textureManager = TextureManager::GetInstance();
 
     // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝槭せ繧ｯ繝・け繧ｹ繝√Ε繧定ｪｭ縺ｿ霎ｼ繧
@@ -197,9 +205,16 @@ void OffscreenRenderer::DrawToBackBuffer()
     uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
     srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2
 
-    commandList->SetGraphicsRootConstantBufferView(
-        3,
-        radialBlurResource_->GetGPUVirtualAddress()); // b0
+    // b0は選択中のポストエフェクトに対応する定数バッファを渡す
+    if (postEffectType_ == PostEffectType::Vignette) {
+        commandList->SetGraphicsRootConstantBufferView(
+            3,
+            vignetteResource_->GetGPUVirtualAddress());
+    } else {
+        commandList->SetGraphicsRootConstantBufferView(
+            3,
+            radialBlurResource_->GetGPUVirtualAddress());
+    }
 
     commandList->SetGraphicsRootConstantBufferView(
         4,
@@ -232,6 +247,21 @@ void OffscreenRenderer::DrawToBackBuffer()
     renderTextureToWrite.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     renderTextureToWrite.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &renderTextureToWrite);
+}
+
+void OffscreenRenderer::SetVignetteParameters(
+    float intensity,
+    const Vector4& color,
+    float darkness)
+{
+    if (!vignetteData_) {
+        return;
+    }
+
+    // シェーダーへ渡す値が想定範囲を超えないよう制限する
+    vignetteData_->intensity = std::clamp(intensity, 0.0f, 1.0f);
+    vignetteData_->color = color;
+    vignetteData_->darkness = std::clamp(darkness, 0.0f, 1.0f);
 }
 
 

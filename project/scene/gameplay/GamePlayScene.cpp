@@ -252,6 +252,9 @@ void GamePlayScene::Initialize()
     // グレネード爆発後の煙用パーティクルをPlayerへ渡す
     player_->SetGrenadeSmokeParticleSystem(grenadeSmokeParticleSystem_.get());
 
+    // プレイヤー被弾時も敵と同じ血しぶきパーティクルを使用する
+    player_->SetBloodParticleSystem(bloodParticleSystem_.get());
+
     followCamera_ = std::make_unique<FollowCamera>();
     followCamera_->Initialize(context_.camera);
     followCamera_->SetTarget(player_->GetWorldPosition());
@@ -288,16 +291,6 @@ void GamePlayScene::Update()
         ReloadLevel(false);
     }
 
-    if (player_ && context_.input) {
-        if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
-            player_->Respawn();
-            SpawnEnemies();
-
-            if (context_.offscreenRenderer) {
-                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-            }
-        }
-    }
 
     if (skybox_) { skybox_->Update(); }
     if (particleSystem_) { particleSystem_->Update(dt); }
@@ -370,9 +363,16 @@ void GamePlayScene::Update()
         skybox_->Update();
     }
 
+    // プレイヤーが生存している間だけ敵の追跡対象として扱う
+    const bool canChasePlayer = player_ && !player_->IsDead();
+
     for (auto& enemy : enemies_) {
-        // 敵の追跡目標を現在のプレイヤー位置に更新する
-        enemy->SetTargetPosition(player_->GetWorldPosition());
+        enemy->SetTargetActive(canChasePlayer);
+
+        // 生存中だけ追跡目標を現在のプレイヤー位置に更新する
+        if (canChasePlayer) {
+            enemy->SetTargetPosition(player_->GetWorldPosition());
+        }
 
         // 敵の移動と状態を更新する
         enemy->Update();
@@ -388,13 +388,88 @@ void GamePlayScene::Update()
         return;
     }
 
-    if (player_ && context_.offscreenRenderer) {
-        if (player_->IsDead()) {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
-        } else {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-        }
+    // HP低下、鼓動、死亡暗転をビネットでまとめて更新する
+    UpdatePlayerVignette(dt);
+}
+
+void GamePlayScene::UpdatePlayerVignette(float deltaTime)
+{
+    if (!player_ || !context_.offscreenRenderer) {
+        return;
     }
+
+    constexpr Vector4 kDamageColor = { 0.72f, 0.0f, 0.0f, 1.0f };
+    constexpr float kDeathFadeDuration = 1.6f;
+    constexpr float kRestartFadeDuration = 0.75f;
+
+    if (player_->IsDead()) {
+        // 死亡後は赤い画面端を残しながら、視界全体を徐々に暗くする
+        deathFadeTimer_ += deltaTime;
+        float darkness = std::clamp(
+            deathFadeTimer_ / kDeathFadeDuration,
+            0.0f,
+            1.0f);
+
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Vignette);
+        context_.offscreenRenderer->SetVignetteParameters(
+            0.72f + darkness * 0.18f,
+            kDamageColor,
+            darkness * 0.96f);
+
+        if (darkness >= 1.0f) {
+            // 完全に暗くなったら開始位置と敵配置を初期状態へ戻す
+            player_->Respawn();
+            SpawnEnemies();
+            deathFadeTimer_ = 0.0f;
+            restartFadeDarkness_ = 1.0f;
+        }
+        return;
+    }
+
+    if (restartFadeDarkness_ > 0.0f) {
+        // 復帰直後は暗闇からゆっくり視界が戻るようにする
+        restartFadeDarkness_ = std::max(
+            0.0f,
+            restartFadeDarkness_ - deltaTime / kRestartFadeDuration);
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Vignette);
+        context_.offscreenRenderer->SetVignetteParameters(
+            0.0f,
+            kDamageColor,
+            restartFadeDarkness_ * 0.96f);
+        return;
+    }
+
+    deathFadeTimer_ = 0.0f;
+    const int currentHp = player_->GetHp();
+    const int maxHp = player_->GetMaxHp();
+
+    if (currentHp >= maxHp) {
+        // HPが最大ならポストエフェクトを使わない
+        vignettePulseTime_ = 0.0f;
+        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        return;
+    }
+
+    vignettePulseTime_ += deltaTime;
+    const float healthLoss =
+        1.0f - static_cast<float>(currentHp) / static_cast<float>(maxHp);
+    float heartbeat = 0.0f;
+
+    if (currentHp == 1) {
+        // 正弦波の頂点だけを強調して心臓の鼓動のような短い点滅を作る
+        constexpr float kPi = 3.1415926535f;
+        const float pulseWave = std::max(
+            0.0f,
+            std::sin(vignettePulseTime_ * kPi * 2.6f));
+        heartbeat = std::pow(pulseWave, 6.0f) * 0.22f;
+    }
+
+    const float intensity = 0.12f + healthLoss * 0.48f + heartbeat;
+    context_.offscreenRenderer->SetPostEffectType(PostEffectType::Vignette);
+    context_.offscreenRenderer->SetVignetteParameters(
+        intensity,
+        kDamageColor,
+        0.0f);
 }
 
 void GamePlayScene::Draw()
@@ -528,7 +603,22 @@ void GamePlayScene::CheckCollisions()
         }
 
         if (Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
-            player_->OnHit();
+            // 敵からプレイヤーへ向かう水平方向をノックバック方向にする
+            Vector3 hitDirection = {
+                player_->GetWorldPosition().x - enemy->GetWorldPosition().x,
+                0.0f,
+                player_->GetWorldPosition().z - enemy->GetWorldPosition().z
+            };
+
+            const float directionLengthSq =
+                hitDirection.x * hitDirection.x + hitDirection.z * hitDirection.z;
+            if (directionLengthSq > 0.0001f) {
+                hitDirection = Normalize(hitDirection);
+            } else {
+                hitDirection = { 0.0f, 0.0f, 1.0f };
+            }
+
+            player_->OnHit(hitDirection);
         }
     }
 

@@ -57,6 +57,9 @@ public:
 
     // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
+
+    // プレイヤーを追跡対象として有効にするか設定する
+    void SetTargetActive(bool isActive);
     void SetWaypoints(const std::vector<Vector3>& waypoints);
 
     // 重なり解消用の半径を返す
@@ -177,6 +180,9 @@ private:
     // 追跡中かどうか
     bool isChasing_ = false;
     bool isTargetInSight_ = false;
+
+    // 追跡対象が有効かどうか
+    bool isTargetActive_ = true;
 
     // 前フレームで追跡していたか
     bool wasChasing_ = false;

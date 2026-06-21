@@ -74,6 +74,12 @@ void Player::Update(Camera* camera)
         pos.z -= moveSpeed_;
     }
 
+    // 被弾後は入力移動へノックバック速度を加え、徐々に弱める
+    pos.x += knockbackVelocity_.x;
+    pos.z += knockbackVelocity_.z;
+    knockbackVelocity_.x *= knockbackDamping_;
+    knockbackVelocity_.z *= knockbackDamping_;
+
     //// 左方向の壁判定を行う
     //ResolveLeftCollisionWithMap(pos);
 
@@ -111,6 +117,14 @@ void Player::Update(Camera* camera)
     if (input_->TriggerKey(DIK_G)) {
         ThrowGrenade(camera);
     }
+
+    // Hキーを押した瞬間にHPを1回復する
+    if (input_->TriggerKey(DIK_H)) {
+        TryHeal();
+    }
+
+    // 回復成功後は一定時間、周囲を回る光を更新する
+    UpdateHealEffect();
 
     // 弾とグレネードを更新する
     UpdateBullets();
@@ -164,33 +178,258 @@ SphereCollider Player::GetCollider() const
     return { GetWorldPosition(), colliderRadius_ };
 }
 
-void Player::OnHit()
+void Player::OnHit(const Vector3& hitDirection)
 {
-    // すでに消えていたら何もしない
-    if (isDead_) {
+    // 死亡中または無敵時間中は新しいダメージを受けない
+    if (isDead_ || invincibleTimer_ > 0) {
         return;
     }
 
-    // 無敵時間中はダメージを受けない
-    if (invincibleTimer_ > 0) {
-        return;
-    }
-
-    // 被弾状態を保存する
+    // 被弾状態を保存し、敵から離れる方向へ押し戻す
     isHit_ = true;
+    knockbackVelocity_ = {
+        hitDirection.x * 0.48f,
+        0.0f,
+        hitDirection.z * 0.48f
+    };
 
-    // HPが残っている時だけ1減らす
+    // 敵と同じ血しぶき用パーティクルをプレイヤーから発生させる
+    EmitBloodSplatter(hitDirection);
+
+    // HPを1減らして無敵時間を開始する
     if (hp_ > 0) {
         hp_ -= 1;
     }
-
-    // ダメージを受けたら無敵時間を開始する
     invincibleTimer_ = invincibleDuration_;
 
-    // HPが0以下になったら消す
+    // HPが0になったら操作と本体描画を停止する
     if (hp_ <= 0) {
         hp_ = 0;
         isDead_ = true;
+        // 死亡した場合は回復中の光柱と光点の生成を停止する
+        isHealEffectPlaying_ = false;
+        healEffectTimer_ = 0.0f;
+
+    }
+}
+
+void Player::EmitBloodSplatter(const Vector3& hitDirection)
+{
+    if (!bloodParticleSystem_ || !object_) {
+        return;
+    }
+
+    // 敵から離れる方向を血しぶきの中心方向として使う
+    Vector3 forward = hitDirection;
+    Vector3 side = { -forward.z, 0.0f, forward.x };
+    Vector3 bloodPosition = object_->GetTranslate();
+    bloodPosition.y += 0.55f;
+
+    // 敵被弾と同じ赤色を使い、プレイヤー用に粒子数だけ少し抑える
+    constexpr int kBloodParticleCount = 16;
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> sideDistribution(-0.32f, 0.32f);
+    std::uniform_real_distribution<float> heightDistribution(-0.18f, 0.30f);
+    std::uniform_real_distribution<float> sizeDistribution(0.42f, 0.78f);
+
+    for (int index = 0; index < kBloodParticleCount; ++index) {
+        const float sidePower =
+            (static_cast<float>(index % 5) - 2.0f) * 0.22f;
+        const float forwardPower = 0.9f + 0.13f * static_cast<float>(index % 6);
+        const float upwardPower = 0.22f + 0.12f * static_cast<float>(index % 5);
+        const float size = sizeDistribution(randomEngine);
+
+        Vector3 spawnPosition = {
+            bloodPosition.x + side.x * sideDistribution(randomEngine),
+            bloodPosition.y + heightDistribution(randomEngine),
+            bloodPosition.z + side.z * sideDistribution(randomEngine)
+        };
+        Vector3 velocity = {
+            forward.x * forwardPower + side.x * sidePower,
+            upwardPower,
+            forward.z * forwardPower + side.z * sidePower
+        };
+
+        Vector4 color = (index % 2 == 0)
+            ? Vector4{ 0.48f, 0.012f, 0.008f, 0.52f }
+            : Vector4{ 0.68f, 0.025f, 0.012f, 0.46f };
+
+        bloodParticleSystem_->Emit(
+            spawnPosition,
+            { size, size, size },
+            velocity,
+            color,
+            0.28f + 0.04f * static_cast<float>(index % 5));
+    }
+}
+
+void Player::TryHeal()
+{
+    // 死亡中または最大HPなら回復処理を行わない
+    if (isDead_ || hp_ >= maxHp_) {
+        return;
+    }
+
+    // HPを1だけ回復し、最大HPを超えないようにする
+    hp_ += 1;
+    if (hp_ > maxHp_) {
+        hp_ = maxHp_;
+    }
+
+    // 回復できた時だけ緑色のエフェクトを発生させる
+    // 回復演出を最初から再生する
+    isHealEffectPlaying_ = true;
+    healEffectTimer_ = 0.0f;
+    EmitHealEffect();
+}
+
+void Player::EmitHealEffect()
+{
+    if (!particleSystem_ || !object_) {
+        return;
+    }
+
+    // プレイヤーの周囲から緑色の粒子を上方向へ流す
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> sideDistribution(-1.15f, 1.15f);
+    std::uniform_real_distribution<float> heightDistribution(0.0f, 1.2f);
+    std::uniform_real_distribution<float> upwardDistribution(1.0f, 2.2f);
+    std::uniform_real_distribution<float> sizeDistribution(0.16f, 0.30f);
+    std::uniform_real_distribution<float> lifeDistribution(0.55f, 0.90f);
+
+    const Vector3 playerPosition = object_->GetTranslate();
+    constexpr int kHealParticleCount = 18;
+
+    for (int index = 0; index < kHealParticleCount; ++index) {
+        const float size = sizeDistribution(randomEngine);
+        const Vector3 spawnPosition = {
+            playerPosition.x + sideDistribution(randomEngine),
+            playerPosition.y + heightDistribution(randomEngine),
+            playerPosition.z + sideDistribution(randomEngine)
+        };
+        const Vector3 velocity = {
+            sideDistribution(randomEngine) * 0.20f,
+            upwardDistribution(randomEngine),
+            sideDistribution(randomEngine) * 0.20f
+        };
+
+        // 回復粒子は同じ明るい緑色へ統一する
+        const Vector4 color = { 0.18f, 1.0f, 0.32f, 0.88f };
+
+        particleSystem_->Emit(
+            spawnPosition,
+            { size, size, size },
+            velocity,
+            color,
+            lifeDistribution(randomEngine));
+    }
+
+    // 足元へ大きさの違う緑色の光を重ね、濃いオーラを作る
+    const float floorHeight = playerPosition.y - colliderRadius_ + 0.12f;
+    particleSystem_->Emit(
+        { playerPosition.x, floorHeight, playerPosition.z },
+        { 1.85f, 1.85f, 1.85f },
+        { 0.0f, 0.25f, 0.0f },
+        { 0.12f, 1.0f, 0.24f, 0.52f },
+        0.75f);
+    particleSystem_->Emit(
+        { playerPosition.x, floorHeight + 0.35f, playerPosition.z },
+        { 1.35f, 1.35f, 1.35f },
+        { 0.0f, 0.45f, 0.0f },
+        { 0.18f, 1.0f, 0.32f, 0.62f },
+        0.65f);
+
+    // 回復開始時に複数の縦長の光柱を一斉に立ち上げる
+    std::uniform_real_distribution<float> pillarHeightDistribution(0.0f, 0.40f);
+    std::uniform_real_distribution<float> pillarSpeedDistribution(2.4f, 3.6f);
+    constexpr int kInitialPillarCount = 12;
+    for (int index = 0; index < kInitialPillarCount; ++index) {
+        const Vector3 pillarPosition = {
+            playerPosition.x + sideDistribution(randomEngine),
+            floorHeight + pillarHeightDistribution(randomEngine),
+            playerPosition.z + sideDistribution(randomEngine)
+        };
+
+        particleSystem_->Emit(
+            pillarPosition,
+            { 0.12f, 1.00f, 0.12f },
+            { 0.0f, pillarSpeedDistribution(randomEngine), 0.0f },
+            { 0.18f, 1.0f, 0.32f, 0.95f },
+            0.48f);
+    }
+
+    // プレイヤー中心へ短時間の緑色の光を重ねる
+    particleSystem_->Emit(
+        { playerPosition.x, playerPosition.y + 0.65f, playerPosition.z },
+        { 1.10f, 1.10f, 1.10f },
+        { 0.0f, 0.15f, 0.0f },
+        { 0.18f, 1.0f, 0.32f, 0.72f },
+        0.20f);
+}
+
+void Player::UpdateHealEffect()
+{
+    if (!isHealEffectPlaying_ || !particleSystem_ || !object_) {
+        return;
+    }
+
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    healEffectTimer_ += kDeltaTime;
+
+    const Vector3 playerPosition = object_->GetTranslate();
+    const float floorHeight = playerPosition.y - colliderRadius_ + 0.10f;
+
+    // 毎フレーム位置を変えながら、細い光柱と小さな光点を上昇させる
+    static std::mt19937 randomEngine(std::random_device{}());
+    std::uniform_real_distribution<float> sideDistribution(-1.25f, 1.25f);
+    std::uniform_real_distribution<float> heightDistribution(0.0f, 0.45f);
+    std::uniform_real_distribution<float> speedDistribution(2.6f, 4.0f);
+
+    // 大きさを周期的に変え、プレイヤー全体を包む緑色のオーラを作る
+    const float auraScale =
+        1.65f + std::sin(healEffectTimer_ * 12.0f) * 0.18f;
+    particleSystem_->Emit(
+        { playerPosition.x, playerPosition.y + 0.35f, playerPosition.z },
+        { auraScale, auraScale, auraScale },
+        { 0.0f, 0.12f, 0.0f },
+        { 0.12f, 1.0f, 0.24f, 0.24f },
+        0.14f);
+
+    // 足元にも薄く大きな光を重ねてオーラの広がりを見せる
+    const float floorAuraScale =
+        2.05f + std::sin(healEffectTimer_ * 10.0f) * 0.15f;
+    particleSystem_->Emit(
+        { playerPosition.x, floorHeight + 0.12f, playerPosition.z },
+        { floorAuraScale, floorAuraScale, floorAuraScale },
+        { 0.0f, 0.08f, 0.0f },
+        { 0.10f, 1.0f, 0.22f, 0.18f },
+        0.16f);
+
+    constexpr int kLightCountPerFrame = 5;
+    for (int index = 0; index < kLightCountPerFrame; ++index) {
+        const bool isPillar = index < 2;
+        const Vector3 lightPosition = {
+            playerPosition.x + sideDistribution(randomEngine),
+            floorHeight + heightDistribution(randomEngine),
+            playerPosition.z + sideDistribution(randomEngine)
+        };
+        const Vector3 lightScale = isPillar
+            ? Vector3{ 0.12f, 0.95f, 0.12f }
+            : Vector3{ 0.22f, 0.22f, 0.22f };
+        const float lifeTime = isPillar ? 0.34f : 0.48f;
+
+        particleSystem_->Emit(
+            lightPosition,
+            lightScale,
+            { 0.0f, speedDistribution(randomEngine), 0.0f },
+            { 0.18f, 1.0f, 0.32f, 0.92f },
+            lifeTime);
+    }
+
+    // 演出終了時は光柱と光点の追加を止める
+    if (healEffectTimer_ >= healEffectDuration_) {
+        isHealEffectPlaying_ = false;
+        healEffectTimer_ = 0.0f;
     }
 }
 
@@ -795,6 +1034,9 @@ void Player::Respawn()
 
     // 無敵時間をリセットする
     invincibleTimer_ = 0;
+
+    // 復活時は残っているノックバックを消す
+    knockbackVelocity_ = { 0.0f, 0.0f, 0.0f };
 
     // 開始位置は Blender から設定された値を使い続ける
     rotate_ = { 0.0f, 0.0f, 0.0f };

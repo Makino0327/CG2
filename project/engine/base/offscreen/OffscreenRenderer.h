@@ -29,6 +29,12 @@ public:
     void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
     PostEffectType GetPostEffectType() const { return postEffectType_; }
 
+    // ビネットの強さ、色、画面全体の暗さを設定する
+    void SetVignetteParameters(
+        float intensity,
+        const Vector4& color,
+        float darkness);
+
     // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
 
@@ -75,6 +81,14 @@ private:
         Vector2 center;   // ブラーの中心UV
         float blurWidth;  // ブラーの強さ
         float padding;    // 16byte揃え
+    };
+
+    // HP低下と死亡暗転に使うビネット設定
+    struct VignetteData {
+        Vector4 color;
+        float intensity;
+        float darkness;
+        Vector2 padding;
     };
 
     struct DissolveData {
@@ -130,6 +144,10 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> radialBlurResource_; // ラジアルブラー用定数バッファ
     RadialBlurData* radialBlurData_ = nullptr; // ラジアルブラー用定数データ
+
+    // 赤いビネットと死亡暗転に使う定数バッファ
+    Microsoft::WRL::ComPtr<ID3D12Resource> vignetteResource_;
+    VignetteData* vignetteData_ = nullptr;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> dissolveResource_; // ディゾルブ用定数バッファ
     DissolveData* dissolveData_ = nullptr; // ディゾルブ用定数データ

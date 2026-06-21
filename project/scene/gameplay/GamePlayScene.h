@@ -58,6 +58,9 @@ private:
     void ReloadLevel(bool isManualReload);
     // レベルデータからプレイヤーのスポーン位置を更新する
     void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
+
+    // HPと死亡状態から赤いビネットと暗転を更新する
+    void UpdatePlayerVignette(float deltaTime);
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -89,6 +92,13 @@ private:
     Vector3 playerTranslate_ = { 2.0f, 0.5f, 0.0f };
     Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
+
+    // HP1の鼓動アニメーションに使う経過時間
+    float vignettePulseTime_ = 0.0f;
+    // 死亡後に画面を暗くする経過時間
+    float deathFadeTimer_ = 0.0f;
+    // スタート地点へ戻った後に解除する暗さ
+    float restartFadeDarkness_ = 0.0f;
 
     /// 敵
     // 現在出現している敵
