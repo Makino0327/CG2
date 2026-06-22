@@ -291,6 +291,9 @@ void GamePlayScene::Update()
     if (player_ && context_.input) {
         if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
             player_->Respawn();
+            // 次に死亡したとき、再びディゾルブを開始できるように戻す
+            isDeathDissolveStarted_ = false;
+
             SpawnEnemies();
 
             if (context_.offscreenRenderer) {
@@ -390,7 +393,12 @@ void GamePlayScene::Update()
 
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+            // 毎フレーム再開すると進行度が0へ戻るため、死亡直後の一度だけ開始する
+            if (!isDeathDissolveStarted_) {
+                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Dissolve);
+                context_.offscreenRenderer->StartDissolve();
+                isDeathDissolveStarted_ = true;
+            }
         } else {
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }

@@ -100,6 +100,9 @@ private:
 
     // グレネード爆発で敵を即死させる半径
     float grenadeExplosionRadius_ = 4.0f;
+    // 死亡時のディゾルブを開始済みかどうか
+    bool isDeathDissolveStarted_ = false;
+
 
     /// マップ
     // 読み込んだマップチップ情報
