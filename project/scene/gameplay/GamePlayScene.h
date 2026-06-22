@@ -101,6 +101,12 @@ private:
     // グレネード爆発で敵を即死させる半径
     float grenadeExplosionRadius_ = 4.0f;
 
+    // Remaining frames for the radial blur after a grenade explosion
+    uint32_t radialBlurFrameCount_ = 0;
+
+    // Number of frames that the radial blur remains visible
+    static constexpr uint32_t kRadialBlurDurationFrames_ = 8;
+
     /// マップ
     // 読み込んだマップチップ情報
     MapChipField mapField_;

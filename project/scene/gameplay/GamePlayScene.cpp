@@ -352,6 +352,9 @@ void GamePlayScene::Update()
         // グレネード爆発通知を受け取ったフレームからカメラを揺らす
         if (player_->ConsumeGrenadeShakeRequest()) {
             followCamera_->StartShake();
+
+            // Start a short radial blur when the grenade explodes
+            radialBlurFrameCount_ = kRadialBlurDurationFrames_;
         }
 
         followCamera_->SetTarget(player_->GetWorldPosition());
@@ -390,8 +393,15 @@ void GamePlayScene::Update()
 
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
+            // Discard the remaining blur time while the player is dead
+            radialBlurFrameCount_ = 0;
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+        } else if (radialBlurFrameCount_ > 0) {
+            // Apply radial blur only during the short explosion effect
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::RadialBlur);
+            radialBlurFrameCount_--;
         } else {
+            // Return to the normal view after the effect ends
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
     }
