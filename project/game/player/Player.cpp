@@ -444,6 +444,21 @@ void Player::ResolveRightCollisionWithMap(Vector3& pos)
     }
 }
 
+void Player::SetPosition(const Vector3& position)
+{
+    // 内部座標と前フレーム座標を同時に更新する
+    translate_ = position;
+    prevPos_ = position;
+
+    if (!object_) {
+        return;
+    }
+
+    // 近接攻撃演出の位置をモデルへ即座に反映する
+    object_->SetTranslate(position);
+    object_->Update();
+}
+
 Vector3 Player::GetWorldPosition() const
 {
     if (!object_) {

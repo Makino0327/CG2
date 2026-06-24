@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "../engine/base/directX/DirectXCommon.h"
+#include "../engine/base/winapp/WinApp.h"
 #include "../engine/base/srv/SrvManager.h"
 #include "../engine/2d/sprite/SpriteCommon.h"
 #include "../engine/2d/sprite/Sprite.h"
@@ -184,6 +185,19 @@ void GamePlayScene::Initialize()
     light->direction = Vector3(0.0f, -1.0f, 0.0f);
     light->intensity = 4.0f;
 
+    // 近接攻撃可能な敵の頭上へ表示するマークを作る
+    meleeMarker_ = std::make_unique<Sprite>();
+    meleeMarker_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/circle2.png");
+
+    // マークの中心が敵の頭上に合うように設定する
+    meleeMarker_->SetAnchorPoint({ 0.5f, 0.5f });
+    meleeMarker_->SetSize({ 42.0f, 42.0f });
+    meleeMarker_->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
+    meleeMarker_->Update();
+
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
     skyboxCommon_->SetDefaultCamera(context_.camera);
@@ -337,6 +351,8 @@ void GamePlayScene::Update()
             skybox_->Update();
         }
 
+        // デバッグカメラ中は近接攻撃マークを表示しない
+        meleeTarget_ = nullptr;
         return;
     }
 
@@ -377,9 +393,13 @@ void GamePlayScene::Update()
         // 敵の移動と状態を更新する
         enemy->Update();
 
+
         // 敵更新後に重なりを解消する
         ResolveEnemyOverlap();
     }
+
+    // 全敵の視界判定後に近接攻撃を処理する
+    UpdateMeleeAttack();
 
     CheckCollisions();
 
@@ -460,11 +480,137 @@ void GamePlayScene::Draw()
         enemyVisionDebug_.Upload();
         enemyVisionDebug_.Draw();
     }
+    // 近接攻撃可能な敵の頭上へマークを表示する
+    if (meleeTarget_ && meleeMarker_ && context_.camera) {
+        Vector3 markerPosition = meleeTarget_->GetWorldPosition();
+        markerPosition.y += 2.0f;
+
+        const Matrix4x4& viewProjection = context_.camera->GetViewProjectionMatrix();
+
+        // 敵のワールド座標を画面表示用のクリップ座標へ変換する
+        const float clipX =
+            markerPosition.x * viewProjection.m[0][0] +
+            markerPosition.y * viewProjection.m[1][0] +
+            markerPosition.z * viewProjection.m[2][0] +
+            viewProjection.m[3][0];
+        const float clipY =
+            markerPosition.x * viewProjection.m[0][1] +
+            markerPosition.y * viewProjection.m[1][1] +
+            markerPosition.z * viewProjection.m[2][1] +
+            viewProjection.m[3][1];
+        const float clipW =
+            markerPosition.x * viewProjection.m[0][3] +
+            markerPosition.y * viewProjection.m[1][3] +
+            markerPosition.z * viewProjection.m[2][3] +
+            viewProjection.m[3][3];
+
+        // カメラより前にいる敵のマークだけ描画する
+        if (clipW > 0.001f) {
+            const float screenX =
+                ((clipX / clipW) + 1.0f) * 0.5f * WinApp::kClientWidth;
+            const float screenY =
+                (1.0f - (clipY / clipW)) * 0.5f * WinApp::kClientHeight;
+
+            meleeMarker_->SetPosition({ screenX, screenY });
+            meleeMarker_->Update();
+            meleeMarker_->Draw();
+        }
+    }
 }
 
+void GamePlayScene::UpdateMeleeAttack()
+{
+    if (!player_ || player_->IsDead() || !context_.input) {
+        return;
+    }
+
+    // キル演出中は敵の手前まで素早く踏み込む
+    if (isMeleeAttacking_) {
+        meleeAttackTimer_++;
+
+        // 演出途中で敵が別の攻撃により倒された場合は中断する
+        if (!meleeVictim_ || meleeVictim_->IsDead()) {
+            isMeleeAttacking_ = false;
+            meleeVictim_ = nullptr;
+            meleeAttackTimer_ = 0;
+            return;
+        }
+
+        const float approachRate =
+            static_cast<float>(meleeAttackTimer_) /
+            static_cast<float>(meleeAttackHitFrame_);
+        player_->SetPosition(
+            Lerp(meleeStartPosition_, meleeStrikePosition_, approachRate));
+
+        if (meleeAttackTimer_ >= meleeAttackHitFrame_) {
+            // 踏み込み先で敵を即死させ、その位置に残る
+            player_->SetPosition(meleeStrikePosition_);
+            meleeVictim_->OnMeleeHit();
+
+            isMeleeAttacking_ = false;
+            meleeVictim_ = nullptr;
+            meleeAttackTimer_ = 0;
+        }
+        return;
+    }
+
+    // 通常時は毎フレーム攻撃対象を探し直す
+    meleeTarget_ = nullptr;
+    const Vector3 playerPosition = player_->GetWorldPosition();
+    float nearestDistanceSq = meleeAttackRange_ * meleeAttackRange_;
+
+    for (auto& enemy : enemies_) {
+        // 死亡済み、または一度でもプレイヤーを発見した敵は対象外にする
+        if (enemy->IsDead() || enemy->HasDetectedPlayer()) {
+            continue;
+        }
+
+        const Vector3 enemyPosition = enemy->GetWorldPosition();
+        const float diffX = enemyPosition.x - playerPosition.x;
+        const float diffZ = enemyPosition.z - playerPosition.z;
+        const float distanceSq = diffX * diffX + diffZ * diffZ;
+
+        // 攻撃範囲内で一番近い敵を選ぶ
+        if (distanceSq <= nearestDistanceSq) {
+            nearestDistanceSq = distanceSq;
+            meleeTarget_ = enemy.get();
+        }
+    }
+
+    if (!meleeTarget_ || !context_.input->TriggerKey(DIK_E)) {
+        return;
+    }
+
+    // Eキーを押した瞬間に敵へ踏み込むキル演出を開始する
+    meleeVictim_ = meleeTarget_;
+    meleeStartPosition_ = playerPosition;
+    meleeAttackTimer_ = 0;
+    isMeleeAttacking_ = true;
+
+    const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
+    Vector3 toVictim = {
+        victimPosition.x - playerPosition.x,
+        0.0f,
+        victimPosition.z - playerPosition.z
+    };
+    toVictim = Normalize(toVictim);
+
+    // 敵と重ならないよう、敵の少し手前を踏み込み位置にする
+    meleeStrikePosition_ = {
+        victimPosition.x - toVictim.x * 1.2f,
+        playerPosition.y,
+        victimPosition.z - toVictim.z * 1.2f
+    };
+    meleeTarget_ = nullptr;
+}
 void GamePlayScene::Finalize()
 {
     sprites_.clear();
+    meleeMarker_.reset();
+    meleeTarget_ = nullptr;
+    meleeVictim_ = nullptr;
+    isMeleeAttacking_ = false;
+    meleeAttackTimer_ = 0;
 
     object3d_.reset();
     particleSystem_.reset();
@@ -527,7 +673,7 @@ void GamePlayScene::CheckCollisions()
             continue;
         }
 
-        if (Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
+        if (!isMeleeAttacking_ && Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
             player_->OnHit();
         }
     }
@@ -726,6 +872,12 @@ void GamePlayScene::CreateMapObjects()
 
 void GamePlayScene::SpawnEnemies()
 {
+    // 敵の再生成時は近接攻撃とキル演出の状態を解除する
+    meleeTarget_ = nullptr;
+    meleeVictim_ = nullptr;
+    isMeleeAttacking_ = false;
+    meleeAttackTimer_ = 0;
+
     // レベルデータから敵を作り直す
     enemies_.clear();
 

@@ -41,6 +41,9 @@ public:
     // プレイヤーの座標を返す
     Vector3 GetWorldPosition() const;
 
+    // 近接攻撃演出などでプレイヤーの座標を直接設定する
+    void SetPosition(const Vector3& position);
+
     // プレイヤーの当たり判定を返す
     SphereCollider GetCollider() const;
 

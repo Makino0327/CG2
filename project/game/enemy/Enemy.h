@@ -65,6 +65,13 @@ public:
     // マップ情報を設定する
     void SetMap(const MapChipField* mapField, float tileSize);
     bool IsTargetInSight() const { return isTargetInSight_; }
+
+    // 一度でもプレイヤーを発見したかを返す
+    bool HasDetectedPlayer() const { return hasDetectedPlayer_; }
+
+    // 近接攻撃によって敵を即死させる
+    void OnMeleeHit();
+
     void AppendVisionDebugLines(DebugLine3D& debugLine) const;
 
     // 床コライダーを設定する
@@ -177,6 +184,10 @@ private:
     // 追跡中かどうか
     bool isChasing_ = false;
     bool isTargetInSight_ = false;
+
+    // 一度でもプレイヤーを発見したか
+    // 追跡をやめて巡回へ戻っても解除しない
+    bool hasDetectedPlayer_ = false;
 
     // 前フレームで追跡していたか
     bool wasChasing_ = false;

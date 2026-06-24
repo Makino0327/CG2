@@ -50,6 +50,9 @@ private:
     void CheckGrenadeExplosions();
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
+
+    // 近接攻撃できる敵を探し、Eキー入力とキル演出を処理する
+    void UpdateMeleeAttack();
     // マップCSVとレベルデータから床と壁のオブジェクトを作る
     void CreateMapObjects();
     // レベルデータから敵を生成する
@@ -97,6 +100,34 @@ private:
     uint32_t enemyCount_ = 10;
     // プレイヤー周辺に敵を自動配置するときの半径
     float enemySpawnRadius_ = 8.0f;
+
+    // 現在近接攻撃の対象になっている敵
+    Enemy* meleeTarget_ = nullptr;
+
+    // 敵へ近接攻撃できる距離
+    float meleeAttackRange_ = 7.0f;
+
+    // 近接キル演出中か
+    bool isMeleeAttacking_ = false;
+
+    // 近接キル演出の経過フレーム
+    int meleeAttackTimer_ = 0;
+
+    // 斬撃を当てるフレーム
+    int meleeAttackHitFrame_ = 6;
+
+    // 近接キル演出で倒す敵
+    Enemy* meleeVictim_ = nullptr;
+
+    // 演出開始前のプレイヤー位置
+    Vector3 meleeStartPosition_ = { 0.0f, 0.0f, 0.0f };
+
+    // 敵へ踏み込んだときのプレイヤー位置
+    Vector3 meleeStrikePosition_ = { 0.0f, 0.0f, 0.0f };
+
+
+    // 近接攻撃可能な敵の頭上に表示するマーク
+    std::unique_ptr<Sprite> meleeMarker_;
 
     // グレネード爆発で敵を即死させる半径
     float grenadeExplosionRadius_ = 4.0f;

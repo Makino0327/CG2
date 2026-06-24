@@ -32,6 +32,9 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     hp_ = maxHp_;
     isDead_ = false;
 
+    // 再生成時はプレイヤー発見状態も解除する
+    hasDetectedPlayer_ = false;
+
     // 死亡演出の状態も初期化する
     deathEffectTimer_ = 0.0f;
     isReadyToRemove_ = false;
@@ -90,6 +93,10 @@ void Enemy::Update()
     if (!isChasing_ && isTargetInSight_) {
         // 追跡開始フラグを立てる
         isChasing_ = true;
+
+        // 一度発見したことを記録する
+        // このフラグは巡回へ戻っても解除しない
+        hasDetectedPlayer_ = true;
     }
 
     // 一定距離以上離れたら追跡をやめる
@@ -217,6 +224,21 @@ void Enemy::OnExplosionHit()
     // 通常死亡と同じOBJ破片と血しぶき演出を開始する
     StartDeathEffect();
 }
+void Enemy::OnMeleeHit()
+{
+    // すでに死亡している敵には何もしない
+    if (isDead_) {
+        return;
+    }
+
+    // 近接攻撃は残りHPに関係なく即死させる
+    hp_ = 0;
+    isDead_ = true;
+
+    // 通常撃破と同じ血しぶきと破片を発生させる
+    StartDeathEffect();
+}
+
 void Enemy::EmitBloodSplatter(
     const Vector3& hitPosition,
     const Vector3& hitDirection)
