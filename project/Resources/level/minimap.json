@@ -1,0 +1,401 @@
+{
+    "name": "minimap",
+    "coordinate_system": "game_xz",
+    "bounds": {
+        "min": [
+            -50.0,
+            -50.0
+        ],
+        "max": [
+            50.0,
+            50.0
+        ],
+        "center": [
+            0.0,
+            0.0
+        ],
+        "size": [
+            100.0,
+            100.0
+        ]
+    },
+    "objects": [
+        {
+            "name": "Floor",
+            "kind": "floor",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                100.0,
+                100.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Player",
+            "kind": "player",
+            "position": [
+                -5.0,
+                -29.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_06",
+            "kind": "wall",
+            "position": [
+                0.0,
+                -39.0
+            ],
+            "size": [
+                80.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_06.001",
+            "kind": "wall",
+            "position": [
+                0.0,
+                39.0
+            ],
+            "size": [
+                80.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_00",
+            "kind": "wall",
+            "position": [
+                -14.0,
+                -30.0
+            ],
+            "size": [
+                2.0,
+                16.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_02",
+            "kind": "wall",
+            "position": [
+                -27.0,
+                -12.0
+            ],
+            "size": [
+                2.0,
+                16.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_03",
+            "kind": "wall",
+            "position": [
+                -24.0,
+                -3.0
+            ],
+            "size": [
+                32.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_00",
+            "kind": "enemy",
+            "position": [
+                -20.0,
+                -10.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_01",
+            "kind": "enemy",
+            "position": [
+                -5.0,
+                5.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_05",
+            "kind": "wall",
+            "position": [
+                -41.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                80.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_07",
+            "kind": "wall",
+            "position": [
+                39.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                80.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_01",
+            "kind": "wall",
+            "position": [
+                -10.0,
+                10.0
+            ],
+            "size": [
+                20.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_04",
+            "kind": "wall",
+            "position": [
+                -26.0,
+                20.0
+            ],
+            "size": [
+                20.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_08",
+            "kind": "wall",
+            "position": [
+                -10.0,
+                30.0
+            ],
+            "size": [
+                20.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_02",
+            "kind": "enemy",
+            "position": [
+                -36.0,
+                15.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_03",
+            "kind": "enemy",
+            "position": [
+                -5.0,
+                25.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_09",
+            "kind": "wall",
+            "position": [
+                11.0,
+                20.0
+            ],
+            "size": [
+                2.0,
+                20.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_10",
+            "kind": "wall",
+            "position": [
+                21.0,
+                11.0
+            ],
+            "size": [
+                18.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_11",
+            "kind": "wall",
+            "position": [
+                21.0,
+                29.0
+            ],
+            "size": [
+                18.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_12",
+            "kind": "wall",
+            "position": [
+                29.0,
+                14.0
+            ],
+            "size": [
+                2.0,
+                4.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_13",
+            "kind": "wall",
+            "position": [
+                29.0,
+                26.0
+            ],
+            "size": [
+                2.0,
+                4.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_04",
+            "kind": "enemy",
+            "position": [
+                8.0,
+                8.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_05",
+            "kind": "enemy",
+            "position": [
+                32.0,
+                32.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_14",
+            "kind": "wall",
+            "position": [
+                20.0,
+                -20.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_06",
+            "kind": "enemy",
+            "position": [
+                10.0,
+                -10.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_07",
+            "kind": "enemy",
+            "position": [
+                30.0,
+                -10.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_08",
+            "kind": "enemy",
+            "position": [
+                10.0,
+                -30.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_09",
+            "kind": "enemy",
+            "position": [
+                30.0,
+                -30.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_15",
+            "kind": "wall",
+            "position": [
+                -1.0,
+                -10.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        }
+    ]
+}

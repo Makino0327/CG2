@@ -80,6 +80,7 @@
     <ClCompile Include="scene\LevelLoader.cpp" />
     <ClCompile Include="game\common\WaypointMover.cpp" />
     <ClCompile Include="engine\utils\LevelHotReload.cpp" />
+    <ClCompile Include="game\minimap\Minimap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game\camera\Camera.h" />
@@ -136,6 +137,7 @@
     <ClInclude Include="scene\LevelLoader.h" />
     <ClInclude Include="game\common\WaypointMover.h" />
     <ClInclude Include="engine\utils\LevelHotReload.h" />
+    <ClInclude Include="game\minimap\Minimap.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Object3d.hlsli" />

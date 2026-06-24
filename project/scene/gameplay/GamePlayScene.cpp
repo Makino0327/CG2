@@ -192,6 +192,13 @@ void GamePlayScene::Initialize()
         directionalLightResource_.Get(),
         "Resources/circle2.png");
 
+    // ミニマップを初期化する
+    minimap_ = std::make_unique<Minimap>();
+    minimap_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/level/minimap.json");
+
     // マークの中心が敵の頭上に合うように設定する
     meleeMarker_->SetAnchorPoint({ 0.5f, 0.5f });
     meleeMarker_->SetSize({ 42.0f, 42.0f });
@@ -297,6 +304,14 @@ void GamePlayScene::Update()
         ReloadLevel(true);
     }
 
+    // Mキーを押した瞬間にミニマップの大きさを切り替える
+    if (context_.input &&
+        context_.input->TriggerKey(DIK_M)) {
+        if (minimap_) {
+            minimap_->ToggleExpanded();
+        }
+    }
+
     // Reload the level automatically after the file update becomes stable.
     if (levelHotReload_.Update()) {
         ReloadLevel(false);
@@ -396,6 +411,25 @@ void GamePlayScene::Update()
 
         // 敵更新後に重なりを解消する
         ResolveEnemyOverlap();
+    }
+
+    // ミニマップへ渡す生存中の敵位置を集める
+    std::vector<Vector3> minimapEnemyPositions;
+
+    for (const auto& enemy : enemies_) {
+        if (enemy->IsDead()) {
+            continue;
+        }
+
+        minimapEnemyPositions.push_back(
+            enemy->GetWorldPosition());
+    }
+
+    // プレイヤーと敵の現在位置をミニマップへ反映する
+    if (minimap_ && player_) {
+        minimap_->Update(
+            player_->GetWorldPosition(),
+            minimapEnemyPositions);
     }
 
     // 全敵の視界判定後に近接攻撃を処理する
@@ -516,6 +550,11 @@ void GamePlayScene::Draw()
             meleeMarker_->Draw();
         }
     }
+
+    // 3Dオブジェクトより手前へミニマップを描画する
+    if (minimap_) {
+        minimap_->Draw();
+    }
 }
 
 void GamePlayScene::UpdateMeleeAttack()
@@ -628,6 +667,9 @@ void GamePlayScene::Finalize()
     debugCamera_.reset();
     player_.reset();
     enemies_.clear();
+
+    // ミニマップが所有するSpriteを解放する
+    minimap_.reset();
 }
 
 void GamePlayScene::CheckGrenadeExplosions()

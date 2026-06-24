@@ -159,6 +159,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="game\minimap\Minimap.cpp" />
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
     <ClCompile Include="scene\clear\ClearScene.cpp" />
     <ClCompile Include="game\collision\Collision.cpp" />
@@ -387,6 +388,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="game\minimap\Minimap.h" />
     <ClInclude Include="scene\gameover\GameOverScene.h" />
     <ClInclude Include="scene\clear\ClearScene.h" />
     <ClInclude Include="game\collision\Collision.h" />

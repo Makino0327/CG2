@@ -81,8 +81,9 @@ public:
     // // デバッグカメラ確認用に描画行列だけ更新する
     void UpdateRenderOnly();
 
-    // Blender から読んだプレイヤー開始位置を設定する
+    // Blenderから読んだプレイヤー開始位置を保存する
     void SetSpawnPosition(const Vector3& spawnPosition) {
+        spawnPosition_ = spawnPosition;
         translate_ = spawnPosition;
     }
 
@@ -154,8 +155,21 @@ private:
 
     Vector3 prevPos_{};
 
-    // プレイヤーの座標
-    Vector3 translate_ = { 2.0f, 0.5f, 2.0f };
+
+
+    // 死亡後に戻るプレイヤーの初期位置
+    Vector3 spawnPosition_ = {
+        2.0f,
+        0.5f,
+        2.0f
+    };
+
+    // プレイヤーの現在座標
+    Vector3 translate_ = {
+        2.0f,
+        0.5f,
+        2.0f
+    };
 
     // プレイヤーの回転
     Vector3 rotate_ = { 0.0f, 0.0f, 0.0f };

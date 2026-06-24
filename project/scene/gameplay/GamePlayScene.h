@@ -22,6 +22,8 @@
 #include "../../game/map/MapChipField.h"
 #include "../../engine/utils/LevelHotReload.h"
 
+#include "../../game/minimap/Minimap.h"
+
 #include "../LevelLoader.h"
 
 class Sprite;
@@ -156,4 +158,7 @@ private:
     std::string reloadNoticeText_;
     // リロード通知をImGuiに表示する残りフレーム数
     uint32_t reloadNoticeFrameCount_ = 0;
+
+    // ミニマップの読み込み、更新、描画を管理する
+    std::unique_ptr<Minimap> minimap_;
 };

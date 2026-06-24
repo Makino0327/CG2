@@ -811,7 +811,19 @@ void Player::Respawn()
     // 無敵時間をリセットする
     invincibleTimer_ = 0;
 
-    // 開始位置は Blender から設定された値を使い続ける
+    // BlenderのJSONから読み込んだ開始位置へ戻す
+    translate_ = spawnPosition_;
+
+    // 前フレーム位置も開始位置へそろえる
+    prevPos_ = spawnPosition_;
+
+    // 落下速度をリセットする
+    velocityY_ = 0.0f;
+
+    // 接地状態をリセットして次の更新で再判定する
+    onGround_ = false;
+
+    // プレイヤーの向きを初期状態へ戻す
     rotate_ = { 0.0f, 0.0f, 0.0f };
 
     // 3Dオブジェクトにも座標と回転を反映する
