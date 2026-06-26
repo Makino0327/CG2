@@ -444,7 +444,8 @@ void GamePlayScene::Update()
 
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+            // プレイヤーが死んだときは画面にランダムノイズをかける
+            context_.offscreenRenderer->SetPostEffectType(PostEffectType::RandomNoise);
         } else {
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
