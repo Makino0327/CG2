@@ -1,6 +1,7 @@
 #include "Player.h"
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
+#include <cmath>
 #include <random>
 #include "../../engine/particle/Particle.h"
 
@@ -125,11 +126,23 @@ void Player::Update(Camera* camera)
         }
 
         if (input_->PushMouseLeft() && assaultFireTimer_ <= 0) {
-            FireBullet(camera);
+            // 連射するほど少しずつ弾をばらけさせる
+            float spreadAngle = std::min(
+                assaultMaxSpreadAngle_,
+                static_cast<float>(assaultContinuousShotCount_) * assaultSpreadIncrease_);
+
+            FireBullet(camera, spreadAngle);
+            assaultContinuousShotCount_++;
             assaultFireTimer_ = assaultFireInterval_;
+        }
+
+        if (!input_->PushMouseLeft()) {
+            // 撃つのをやめたらばらけを元に戻す
+            assaultContinuousShotCount_ = 0;
         }
     } else {
         assaultFireTimer_ = 0;
+        assaultContinuousShotCount_ = 0;
     }
 
     // Gキーを押した瞬間にグレネードを1個投げる
@@ -494,7 +507,7 @@ Vector3 Player::GetWorldPosition() const
     return object_->GetTranslate();
 }
 
-void Player::FireBullet(Camera* camera)
+void Player::FireBullet(Camera* camera, float spreadAngle)
 {
     if (!object_) {
         return;
@@ -515,6 +528,26 @@ void Player::FireBullet(Camera* camera)
         firePosition,
         camera,
         input_);
+
+    // ばらけ角度がある時だけ、弾の向きを左右に少しランダムでずらす
+    if (spreadAngle > 0.0f) {
+        static std::random_device seedGenerator;
+        static std::mt19937 randomEngine(seedGenerator());
+
+        std::uniform_real_distribution<float> spreadDistribution(-spreadAngle, spreadAngle);
+        float angle = spreadDistribution(randomEngine);
+
+        float cosAngle = std::cos(angle);
+        float sinAngle = std::sin(angle);
+
+        Vector3 spreadDirection = {
+            direction.x * cosAngle - direction.z * sinAngle,
+            direction.y,
+            direction.x * sinAngle + direction.z * cosAngle
+        };
+
+        direction = Normalize(spreadDirection);
+    }
 
     // 弾と発射エフェクトをプレイヤー中心ではなく射出口へ移動する
     firePosition.x += direction.x * bulletMuzzleDistance_;

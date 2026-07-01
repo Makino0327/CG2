@@ -1,4 +1,5 @@
 #pragma once
+#define NOMINMAX
 
 #include <memory>
 #include <vector>
@@ -113,7 +114,7 @@ private:
     void ResolveRightCollisionWithMap(Vector3& pos);
 
     // 弾を発射する
-    void FireBullet(Camera* camera);
+    void FireBullet(Camera* camera, float spreadAngle = 0.0f);
 
     // 弾を更新する
     void UpdateBullets();
@@ -159,6 +160,15 @@ private:
 
     // アサルトライフルの連射タイマー
     int assaultFireTimer_ = 0;
+
+    // アサルトライフルを連射した回数
+    int assaultContinuousShotCount_ = 0;
+
+    // アサルトライフルの最大ばらけ角度
+    float assaultMaxSpreadAngle_ = 0.08f;
+
+    // アサルトライフルの連射ごとに増えるばらけ角度
+    float assaultSpreadIncrease_ = 0.008f;
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;
