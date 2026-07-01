@@ -920,13 +920,24 @@ void GamePlayScene::DrawImGui()
         const char* equipName = "Unknown";
         if (player_->GetAttackMode() == Player::AttackMode::Gun) {
             equipName = "Gun";
+        } else if (player_->GetAttackMode() == Player::AttackMode::AssaultRifle) {
+            equipName = "Assault Rifle";
         } else if (player_->GetAttackMode() == Player::AttackMode::Knife) {
             equipName = "Knife";
         }
 
-        ImGui::Begin("Player Equipment");
-        // 現在プレイヤーが装備している武器を表示する
-        ImGui::Text("Current : %s", equipName);
+        // ゲーム画面左上に現在装備をHUDとして表示する
+        ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        ImGui::Begin(
+            "Player Equipment",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Text("Weapon : %s", equipName);
         ImGui::End();
     }
 

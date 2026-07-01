@@ -21,6 +21,7 @@ public:
     // プレイヤーが使う攻撃方法
     enum class AttackMode {
         Gun,
+        AssaultRifle,
         Knife,
     };
     void Initialize(
@@ -152,6 +153,12 @@ private:
 
     // 現在選んでいる攻撃方法
     AttackMode attackMode_ = AttackMode::Gun;
+
+    // アサルトライフルの連射間隔
+    int assaultFireInterval_ = 6;
+
+    // アサルトライフルの連射タイマー
+    int assaultFireTimer_ = 0;
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;

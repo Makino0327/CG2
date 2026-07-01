@@ -102,16 +102,34 @@ void Player::Update(Camera* camera)
     object_->Update();
 
 
-    // Qキーで銃とナイフを切り替える
+    // Qキーで銃、アサルトライフル、ナイフを順番に切り替える
     if (input_->TriggerKey(DIK_Q)) {
-        attackMode_ = attackMode_ == AttackMode::Gun
-            ? AttackMode::Knife
-            : AttackMode::Gun;
+        if (attackMode_ == AttackMode::Gun) {
+            attackMode_ = AttackMode::AssaultRifle;
+        } else if (attackMode_ == AttackMode::AssaultRifle) {
+            attackMode_ = AttackMode::Knife;
+        } else {
+            attackMode_ = AttackMode::Gun;
+        }
     }
 
-    // 銃モードのときだけ左クリックで弾を撃つ
+    // 銃モードのときだけ左クリックした瞬間に弾を撃つ
     if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
+    }
+
+    // アサルトライフルは左クリック押しっぱなしで一定間隔ごとに弾を撃つ
+    if (attackMode_ == AttackMode::AssaultRifle) {
+        if (assaultFireTimer_ > 0) {
+            assaultFireTimer_--;
+        }
+
+        if (input_->PushMouseLeft() && assaultFireTimer_ <= 0) {
+            FireBullet(camera);
+            assaultFireTimer_ = assaultFireInterval_;
+        }
+    } else {
+        assaultFireTimer_ = 0;
     }
 
     // Gキーを押した瞬間にグレネードを1個投げる
