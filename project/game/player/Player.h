@@ -66,6 +66,9 @@ public:
     // 未処理のグレネード爆発位置をSceneへまとめて渡す
     std::vector<Vector3> ConsumeGrenadeExplosions();
 
+    // 弾を撃った位置をSceneへまとめて渡す
+    std::vector<Vector3> ConsumeBulletShockwavePositions();
+
     // Sceneが所有する煙用の通常アルファパーティクルを設定する
     void SetGrenadeSmokeParticleSystem(ParticleSystem* particleSystem) {
         grenadeSmokeParticleSystem_ = particleSystem;
@@ -243,6 +246,9 @@ private:
 
     // 敵との爆発判定をまだ処理していない爆発位置
     std::vector<Vector3> pendingGrenadeExplosions_;
+
+    // 衝撃波の中心に使う弾の発射位置
+    std::vector<Vector3> pendingBulletShockwavePositions_;
 
     // 弾の速度
     float bulletSpeed_ = 1.4f;

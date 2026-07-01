@@ -80,6 +80,43 @@ namespace {
         return allObjects;
     }
 
+
+    bool TryConvertWorldToScreenUV(
+        const Vector3& worldPosition,
+        const Matrix4x4& viewProjectionMatrix,
+        Vector2& outUV)
+    {
+        // ワールド座標をクリップ座標へ変換する
+        const float clipX =
+            worldPosition.x * viewProjectionMatrix.m[0][0] +
+            worldPosition.y * viewProjectionMatrix.m[1][0] +
+            worldPosition.z * viewProjectionMatrix.m[2][0] +
+            viewProjectionMatrix.m[3][0];
+        const float clipY =
+            worldPosition.x * viewProjectionMatrix.m[0][1] +
+            worldPosition.y * viewProjectionMatrix.m[1][1] +
+            worldPosition.z * viewProjectionMatrix.m[2][1] +
+            viewProjectionMatrix.m[3][1];
+        const float clipW =
+            worldPosition.x * viewProjectionMatrix.m[0][3] +
+            worldPosition.y * viewProjectionMatrix.m[1][3] +
+            worldPosition.z * viewProjectionMatrix.m[2][3] +
+            viewProjectionMatrix.m[3][3];
+
+        // カメラの後ろにある位置は画面UVにできない
+        if (clipW <= 0.0f) {
+            return false;
+        }
+
+        const float ndcX = clipX / clipW;
+        const float ndcY = clipY / clipW;
+
+        // NDC座標をポストエフェクト用の0.0fから1.0fのUVへ変換する
+        outUV.x = (ndcX + 1.0f) * 0.5f;
+        outUV.y = (1.0f - ndcY) * 0.5f;
+
+        return outUV.x >= 0.0f && outUV.x <= 1.0f && outUV.y >= 0.0f && outUV.y <= 1.0f;
+    }
 }
 
 void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
@@ -390,6 +427,9 @@ void GamePlayScene::Update()
         followCamera_->Update();
     }
 
+    // カメラ更新後の行列で弾の発射位置に画面歪みを出す
+    StartBulletShockwaves();
+
     for (auto& floorObject : floorObjects_) {
         floorObject->Update();
     }
@@ -446,7 +486,8 @@ void GamePlayScene::Update()
     if (player_ && context_.offscreenRenderer) {
         if (player_->IsDead()) {
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
-        } else {
+        } else if (context_.offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
+            // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
     }
@@ -798,6 +839,30 @@ void GamePlayScene::Finalize()
 
     // ミニマップが所有するSpriteを解放する
     minimap_.reset();
+}
+
+void GamePlayScene::StartBulletShockwaves()
+{
+    if (!player_ || !context_.camera || !context_.offscreenRenderer) {
+        return;
+    }
+
+    // Playerが撃った弾の発射位置を受け取り、Scene側で画面UVへ変換する
+    const std::vector<Vector3> shotPositions =
+        player_->ConsumeBulletShockwavePositions();
+
+    for (const Vector3& shotPosition : shotPositions) {
+        Vector2 shockwaveUV{};
+        if (!TryConvertWorldToScreenUV(
+            shotPosition,
+            context_.camera->GetViewProjectionMatrix(),
+            shockwaveUV)) {
+            continue;
+        }
+
+        // 画面上の弾の発射位置を中心にポストエフェクトの歪みを始める
+        context_.offscreenRenderer->StartShockwave(shockwaveUV);
+    }
 }
 
 void GamePlayScene::CheckGrenadeExplosions()

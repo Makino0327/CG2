@@ -571,6 +571,9 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
         wallColliders_,
         particleSystem_);
 
+    // 弾の発射位置をScene側へ渡して画面歪みの中心に使う
+    pendingBulletShockwavePositions_.push_back(firePosition);
+
     if (particleSystem_) {
         // 発射口の外側へ広がるオレンジ色の光を作る
         particleSystem_->Emit(
@@ -712,6 +715,15 @@ std::vector<Vector3> Player::ConsumeGrenadeExplosions()
     explosions.swap(pendingGrenadeExplosions_);
     return explosions;
 }
+
+std::vector<Vector3> Player::ConsumeBulletShockwavePositions()
+{
+    // 保存中の発射位置を呼び出し側へ移し、Player側を空にする
+    std::vector<Vector3> positions;
+    positions.swap(pendingBulletShockwavePositions_);
+    return positions;
+}
+
 void Player::EmitGrenadeExplosion(const Vector3& explosionPosition)
 {
     if (!particleSystem_) {

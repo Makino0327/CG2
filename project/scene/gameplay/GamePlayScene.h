@@ -50,6 +50,8 @@ private:
 
     // グレネード爆発範囲に入った敵を即死させる
     void CheckGrenadeExplosions();
+    // 弾の発射位置に画面歪みを出す
+    void StartBulletShockwaves();
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
 
