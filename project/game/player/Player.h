@@ -18,6 +18,11 @@ class ParticleSystem;
 class Player
 {
 public:
+    // プレイヤーが使う攻撃方法
+    enum class AttackMode {
+        Gun,
+        Knife,
+    };
     void Initialize(
         Object3dCommon* object3dCommon,
         Input* input,
@@ -69,6 +74,12 @@ public:
 
     // プレイヤーが消えたかを返す
     bool IsDead() const { return isDead_; }
+
+    // 現在の攻撃方法を返す
+    AttackMode GetAttackMode() const { return attackMode_; }
+
+    // ナイフを使うモードかどうかを返す
+    bool IsMeleeMode() const { return attackMode_ == AttackMode::Knife; }
 
     // プレイヤーを復活させる
     void Respawn();
@@ -138,6 +149,9 @@ private:
 
     // プレイヤー弾が共有する軌跡用パーティクルシステム
     ParticleSystem* particleSystem_ = nullptr;
+
+    // 現在選んでいる攻撃方法
+    AttackMode attackMode_ = AttackMode::Gun;
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;

@@ -17,6 +17,7 @@
 #include "../engine/3d/obj3d/Object3dCommon.h"
 #include "../engine/3d/obj3d/Object3d.h"
 #include "../game/camera/Camera.h"
+#include "../../game/player/PlayerBullet.h"
 
 #include "../engine/particle/ParticleCommon.h"
 #include "../engine/particle/Particle.h"
@@ -557,17 +558,58 @@ void GamePlayScene::Draw()
     }
 }
 
+void GamePlayScene::EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction)
+{
+    if (!particleSystem_) {
+        return;
+    }
+
+    Vector3 slashDirection = { direction.x, 0.0f, direction.z };
+    if (slashDirection.x == 0.0f && slashDirection.z == 0.0f) {
+        slashDirection = { 0.0f, 0.0f, 1.0f };
+    } else {
+        slashDirection = Normalize(slashDirection);
+    }
+
+    // 球を細長く伸ばした斬撃を1個だけ出す
+    const Vector3 slashPosition = {
+        center.x,
+        center.y + 1.0f,
+        center.z
+    };
+
+    static std::mt19937 randomEngine{ std::random_device{}() };
+    std::uniform_int_distribution<int> randomDirection(0, 1);
+    const bool isVerticalSlash = randomDirection(randomEngine) == 0;
+    const Vector3 slashScale = isVerticalSlash
+        ? Vector3{ 0.28f, 1.95f, 0.28f }
+        : Vector3{ 1.95f, 0.28f, 0.28f };
+
+    // エンジン側を変えず、縦長か横長かをランダムに切り替える
+    particleSystem_->Emit(
+        slashPosition,
+        slashScale,
+        { 0.0f, 0.0f, 0.0f },
+        { 0.95f, 0.98f, 1.0f, 0.90f },
+        0.11f);
+}
+
 void GamePlayScene::UpdateMeleeAttack()
 {
     if (!player_ || player_->IsDead() || !context_.input) {
         return;
     }
 
-    // キル演出中は敵の手前まで素早く踏み込む
+    // ナイフモードではないときは近接ターゲットを表示しない
+    if (!player_->IsMeleeMode() && !isMeleeAttacking_) {
+        meleeTarget_ = nullptr;
+        return;
+    }
+
     if (isMeleeAttacking_) {
         meleeAttackTimer_++;
 
-        // 演出途中で敵が別の攻撃により倒された場合は中断する
+        // 攻撃中に対象が倒れた場合は近接攻撃を中断する
         if (!meleeVictim_ || meleeVictim_->IsDead()) {
             isMeleeAttacking_ = false;
             meleeVictim_ = nullptr;
@@ -582,8 +624,17 @@ void GamePlayScene::UpdateMeleeAttack()
             Lerp(meleeStartPosition_, meleeStrikePosition_, approachRate));
 
         if (meleeAttackTimer_ >= meleeAttackHitFrame_) {
-            // 踏み込み先で敵を即死させ、その位置に残る
             player_->SetPosition(meleeStrikePosition_);
+
+            const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
+            Vector3 slashDirection = {
+                victimPosition.x - meleeStartPosition_.x,
+                0.0f,
+                victimPosition.z - meleeStartPosition_.z
+            };
+
+            // ヒットした瞬間にナイフの斬撃エフェクトを出す
+            EmitMeleeSlashEffect(victimPosition, slashDirection);
             meleeVictim_->OnMeleeHit();
 
             isMeleeAttacking_ = false;
@@ -593,14 +644,14 @@ void GamePlayScene::UpdateMeleeAttack()
         return;
     }
 
-    // 通常時は毎フレーム攻撃対象を探し直す
     meleeTarget_ = nullptr;
+
     const Vector3 playerPosition = player_->GetWorldPosition();
-    float nearestDistanceSq = meleeAttackRange_ * meleeAttackRange_;
+    float nearestInstantKillDistanceSq = meleeAttackRange_ * meleeAttackRange_;
 
     for (auto& enemy : enemies_) {
-        // 死亡済み、または一度でもプレイヤーを発見した敵は対象外にする
-        if (enemy->IsDead() || enemy->HasDetectedPlayer()) {
+        // 死んでいる敵は近接攻撃の対象にしない
+        if (enemy->IsDead()) {
             continue;
         }
 
@@ -609,39 +660,116 @@ void GamePlayScene::UpdateMeleeAttack()
         const float diffZ = enemyPosition.z - playerPosition.z;
         const float distanceSq = diffX * diffX + diffZ * diffZ;
 
-        // 攻撃範囲内で一番近い敵を選ぶ
-        if (distanceSq <= nearestDistanceSq) {
-            nearestDistanceSq = distanceSq;
+        if (!enemy->HasDetectedPlayer() && distanceSq <= nearestInstantKillDistanceSq) {
+            // 瞬殺できる特別近接は、まだプレイヤーを発見していない敵だけ対象にする
+            nearestInstantKillDistanceSq = distanceSq;
             meleeTarget_ = enemy.get();
         }
     }
 
-    if (!meleeTarget_ || !context_.input->TriggerKey(DIK_E)) {
+    if (!context_.input->TriggerMouseLeft()) {
         return;
     }
 
-    // Eキーを押した瞬間に敵へ踏み込むキル演出を開始する
-    meleeVictim_ = meleeTarget_;
-    meleeStartPosition_ = playerPosition;
-    meleeAttackTimer_ = 0;
-    isMeleeAttacking_ = true;
+    if (meleeTarget_) {
+        // 瞬殺できる敵がいるときだけ、踏み込み付きの特別近接を開始する
+        meleeVictim_ = meleeTarget_;
+        meleeStartPosition_ = playerPosition;
+        meleeAttackTimer_ = 0;
+        isMeleeAttacking_ = true;
 
-    const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
-    Vector3 toVictim = {
-        victimPosition.x - playerPosition.x,
-        0.0f,
-        victimPosition.z - playerPosition.z
-    };
-    toVictim = Normalize(toVictim);
+        const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
+        Vector3 toVictim = {
+            victimPosition.x - playerPosition.x,
+            0.0f,
+            victimPosition.z - playerPosition.z
+        };
+        if (toVictim.x == 0.0f && toVictim.z == 0.0f) {
+            toVictim = { 0.0f, 0.0f, 1.0f };
+        } else {
+            toVictim = Normalize(toVictim);
+        }
 
-    // 敵と重ならないよう、敵の少し手前を踏み込み位置にする
-    meleeStrikePosition_ = {
-        victimPosition.x - toVictim.x * 1.2f,
+        // 敵と重ならないように、敵の少し手前まで踏み込む
+        meleeStrikePosition_ = {
+            victimPosition.x - toVictim.x * 1.2f,
+            playerPosition.y,
+            victimPosition.z - toVictim.z * 1.2f
+        };
+
+        // 攻撃開始時にも薄い斬撃を出して、入力したことを分かりやすくする
+        EmitMeleeSlashEffect(playerPosition, toVictim);
+        meleeTarget_ = nullptr;
+        return;
+    }
+
+    Vector3 slashDirection = PlayerBullet::CalcDirectionToMouseGround(
+        playerPosition,
+        context_.camera,
+        context_.input);
+
+    if (slashDirection.x == 0.0f && slashDirection.z == 0.0f) {
+        slashDirection = { 0.0f, 0.0f, 1.0f };
+    } else {
+        slashDirection = Normalize(slashDirection);
+    }
+
+    // 普通の近接は判定範囲の中心へ斬撃エフェクトを出す
+    const float normalMeleeEffectDistance = normalMeleeAttackRange_ * 0.5f;
+    const Vector3 normalMeleeEffectPosition = {
+        playerPosition.x + slashDirection.x * normalMeleeEffectDistance,
         playerPosition.y,
-        victimPosition.z - toVictim.z * 1.2f
+        playerPosition.z + slashDirection.z * normalMeleeEffectDistance
     };
-    meleeTarget_ = nullptr;
+
+    // 吸い付きなしで、見た目と同じ位置に斬撃を出す
+    EmitMeleeSlashEffect(normalMeleeEffectPosition, slashDirection);
+
+    Enemy* normalMeleeHitTarget = nullptr;
+    float nearestNormalHitForward = normalMeleeAttackRange_;
+    constexpr float kNormalMeleeHalfWidth = 1.25f;
+
+    for (auto& enemy : enemies_) {
+        // 死んでいる敵には通常近接を当てない
+        if (enemy->IsDead()) {
+            continue;
+        }
+
+        const Vector3 enemyPosition = enemy->GetWorldPosition();
+        Vector3 toEnemy = {
+            enemyPosition.x - playerPosition.x,
+            0.0f,
+            enemyPosition.z - playerPosition.z
+        };
+
+        const float forwardDistance =
+            toEnemy.x * slashDirection.x +
+            toEnemy.z * slashDirection.z;
+        if (forwardDistance < 0.0f || forwardDistance > normalMeleeAttackRange_) {
+            continue;
+        }
+
+        const float sideX = toEnemy.x - slashDirection.x * forwardDistance;
+        const float sideZ = toEnemy.z - slashDirection.z * forwardDistance;
+        const float sideDistanceSq = sideX * sideX + sideZ * sideZ;
+        if (sideDistanceSq > kNormalMeleeHalfWidth * kNormalMeleeHalfWidth) {
+            continue;
+        }
+
+        // 斬撃の帯に入った一番手前の敵だけに1ダメージを与える
+        if (forwardDistance <= nearestNormalHitForward) {
+            nearestNormalHitForward = forwardDistance;
+            normalMeleeHitTarget = enemy.get();
+        }
+    }
+
+    if (normalMeleeHitTarget) {
+        normalMeleeHitTarget->OnMeleeDamage(
+            normalMeleeHitTarget->GetWorldPosition(),
+            slashDirection);
+    }
 }
+
 void GamePlayScene::Finalize()
 {
     sprites_.clear();
@@ -787,6 +915,20 @@ void GamePlayScene::DrawImGui()
     }
 
     ImGui::End();
+
+    if (player_) {
+        const char* equipName = "Unknown";
+        if (player_->GetAttackMode() == Player::AttackMode::Gun) {
+            equipName = "Gun";
+        } else if (player_->GetAttackMode() == Player::AttackMode::Knife) {
+            equipName = "Knife";
+        }
+
+        ImGui::Begin("Player Equipment");
+        // 現在プレイヤーが装備している武器を表示する
+        ImGui::Text("Current : %s", equipName);
+        ImGui::End();
+    }
 
     if (object3d_) {
         // Object3d全体で共有しているライト設定をImGuiに表示する

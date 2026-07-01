@@ -53,8 +53,10 @@ private:
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
 
-    // 近接攻撃できる敵を探し、Eキー入力とキル演出を処理する
+    // ナイフモード中に近接攻撃できる敵を探し、左クリック入力と攻撃演出を処理する
     void UpdateMeleeAttack();
+    // ナイフで切ったような斬撃エフェクトを出す
+    void EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction);
     // マップCSVとレベルデータから床と壁のオブジェクトを作る
     void CreateMapObjects();
     // レベルデータから敵を生成する
@@ -108,6 +110,9 @@ private:
 
     // 敵へ近接攻撃できる距離
     float meleeAttackRange_ = 7.0f;
+
+    // 普通の近接攻撃が届く距離
+    float normalMeleeAttackRange_ = 3.6f;
 
     // 近接キル演出中か
     bool isMeleeAttacking_ = false;

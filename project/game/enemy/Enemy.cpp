@@ -239,6 +239,32 @@ void Enemy::OnMeleeHit()
     StartDeathEffect();
 }
 
+void Enemy::OnMeleeDamage(const Vector3& hitPosition, const Vector3& hitDirection)
+{
+    // すでに死亡している敵には何もしない
+    if (isDead_) {
+        return;
+    }
+
+    // 斬られた位置から血しぶきを出す
+    EmitBloodSplatter(hitPosition, hitDirection);
+
+    // 通常近接攻撃は1ダメージだけ与える
+    hp_--;
+
+    // HPが0になったときだけ撃破扱いにする
+    if (hp_ <= 0) {
+        // HPを0で止める
+        hp_ = 0;
+
+        // 死亡状態にして、通常の敵モデルを非表示にする
+        isDead_ = true;
+
+        // 通常撃破と同じ血しぶきと破片を発生させる
+        StartDeathEffect();
+    }
+}
+
 void Enemy::EmitBloodSplatter(
     const Vector3& hitPosition,
     const Vector3& hitDirection)

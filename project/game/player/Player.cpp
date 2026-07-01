@@ -102,8 +102,15 @@ void Player::Update(Camera* camera)
     object_->Update();
 
 
-    // 左クリックで弾を撃つ
-    if (input_->TriggerMouseLeft()) {
+    // Qキーで銃とナイフを切り替える
+    if (input_->TriggerKey(DIK_Q)) {
+        attackMode_ = attackMode_ == AttackMode::Gun
+            ? AttackMode::Knife
+            : AttackMode::Gun;
+    }
+
+    // 銃モードのときだけ左クリックで弾を撃つ
+    if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
     }
 

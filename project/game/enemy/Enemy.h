@@ -72,6 +72,9 @@ public:
     // 近接攻撃によって敵を即死させる
     void OnMeleeHit();
 
+    // 通常近接攻撃で敵に1ダメージを与える
+    void OnMeleeDamage(const Vector3& hitPosition, const Vector3& hitDirection);
+
     void AppendVisionDebugLines(DebugLine3D& debugLine) const;
 
     // 床コライダーを設定する
