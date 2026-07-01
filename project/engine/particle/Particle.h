@@ -161,7 +161,7 @@ public:
 
 private:
     // インスタンス数と SRV 関連
-    static const uint32_t kNumInstance = 1024;
+    static const uint32_t kNumInstance = 10000;
     static const uint32_t kInstancingSrvIndex = 10;
 
     // 手動生成したパーティクルのCPU側管理情報
