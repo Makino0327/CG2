@@ -65,6 +65,18 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     randomNoiseData_->speed = 1.0f;
     randomNoiseData_->padding = 0.0f;
 
+    // 衝撃波歪み用の定数バッファを作る
+    shockwaveResource_ = dxCommon_->CreateBufferResource(sizeof(ShockwaveData));
+    shockwaveResource_->Map(0, nullptr, reinterpret_cast<void**>(&shockwaveData_));
+
+    shockwaveData_->center = { 0.5f, 0.5f };
+    shockwaveData_->radius = 0.02f;
+    shockwaveData_->thickness = 0.045f;
+    shockwaveData_->strength = 0.0f;
+    shockwaveData_->progress = 1.0f;
+    shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
+    shockwaveData_->padding = 0.0f;
+
 
 }
 
@@ -180,8 +192,10 @@ void OffscreenRenderer::DrawToBackBuffer()
         commandList->SetPipelineState(dissolvePipelineState_.Get());
         break;
     case PostEffectType::RandomNoise:
-        // 繝ｩ繝ｳ繝繝繝弱う繧ｺ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
         commandList->SetPipelineState(randomNoisePipelineState_.Get());
+        break;
+    case PostEffectType::Shockwave:
+        commandList->SetPipelineState(shockwavePipelineState_.Get());
         break;
 
     }
@@ -208,6 +222,10 @@ void OffscreenRenderer::DrawToBackBuffer()
     commandList->SetGraphicsRootConstantBufferView(
         5,
         randomNoiseResource_->GetGPUVirtualAddress()); // b2
+
+    commandList->SetGraphicsRootConstantBufferView(
+        6,
+        shockwaveResource_->GetGPUVirtualAddress()); // b3
 
     if (postEffectType_ == PostEffectType::DepthOutline) {
         D3D12_RESOURCE_BARRIER depthBarrier{};
@@ -257,7 +275,7 @@ void OffscreenRenderer::CreateRootSignature()
     maskRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     maskRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[6]{};
+    D3D12_ROOT_PARAMETER rootParameters[7]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -284,6 +302,10 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[5].Descriptor.ShaderRegister = 2;
+
+    rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[6].Descriptor.ShaderRegister = 3;
 
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
@@ -375,6 +397,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         L"ps_6_0");
     auto randomNoisePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/RandomNoise.PS.hlsl",
+        L"ps_6_0");
+    auto shockwavePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Shockwave.PS.hlsl",
         L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
@@ -516,12 +541,42 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
         IID_PPV_ARGS(randomNoisePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
+    // 発射時の空気の歪み用パイプラインステートを作る
+    desc.PS = {
+        shockwavePixelShaderBlob->GetBufferPointer(),
+        shockwavePixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(shockwavePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
 }
 void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed)
 {
     // 繝ｩ繝ｳ繝繝繝弱う繧ｺ縺ｮ譎る俣繧帝ｲ繧√ｋ
     if (randomNoiseData_) {
         randomNoiseData_->time += deltaTime * randomNoiseData_->speed;
+    }
+
+    if (isShockwavePlaying_ && shockwaveData_) {
+        shockwaveElapsedTime_ += deltaTime;
+
+        float duration = std::max(shockwaveDuration_, 0.01f);
+        float progress = std::clamp(shockwaveElapsedTime_ / duration, 0.0f, 1.0f);
+
+        // 時間とともにリングを外側へ広げて、歪みを弱くする
+        shockwaveData_->progress = progress;
+        shockwaveData_->radius = 0.02f + 0.30f * progress;
+        shockwaveData_->thickness = 0.045f;
+        shockwaveData_->strength = 0.018f * (1.0f - progress);
+
+        if (progress >= 1.0f) {
+            isShockwavePlaying_ = false;
+            if (postEffectType_ == PostEffectType::Shockwave) {
+                postEffectType_ = shockwaveReturnType_;
+            }
+        }
     }
 
     // 右ボタンを離したフレームで回転状態が残らないようにここで即座に解除する
@@ -557,6 +612,32 @@ void OffscreenRenderer::StartDissolve()
     dissolveData_->threshold = 0.0f;
     isDissolvePlaying_ = true;
 }
+void OffscreenRenderer::StartShockwave(const Vector2& centerUV)
+{
+    if (!shockwaveData_) {
+        return;
+    }
+
+    // すでに別のエフェクトを表示している場合は、衝撃波終了後に戻す
+    if (postEffectType_ != PostEffectType::Shockwave) {
+        shockwaveReturnType_ = postEffectType_;
+    }
+
+    shockwaveElapsedTime_ = 0.0f;
+    isShockwavePlaying_ = true;
+    postEffectType_ = PostEffectType::Shockwave;
+
+    shockwaveData_->center = {
+        std::clamp(centerUV.x, 0.0f, 1.0f),
+        std::clamp(centerUV.y, 0.0f, 1.0f)
+    };
+    shockwaveData_->radius = 0.02f;
+    shockwaveData_->thickness = 0.045f;
+    shockwaveData_->strength = 0.018f;
+    shockwaveData_->progress = 0.0f;
+    shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
+    shockwaveData_->padding = 0.0f;
+}
 
 void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
 {
@@ -587,6 +668,7 @@ void OffscreenRenderer::DrawImGui()
         "RadialBlur",
         "Dissolve",
         "RandomNoise",
+        "Shockwave",
         "DepthOutline",
     };
 
@@ -620,6 +702,15 @@ void OffscreenRenderer::DrawImGui()
     if (postEffectType_ == PostEffectType::RandomNoise) {
         ImGui::DragFloat("Intensity", &randomNoiseData_->intensity, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Speed", &randomNoiseData_->speed, 0.01f, 0.0f, 10.0f);
+    }
+
+    if (postEffectType_ == PostEffectType::Shockwave) {
+        ImGui::DragFloat2("Center UV", &shockwaveData_->center.x, 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat("Duration", &shockwaveDuration_, 0.01f, 0.05f, 1.0f);
+        if (ImGui::Button("Start Shockwave")) {
+            StartShockwave(shockwaveData_->center);
+        }
+        ImGui::Text("Playing: %s", isShockwavePlaying_ ? "true" : "false");
     }
 
 

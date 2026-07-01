@@ -14,6 +14,7 @@ enum class PostEffectType {
     RadialBlur,
     Dissolve,
     RandomNoise,
+    Shockwave,
     DepthOutline,
 };
 
@@ -33,6 +34,9 @@ public:
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
 
     void StartDissolve();
+
+    // 指定した画面UVを中心に衝撃波の歪みを開始する
+    void StartShockwave(const Vector2& centerUV);
 
     void SetDissolveDuration(float seconds) { dissolveDuration_ = seconds; }
     float GetDissolveDuration() const { return dissolveDuration_; }
@@ -91,7 +95,15 @@ private:
         float padding;    // 16byte揃え
     };
 
-
+    struct ShockwaveData {
+        Vector2 center;    // 歪みの中心UV
+        float radius;      // 衝撃波リングの半径
+        float thickness;   // 衝撃波リングの太さ
+        float strength;    // UVをずらす強さ
+        float progress;    // 再生進行度
+        float aspectRatio; // 画面比率補正
+        float padding;     // 16byte揃え
+    };
 
 
 private:
@@ -122,6 +134,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> dissolvePipelineState_;
     // ランダムノイズ用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> randomNoisePipelineState_;
+    // 発射時の空気の歪み用パイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> shockwavePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
 
@@ -144,6 +158,13 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> randomNoiseResource_; // ランダムノイズ用定数バッファ
     RandomNoiseData* randomNoiseData_ = nullptr; // ランダムノイズ用定数データ
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
+    ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ
+    float shockwaveDuration_ = 0.28f; // 衝撃波が広がりきるまでの時間
+    float shockwaveElapsedTime_ = 0.0f; // 衝撃波の経過時間
+    bool isShockwavePlaying_ = false; // 衝撃波の再生中フラグ
+    PostEffectType shockwaveReturnType_ = PostEffectType::Copy; // 衝撃波終了後に戻すエフェクト
 
     // Game Viewの入力状態
     bool isGameViewHovered_ = false;
