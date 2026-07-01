@@ -25,6 +25,7 @@
     <FxCompile Include="Resources\shaders\RadialBlur.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Dissolve.PS.hlsl" />
     <FxCompile Include="Resources\shaders\RandomNoise.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\Shockwave.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="game\camera\Camera.cpp" />
