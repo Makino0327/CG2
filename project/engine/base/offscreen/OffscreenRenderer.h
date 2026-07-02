@@ -38,6 +38,14 @@ public:
     // 指定した画面UVを中心に衝撃波の歪みを開始する
     void StartShockwave(const Vector2& centerUV);
 
+    // ゲームシーンから衝撃波の最大サイズを変更する
+    void SetShockwaveMaxRadius(float radius) { shockwaveMaxRadius_ = radius; }
+    float GetShockwaveMaxRadius() const { return shockwaveMaxRadius_; }
+
+    // 白い波動を表示するかどうかを切り替える
+    void SetShockwaveWhiteWaveEnabled(bool enabled) { shockwaveWhiteWaveEnabled_ = enabled; if (shockwaveData_) { shockwaveData_->whiteWave = enabled ? 1.0f : 0.0f; } }
+    bool IsShockwaveWhiteWaveEnabled() const { return shockwaveWhiteWaveEnabled_; }
+
     void SetDissolveDuration(float seconds) { dissolveDuration_ = seconds; }
     float GetDissolveDuration() const { return dissolveDuration_; }
 
@@ -102,7 +110,7 @@ private:
         float strength;    // UVをずらす強さ
         float progress;    // 再生進行度
         float aspectRatio; // 画面比率補正
-        float padding;     // 16byte揃え
+        float whiteWave;   // 白い波動を表示するかどうか
     };
 
 
@@ -162,6 +170,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
     ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ
     float shockwaveDuration_ = 0.28f; // 衝撃波が広がりきるまでの時間
+    float shockwaveMaxRadius_ = 0.15f; // 衝撃波が最大で広がる大きさ
+    bool shockwaveWhiteWaveEnabled_ = true; // 白い波動を表示するかどうか
     float shockwaveElapsedTime_ = 0.0f; // 衝撃波の経過時間
     bool isShockwavePlaying_ = false; // 衝撃波の再生中フラグ
     PostEffectType shockwaveReturnType_ = PostEffectType::Copy; // 衝撃波終了後に戻すエフェクト

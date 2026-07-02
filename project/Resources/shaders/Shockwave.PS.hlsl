@@ -11,7 +11,7 @@ cbuffer ShockwaveParameter : register(b3)
     float kStrength;
     float kProgress;
     float kAspectRatio;
-    float kPadding;
+    float kWhiteWave;
 };
 
 struct PixelShaderOutput
@@ -45,7 +45,7 @@ PixelShaderOutput main(VertexShaderOutput input)
     float2 distortedUV = saturate(uv - distortion);
 
     float4 color = gTexture.Sample(gSampler, distortedUV);
-    color.rgb += ring * fade * 0.08f;
+    color.rgb += ring * fade * 0.08f * kWhiteWave;
 
     output.color = color;
     return output;

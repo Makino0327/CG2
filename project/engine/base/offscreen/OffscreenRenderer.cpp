@@ -71,11 +71,11 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
 
     shockwaveData_->center = { 0.5f, 0.5f };
     shockwaveData_->radius = 0.02f;
-    shockwaveData_->thickness = 0.045f;
+    shockwaveData_->thickness = 0.035f;
     shockwaveData_->strength = 0.0f;
     shockwaveData_->progress = 1.0f;
     shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
-    shockwaveData_->padding = 0.0f;
+    shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 
 
 }
@@ -565,11 +565,12 @@ void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bo
         float duration = std::max(shockwaveDuration_, 0.01f);
         float progress = std::clamp(shockwaveElapsedTime_ / duration, 0.0f, 1.0f);
 
-        // 時間とともにリングを外側へ広げて、歪みを弱くする
+        // 衝撃波を小さめに広げて、時間経過で歪みを弱くする
         shockwaveData_->progress = progress;
-        shockwaveData_->radius = 0.02f + 0.30f * progress;
-        shockwaveData_->thickness = 0.045f;
-        shockwaveData_->strength = 0.018f * (1.0f - progress);
+        shockwaveData_->radius = 0.02f + shockwaveMaxRadius_ * progress;
+        shockwaveData_->thickness = 0.035f;
+        shockwaveData_->strength = 0.014f * (1.0f - progress);
+        shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 
         if (progress >= 1.0f) {
             isShockwavePlaying_ = false;
@@ -632,11 +633,11 @@ void OffscreenRenderer::StartShockwave(const Vector2& centerUV)
         std::clamp(centerUV.y, 0.0f, 1.0f)
     };
     shockwaveData_->radius = 0.02f;
-    shockwaveData_->thickness = 0.045f;
-    shockwaveData_->strength = 0.018f;
+    shockwaveData_->thickness = 0.035f;
+    shockwaveData_->strength = 0.014f;
     shockwaveData_->progress = 0.0f;
     shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
-    shockwaveData_->padding = 0.0f;
+    shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 }
 
 void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
@@ -707,6 +708,11 @@ void OffscreenRenderer::DrawImGui()
     if (postEffectType_ == PostEffectType::Shockwave) {
         ImGui::DragFloat2("Center UV", &shockwaveData_->center.x, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Duration", &shockwaveDuration_, 0.01f, 0.05f, 1.0f);
+        ImGui::DragFloat("Shockwave Size", &shockwaveMaxRadius_, 0.01f, 0.05f, 0.40f);
+        if (ImGui::Checkbox("White Wave", &shockwaveWhiteWaveEnabled_) && shockwaveData_) {
+            // チェック変更をすぐにシェーダーへ反映する
+            shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
+        }
         if (ImGui::Button("Start Shockwave")) {
             StartShockwave(shockwaveData_->center);
         }
