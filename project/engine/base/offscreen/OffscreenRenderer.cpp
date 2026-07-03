@@ -567,7 +567,7 @@ void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bo
 
         // 衝撃波を小さめに広げて、時間経過で歪みを弱くする
         shockwaveData_->progress = progress;
-        shockwaveData_->radius = 0.02f + shockwaveMaxRadius_ * progress;
+        shockwaveData_->radius = 0.02f + currentShockwaveMaxRadius_ * progress;
         shockwaveData_->thickness = 0.035f;
         shockwaveData_->strength = 0.014f * (1.0f - progress);
         shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
@@ -615,6 +615,12 @@ void OffscreenRenderer::StartDissolve()
 }
 void OffscreenRenderer::StartShockwave(const Vector2& centerUV)
 {
+    // 通常設定の最大サイズで衝撃波を出す
+    StartShockwave(centerUV, shockwaveMaxRadius_);
+}
+
+void OffscreenRenderer::StartShockwave(const Vector2& centerUV, float maxRadius)
+{
     if (!shockwaveData_) {
         return;
     }
@@ -627,6 +633,9 @@ void OffscreenRenderer::StartShockwave(const Vector2& centerUV)
     shockwaveElapsedTime_ = 0.0f;
     isShockwavePlaying_ = true;
     postEffectType_ = PostEffectType::Shockwave;
+
+    // この1回の衝撃波だけに使う最大サイズを保存する
+    currentShockwaveMaxRadius_ = std::max(maxRadius, 0.01f);
 
     shockwaveData_->center = {
         std::clamp(centerUV.x, 0.0f, 1.0f),
