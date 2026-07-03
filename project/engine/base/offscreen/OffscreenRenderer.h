@@ -37,6 +37,8 @@ public:
 
     // 指定した画面UVを中心に衝撃波の歪みを開始する
     void StartShockwave(const Vector2& centerUV);
+    // 今回だけ最大サイズを指定して衝撃波を出す
+    void StartShockwave(const Vector2& centerUV, float maxRadius);
 
     // ゲームシーンから衝撃波の最大サイズを変更する
     void SetShockwaveMaxRadius(float radius) { shockwaveMaxRadius_ = radius; }
@@ -172,8 +174,9 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
     ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ
-    float shockwaveDuration_ = 0.110f; // 衝撃波が広がりきるまでの時間
-    float shockwaveMaxRadius_ = 0.100f; // 衝撃波が最大で広がる大きさ
+    float shockwaveDuration_ = 0.28f; // 衝撃波が広がりきるまでの時間
+    float shockwaveMaxRadius_ = 0.15f; // 衝撃波が最大で広がる大きさ
+    float currentShockwaveMaxRadius_ = 0.15f; // 再生中の衝撃波だけに使う最大サイズ
     bool shockwaveWhiteWaveEnabled_ = true; // 白い波動を表示するかどうか
     float shockwaveElapsedTime_ = 0.0f; // 衝撃波の経過時間
     bool isShockwavePlaying_ = false; // 衝撃波の再生中フラグ
