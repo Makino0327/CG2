@@ -981,6 +981,25 @@ void GamePlayScene::DrawImGui()
 
     ImGui::End();
 
+    if (context_.offscreenRenderer) {
+        // 弾の発射時に出る衝撃波の見た目をゲームシーン側で調整する
+        float shockwaveDuration = context_.offscreenRenderer->GetShockwaveDuration();
+        float shockwaveSize = context_.offscreenRenderer->GetShockwaveMaxRadius();
+        bool isWhiteWaveEnabled = context_.offscreenRenderer->IsShockwaveWhiteWaveEnabled();
+
+        ImGui::Begin("Bullet Shockwave");
+        if (ImGui::DragFloat("Duration", &shockwaveDuration, 0.01f, 0.05f, 1.0f)) {
+            context_.offscreenRenderer->SetShockwaveDuration(shockwaveDuration);
+        }
+        if (ImGui::DragFloat("Size", &shockwaveSize, 0.01f, 0.05f, 0.40f)) {
+            context_.offscreenRenderer->SetShockwaveMaxRadius(shockwaveSize);
+        }
+        if (ImGui::Checkbox("White Wave", &isWhiteWaveEnabled)) {
+            context_.offscreenRenderer->SetShockwaveWhiteWaveEnabled(isWhiteWaveEnabled);
+        }
+        ImGui::End();
+    }
+
     if (player_) {
         const char* equipName = "Unknown";
         if (player_->GetAttackMode() == Player::AttackMode::Gun) {

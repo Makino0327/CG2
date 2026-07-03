@@ -45,6 +45,9 @@ public:
     // 白い波動を表示するかどうかを切り替える
     void SetShockwaveWhiteWaveEnabled(bool enabled) { shockwaveWhiteWaveEnabled_ = enabled; if (shockwaveData_) { shockwaveData_->whiteWave = enabled ? 1.0f : 0.0f; } }
     bool IsShockwaveWhiteWaveEnabled() const { return shockwaveWhiteWaveEnabled_; }
+    // ゲームシーンから衝撃波が広がる時間を変更する
+    void SetShockwaveDuration(float seconds) { shockwaveDuration_ = seconds; }
+    float GetShockwaveDuration() const { return shockwaveDuration_; }
 
     void SetDissolveDuration(float seconds) { dissolveDuration_ = seconds; }
     float GetDissolveDuration() const { return dissolveDuration_; }
@@ -169,8 +172,8 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
     ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ
-    float shockwaveDuration_ = 0.28f; // 衝撃波が広がりきるまでの時間
-    float shockwaveMaxRadius_ = 0.15f; // 衝撃波が最大で広がる大きさ
+    float shockwaveDuration_ = 0.110f; // 衝撃波が広がりきるまでの時間
+    float shockwaveMaxRadius_ = 0.100f; // 衝撃波が最大で広がる大きさ
     bool shockwaveWhiteWaveEnabled_ = true; // 白い波動を表示するかどうか
     float shockwaveElapsedTime_ = 0.0f; // 衝撃波の経過時間
     bool isShockwavePlaying_ = false; // 衝撃波の再生中フラグ
