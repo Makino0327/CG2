@@ -317,6 +317,8 @@ void GamePlayScene::Initialize()
 
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        // ゲームシーン側で通常の衝撃波サイズを調整する
+        context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
 
     mapField_.LoadFromCsv("Resources/map.csv");
@@ -861,6 +863,8 @@ void GamePlayScene::StartBulletShockwaves()
         }
 
         // 画面上の弾の発射位置を中心にポストエフェクトの歪みを始める
+        // 銃の衝撃波は短い時間で広げて、前より速く見せる
+        context_.offscreenRenderer->SetShockwaveDuration(0.16f);
         context_.offscreenRenderer->StartShockwave(shockwaveUV);
     }
 }
@@ -878,6 +882,19 @@ void GamePlayScene::CheckGrenadeExplosions()
         grenadeExplosionRadius_ * grenadeExplosionRadius_;
 
     for (const Vector3& explosionPosition : explosionPositions) {
+        // グレネードの爆発位置を画面UVに変換して、大きめの衝撃波を出す
+        if (context_.camera && context_.offscreenRenderer) {
+            Vector2 grenadeShockwaveUV{};
+            if (TryConvertWorldToScreenUV(
+                explosionPosition,
+                context_.camera->GetViewProjectionMatrix(),
+                grenadeShockwaveUV)) {
+                // グレネードの衝撃波は通常時間に戻して、大きさだけ個別に変える
+                context_.offscreenRenderer->SetShockwaveDuration(0.28f);
+                context_.offscreenRenderer->StartShockwave(grenadeShockwaveUV, 0.22f);
+            }
+        }
+
         for (auto& enemy : enemies_) {
             if (enemy->IsDead()) {
                 continue;
