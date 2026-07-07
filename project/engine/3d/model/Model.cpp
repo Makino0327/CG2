@@ -1214,6 +1214,33 @@ void Model::DrawInstanced(UINT instanceCount, const Vector4& color)
 		}
 	}
 }
+void Model::DrawInstancedForParticle(UINT instanceCount)
+{
+	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
+
+	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
+		const MeshData& mesh = modelData_.meshes[meshIndex];
+
+		// Particle描画ではParticleCommon側でRootSignatureとTextureを設定済みなので、ここでは頂点とIndexだけを渡す
+		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[meshIndex]);
+
+		if (!mesh.indices.empty()) {
+			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
+			commandList->DrawIndexedInstanced(
+				static_cast<UINT>(mesh.indices.size()),
+				instanceCount,
+				0,
+				0,
+				0);
+		} else {
+			commandList->DrawInstanced(
+				static_cast<UINT>(mesh.vertices.size()),
+				instanceCount,
+				0,
+				0);
+		}
+	}
+}
 void Model::InitializeIndexBuffer()
 {
 	DirectXCommon* dxCommon = modelCommon_->GetDxCommon();

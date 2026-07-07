@@ -14,6 +14,9 @@ public:
 	// インスタンシング用
 	void DrawInstanced(UINT instanceCount, const Vector4& color = { 1.0f, 1.0f, 1.0f, 1.0f });
 
+	// Particle用：ParticleCommonのRootSignatureを壊さないよう、CBVやTextureは設定せずメッシュだけ描画する
+	void DrawInstancedForParticle(UINT instanceCount);
+
 
 	static ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename);
 	static ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
