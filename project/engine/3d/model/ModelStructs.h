@@ -9,6 +9,7 @@ struct MaterialData
 {
     std::string textureFilePath;
     uint32_t textureIndex = 0;
+    Vector4 baseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 struct MeshData {
@@ -20,6 +21,9 @@ struct MeshData {
 
     // index 配列
     std::vector<uint32_t> indices;
+
+    // glTFのprimitiveごとに違う色やテクスチャを保持する
+    MaterialData material;
 };
 
 struct VertexWeightData {

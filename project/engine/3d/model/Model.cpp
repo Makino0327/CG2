@@ -1,6 +1,7 @@
 #include "Model.h"
 
 #include <cstring>
+#include <cctype>
 #include <filesystem>
 #include <regex>
 #include "../obj3d/Object3d.h"
@@ -20,6 +21,7 @@ namespace {
 		uint32_t buffer = 0;
 		uint32_t byteOffset = 0;
 		uint32_t byteLength = 0;
+		uint32_t byteStride = 0;
 	};
 
 	std::string ReadTextFile(const std::string& filePath)
@@ -195,6 +197,7 @@ namespace {
 			bufferView.buffer = FindUIntValue(objectText, "buffer");
 			bufferView.byteOffset = FindUIntValueOrDefault(objectText, "byteOffset", 0);
 			bufferView.byteLength = FindUIntValue(objectText, "byteLength");
+			bufferView.byteStride = FindUIntValueOrDefault(objectText, "byteStride", 0);
 			bufferViews.push_back(bufferView);
 		}
 
@@ -459,6 +462,17 @@ namespace {
 	}
 
 	
+
+	Vector4 MultiplyColor(const Vector4& left, const Vector4& right)
+	{
+		return {
+			left.x * right.x,
+			left.y * right.y,
+			left.z * right.z,
+			left.w * right.w
+		};
+	}
+
 }
 
 void Model::Initialize(ModelCommon* modelCommon,
@@ -469,10 +483,24 @@ void Model::Initialize(ModelCommon* modelCommon,
 
 	// 拡張子に応じてローダを切り替える
 	modelData_ = LoadModelFile(directoryPath, filename);
+	// OBJなどmesh側にマテリアルが無い形式は、従来のモデル全体マテリアルで補完する
+	if (modelData_.material.textureFilePath.empty()) {
+		modelData_.material.textureFilePath = "Resources/white1x1.png";
+	}
+	for (MeshData& mesh : modelData_.meshes) {
+		if (mesh.material.textureFilePath.empty()) {
+			mesh.material = modelData_.material;
+		}
+	}
 
 	
 	TextureManager::GetInstance()->LoadTexture(
 		modelData_.material.textureFilePath);
+
+	// glTFのprimitiveごとに違うテクスチャを使えるように、全mesh分を先に読む
+	for (const MeshData& mesh : modelData_.meshes) {
+		TextureManager::GetInstance()->LoadTexture(mesh.material.textureFilePath);
+	}
 
 	// 頂点バッファを初期化する
 	InitializeVertexBuffer();
@@ -485,21 +513,28 @@ void Model::Initialize(ModelCommon* modelCommon,
 
 }
 
-void Model::Draw()
+void Model::Draw(const Vector4& color)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
 
 	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
 		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-		// 頂点バッファを設定する
+		// meshごとのマテリアル色に、Object3d側の点滅色などを掛け合わせる
+		materialData_->color = MultiplyColor(mesh.material.baseColor, color);
+		commandList->SetGraphicsRootConstantBufferView(
+			0,
+			materialResource_->GetGPUVirtualAddress());
+
+		commandList->SetGraphicsRootDescriptorTable(
+			5,
+			TextureManager::GetInstance()->GetSrvHandleGPU(
+				mesh.material.textureFilePath));
+
 		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[meshIndex]);
 
 		if (!mesh.indices.empty()) {
-			// index バッファを設定する
 			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
-
-			// index を使って描画する
 			commandList->DrawIndexedInstanced(
 				static_cast<UINT>(mesh.indices.size()),
 				1,
@@ -507,7 +542,6 @@ void Model::Draw()
 				0,
 				0);
 		} else {
-			// index が無い場合は従来の描画にフォールバックする
 			commandList->DrawInstanced(
 				static_cast<UINT>(mesh.vertices.size()),
 				1,
@@ -516,7 +550,6 @@ void Model::Draw()
 		}
 	}
 }
-
 ModelData Model::LoadModelFile(const std::string& directoryPath, const std::string& filename)
 {
 	std::string extension;
@@ -696,238 +729,354 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 
 	const std::string gltfFilePath = directoryPath + "/" + filename;
 	const std::string jsonText = ReadTextFile(gltfFilePath);
-	const std::vector<GltfNode> gltfNodes = ParseNodes(jsonText); // // glTF の node 配列を読む
+	const std::vector<GltfNode> gltfNodes = ParseNodes(jsonText);
 	const std::filesystem::path gltfDirectory = std::filesystem::path(gltfFilePath).parent_path();
 	const std::vector<GltfAccessor> accessors = ParseAccessors(jsonText);
 	const std::vector<GltfBufferView> bufferViews = ParseBufferViews(jsonText);
+
+	auto hasTopLevelKey = [&](const std::string& key) {
+		return FindTopLevelKey(jsonText, key) != std::string::npos;
+	};
+
+	auto tryFindUIntValue = [](const std::string& objectText, const std::string& key, uint32_t& outValue) {
+		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
+		std::smatch match;
+		if (!std::regex_search(objectText, match, pattern)) {
+			return false;
+		}
+		outValue = static_cast<uint32_t>(std::stoul(match[1].str()));
+		return true;
+	};
+
+	auto getAccessorPointer = [&](const GltfAccessor& accessor, const std::vector<uint8_t>& binary) {
+		const GltfBufferView& bufferView = bufferViews[accessor.bufferView];
+		return binary.data() + bufferView.byteOffset + accessor.byteOffset;
+	};
+
+	auto getAccessorStride = [&](const GltfAccessor& accessor, uint32_t componentSize, uint32_t componentCount) {
+		const GltfBufferView& bufferView = bufferViews[accessor.bufferView];
+		if (bufferView.byteStride != 0) {
+			return bufferView.byteStride;
+		}
+		return componentSize * componentCount;
+	};
+
+	auto decodeBase64 = [](const std::string& text) {
+		std::vector<uint8_t> result;
+		int values[256];
+		for (int index = 0; index < 256; ++index) {
+			values[index] = -1;
+		}
+		const std::string table =
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		for (int index = 0; index < static_cast<int>(table.size()); ++index) {
+			values[static_cast<unsigned char>(table[index])] = index;
+		}
+
+		int currentValue = 0;
+		int bitCount = -8;
+		for (unsigned char c : text) {
+			if (std::isspace(c)) {
+				continue;
+			}
+			if (c == '=') {
+				break;
+			}
+			if (values[c] < 0) {
+				continue;
+			}
+			currentValue = (currentValue << 6) + values[c];
+			bitCount += 6;
+			if (bitCount >= 0) {
+				result.push_back(static_cast<uint8_t>((currentValue >> bitCount) & 0xFF));
+				bitCount -= 8;
+			}
+		}
+		return result;
+	};
 
 	std::string buffersBlock = ExtractArrayBlock(jsonText, "buffers");
 	std::vector<std::string> bufferObjects = SplitTopLevelObjects(buffersBlock);
 	assert(!bufferObjects.empty());
 	const std::string bufferUri = FindStringValue(bufferObjects[0], "uri");
-	const std::vector<uint8_t> binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
+	std::vector<uint8_t> binary;
+	if (bufferUri.rfind("data:", 0) == 0) {
+		// glTF内にbase64で埋め込まれたバッファを読む
+		const size_t commaPos = bufferUri.find(',');
+		assert(commaPos != std::string::npos);
+		binary = decodeBase64(bufferUri.substr(commaPos + 1));
+	} else {
+		// 従来通り、外部binファイルを読む
+		binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
+	}
 
-	std::string texturesBlock = ExtractArrayBlock(jsonText, "textures");
-	std::vector<std::string> textureObjects = SplitTopLevelObjects(texturesBlock);
-	assert(!textureObjects.empty());
-	uint32_t imageIndex = FindUIntValue(textureObjects[0], "source");
+	std::vector<std::string> imageUris;
+	if (hasTopLevelKey("images")) {
+		std::string imagesBlock = ExtractArrayBlock(jsonText, "images");
+		for (const std::string& imageObject : SplitTopLevelObjects(imagesBlock)) {
+			if (imageObject.find("\"uri\"") != std::string::npos) {
+				imageUris.push_back((gltfDirectory / FindStringValue(imageObject, "uri")).string());
+			} else {
+				imageUris.push_back("Resources/white1x1.png");
+			}
+		}
+	}
 
-	std::string imagesBlock = ExtractArrayBlock(jsonText, "images");
-	std::vector<std::string> imageObjects = SplitTopLevelObjects(imagesBlock);
-	assert(imageIndex < imageObjects.size());
-	modelData.material.textureFilePath =
-		(gltfDirectory / FindStringValue(imageObjects[imageIndex], "uri")).string();
+	std::vector<uint32_t> textureSourceIndices;
+	if (hasTopLevelKey("textures")) {
+		std::string texturesBlock = ExtractArrayBlock(jsonText, "textures");
+		for (const std::string& textureObject : SplitTopLevelObjects(texturesBlock)) {
+			textureSourceIndices.push_back(FindUIntValue(textureObject, "source"));
+		}
+	}
+
+	std::vector<MaterialData> materials;
+	if (hasTopLevelKey("materials")) {
+		std::string materialsBlock = ExtractArrayBlock(jsonText, "materials");
+		for (const std::string& materialObject : SplitTopLevelObjects(materialsBlock)) {
+			MaterialData material;
+			material.textureFilePath = "Resources/white1x1.png";
+			material.baseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+			std::vector<float> baseColor = ParseFloatArray(materialObject, "baseColorFactor");
+			if (baseColor.size() >= 4) {
+				material.baseColor = { baseColor[0], baseColor[1], baseColor[2], baseColor[3] };
+			}
+
+			uint32_t textureIndex = 0;
+			if (tryFindUIntValue(materialObject, "index", textureIndex) &&
+				textureIndex < textureSourceIndices.size()) {
+				uint32_t imageIndex = textureSourceIndices[textureIndex];
+				if (imageIndex < imageUris.size()) {
+					material.textureFilePath = imageUris[imageIndex];
+				}
+			}
+
+			materials.push_back(material);
+		}
+	}
+	if (materials.empty()) {
+		MaterialData defaultMaterial;
+		defaultMaterial.textureFilePath = "Resources/white1x1.png";
+		defaultMaterial.baseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+		materials.push_back(defaultMaterial);
+	}
+
+	std::vector<std::string> jointNames;
+	if (hasTopLevelKey("skins")) {
+		std::string skinsBlock = ExtractArrayBlock(jsonText, "skins");
+		std::vector<std::string> skinObjects = SplitTopLevelObjects(skinsBlock);
+		assert(!skinObjects.empty());
+		const std::string& skinObject = skinObjects[0];
+
+		std::vector<uint32_t> skinJointIndices = ParseUIntArray(skinObject, "joints");
+		jointNames.resize(skinJointIndices.size());
+		for (uint32_t jointIndex = 0; jointIndex < skinJointIndices.size(); ++jointIndex) {
+			uint32_t nodeIndex = skinJointIndices[jointIndex];
+			assert(nodeIndex < gltfNodes.size());
+			jointNames[jointIndex] = gltfNodes[nodeIndex].name;
+		}
+
+		uint32_t inverseBindMatricesAccessorIndex =
+			FindUIntValue(skinObject, "inverseBindMatrices");
+		const GltfAccessor& inverseBindAccessor =
+			accessors[inverseBindMatricesAccessorIndex];
+		assert(inverseBindAccessor.componentType == 5126);
+		assert(inverseBindAccessor.type == "MAT4");
+
+		const uint8_t* inverseBindData = getAccessorPointer(inverseBindAccessor, binary);
+		const uint32_t inverseBindStride = getAccessorStride(inverseBindAccessor, sizeof(float), 16);
+		for (uint32_t jointIndex = 0; jointIndex < skinJointIndices.size(); ++jointIndex) {
+			JointWeightData& jointWeightData =
+				modelData.skinClusterData[jointNames[jointIndex]];
+
+			const float* matrixValues =
+				reinterpret_cast<const float*>(inverseBindData + jointIndex * inverseBindStride);
+			jointWeightData.inverseBindPoseMatrix =
+				ConvertGltfMatrixToEngineMatrix(matrixValues);
+		}
+	}
 
 	std::string meshesBlock = ExtractArrayBlock(jsonText, "meshes");
 	std::vector<std::string> meshObjects = SplitTopLevelObjects(meshesBlock);
 	assert(!meshObjects.empty());
-	const std::string& meshObject = meshObjects[0];
 
-	uint32_t positionAccessorIndex = 0;
-	uint32_t normalAccessorIndex = 0;
-	uint32_t texcoordAccessorIndex = 0;
-	uint32_t indexAccessorIndex = 0;
-	uint32_t jointsAccessorIndex = 0;
-	uint32_t weightsAccessorIndex = 0;
+	uint32_t globalVertexOffset = 0;
+	for (const std::string& meshObject : meshObjects) {
+		std::string meshName = "GltfMesh";
+		if (meshObject.find("\"name\"") != std::string::npos) {
+			meshName = FindStringValue(meshObject, "name");
+		}
 
-	// POSITION / NORMAL / TEXCOORD_0 / indices の accessor を読む
-	ParsePrimitiveAccessorIndices(
-		meshObject,
-		positionAccessorIndex,
-		normalAccessorIndex,
-		texcoordAccessorIndex,
-		indexAccessorIndex);
+		size_t primitiveKeyPos = meshObject.find("\"primitives\"");
+		assert(primitiveKeyPos != std::string::npos);
+		size_t primitiveArrayBegin = meshObject.find('[', primitiveKeyPos);
+		size_t primitiveArrayEnd = FindMatchingBracket(meshObject, primitiveArrayBegin, '[', ']');
+		std::string primitivesBlock =
+			meshObject.substr(primitiveArrayBegin, primitiveArrayEnd - primitiveArrayBegin + 1);
 
-	// JOINTS_0 / WEIGHTS_0 の accessor を読む
-	ParsePrimitiveSkinAccessorIndices(
-		meshObject,
-		jointsAccessorIndex,
-		weightsAccessorIndex);
+		uint32_t primitiveNumber = 0;
+		for (const std::string& primitiveObject : SplitTopLevelObjects(primitivesBlock)) {
+			uint32_t positionAccessorIndex = 0;
+			uint32_t normalAccessorIndex = 0;
+			uint32_t texcoordAccessorIndex = 0;
+			uint32_t indexAccessorIndex = 0;
+			uint32_t jointsAccessorIndex = 0;
+			uint32_t weightsAccessorIndex = 0;
+			const bool hasTexcoord = tryFindUIntValue(primitiveObject, "TEXCOORD_0", texcoordAccessorIndex);
+			const bool hasJoints = tryFindUIntValue(primitiveObject, "JOINTS_0", jointsAccessorIndex);
+			const bool hasWeights = tryFindUIntValue(primitiveObject, "WEIGHTS_0", weightsAccessorIndex);
+			const bool hasIndices = tryFindUIntValue(primitiveObject, "indices", indexAccessorIndex);
 
+			bool foundPosition = tryFindUIntValue(primitiveObject, "POSITION", positionAccessorIndex);
+			bool foundNormal = tryFindUIntValue(primitiveObject, "NORMAL", normalAccessorIndex);
+			assert(foundPosition);
 
+			const GltfAccessor& positionAccessor = accessors[positionAccessorIndex];
+			assert(positionAccessor.componentType == 5126);
+			assert(positionAccessor.type == "VEC3");
+			const uint8_t* positionData = getAccessorPointer(positionAccessor, binary);
+			const uint32_t positionStride = getAccessorStride(positionAccessor, sizeof(float), 3);
 
-	const GltfAccessor& positionAccessor = accessors[positionAccessorIndex];
-	const GltfAccessor& normalAccessor = accessors[normalAccessorIndex];
-	const GltfAccessor& texcoordAccessor = accessors[texcoordAccessorIndex];
-	const GltfAccessor& indexAccessor = accessors[indexAccessorIndex];
-	const GltfAccessor& jointsAccessor = accessors[jointsAccessorIndex];
-	const GltfAccessor& weightsAccessor = accessors[weightsAccessorIndex];
-
-	assert(positionAccessor.componentType == 5126);
-	assert(normalAccessor.componentType == 5126);
-	assert(texcoordAccessor.componentType == 5126);
-	assert(indexAccessor.componentType == 5123);
-	assert(jointsAccessor.componentType == 5121 || jointsAccessor.componentType == 5123);
-	assert(weightsAccessor.componentType == 5126);
-
-	const GltfBufferView& positionBufferView = bufferViews[positionAccessor.bufferView];
-	const GltfBufferView& normalBufferView = bufferViews[normalAccessor.bufferView];
-	const GltfBufferView& texcoordBufferView = bufferViews[texcoordAccessor.bufferView];
-	const GltfBufferView& indexBufferView = bufferViews[indexAccessor.bufferView];
-	const GltfBufferView& jointsBufferView = bufferViews[jointsAccessor.bufferView];
-	const GltfBufferView& weightsBufferView = bufferViews[weightsAccessor.bufferView];
-
-	const float* positions = reinterpret_cast<const float*>(
-		binary.data() + positionBufferView.byteOffset + positionAccessor.byteOffset);
-	const float* normals = reinterpret_cast<const float*>(
-		binary.data() + normalBufferView.byteOffset + normalAccessor.byteOffset);
-	const float* texcoords = reinterpret_cast<const float*>(
-		binary.data() + texcoordBufferView.byteOffset + texcoordAccessor.byteOffset);
-	const uint16_t* indices = reinterpret_cast<const uint16_t*>(
-		binary.data() + indexBufferView.byteOffset + indexAccessor.byteOffset);
-	const float* weights = reinterpret_cast<const float*>(
-		binary.data() + weightsBufferView.byteOffset + weightsAccessor.byteOffset);
-
-	const uint8_t* jointsU8 = nullptr;
-	const uint16_t* jointsU16 = nullptr;
-
-	if (jointsAccessor.componentType == 5121) {
-		jointsU8 = reinterpret_cast<const uint8_t*>(
-			binary.data() + jointsBufferView.byteOffset + jointsAccessor.byteOffset);
-	} else {
-		jointsU16 = reinterpret_cast<const uint16_t*>(
-			binary.data() + jointsBufferView.byteOffset + jointsAccessor.byteOffset);
-	}
-
-	MeshData meshData;
-	meshData.name = "GltfMesh";
-	if (meshObject.find("\"name\"") != std::string::npos) {
-		meshData.name = FindStringValue(meshObject, "name");
-	}
-
-	// glTF の頂点数ぶんだけ確保する
-	meshData.vertices.resize(positionAccessor.count);
-
-	for (uint32_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex) {
-		Vector4 position = {
-			positions[vertexIndex * 3 + 0],
-			positions[vertexIndex * 3 + 1],
-			positions[vertexIndex * 3 + 2],
-			1.0f
-		};
-
-		Vector2 texcoord = {
-			texcoords[vertexIndex * 2 + 0],
-			1.0f - texcoords[vertexIndex * 2 + 1]
-		};
-
-		Vector3 normal = {
-			normals[vertexIndex * 3 + 0],
-			normals[vertexIndex * 3 + 1],
-			normals[vertexIndex * 3 + 2]
-		};
-
-		// 右手系から左手系へ変換する
-		position.x *= -1.0f;
-		normal.x *= -1.0f;
-
-
-		meshData.vertices[vertexIndex].position = position;
-		meshData.vertices[vertexIndex].texcoord = texcoord;
-		meshData.vertices[vertexIndex].normal = normal;
-		meshData.vertices[vertexIndex].pad = 0.0f;
-	}
-
-	// glTF の index をそのまま使う
-	meshData.indices.resize(indexAccessor.count);
-
-	for (uint32_t index = 0; index < indexAccessor.count; ++index) {
-		// いったん glTF の index をそのままコピーする
-		meshData.indices[index] = indices[index];
-	}
-
-	// skin 情報を読む
-	std::string skinsBlock = ExtractArrayBlock(jsonText, "skins");
-	std::vector<std::string> skinObjects = SplitTopLevelObjects(skinsBlock);
-	assert(!skinObjects.empty());
-
-	// 今は最初の skin を使う
-	const std::string& skinObject = skinObjects[0];
-
-	// skin に含まれる joint 一覧を読む
-	std::vector<uint32_t> skinJointIndices = ParseUIntArray(skinObject, "joints");
-	assert(!skinJointIndices.empty());
-
-	// inverseBindMatrices accessor を読む
-	uint32_t inverseBindMatricesAccessorIndex =
-		FindUIntValue(skinObject, "inverseBindMatrices");
-	const GltfAccessor& inverseBindAccessor =
-		accessors[inverseBindMatricesAccessorIndex];
-	const GltfBufferView& inverseBindBufferView =
-		bufferViews[inverseBindAccessor.bufferView];
-
-	// inverseBindMatrices は MAT4 / float の配列
-	assert(inverseBindAccessor.componentType == 5126);
-	assert(inverseBindAccessor.type == "MAT4");
-
-	const float* inverseBindMatrices = reinterpret_cast<const float*>(
-		binary.data() + inverseBindBufferView.byteOffset + inverseBindAccessor.byteOffset);
-
-	// glTF の joint index から joint 名へ引けるようにする
-	std::vector<std::string> jointNames;
-	jointNames.resize(skinJointIndices.size());
-
-	for (uint32_t jointIndex = 0; jointIndex < skinJointIndices.size(); ++jointIndex) {
-		uint32_t nodeIndex = skinJointIndices[jointIndex];
-		assert(nodeIndex < gltfNodes.size());
-
-		jointNames[jointIndex] = gltfNodes[nodeIndex].name;
-	}
-
-	// 各 joint の inverseBindPoseMatrix を先に作る
-	for (uint32_t jointIndex = 0; jointIndex < skinJointIndices.size(); ++jointIndex) {
-		JointWeightData& jointWeightData =
-			modelData.skinClusterData[jointNames[jointIndex]];
-
-		const float* matrixValues = inverseBindMatrices + jointIndex * 16;
-
-		Matrix4x4 inverseBindPoseMatrix = ConvertGltfMatrixToEngineMatrix(matrixValues);
-
-		// glTF の 4x4 行列を読む
-		// glTF の 4x4 行列をいったんそのまま詰める
-
-		// 今はまず読み込み結果をそのまま使う
-		jointWeightData.inverseBindPoseMatrix = inverseBindPoseMatrix;
-
-
-	}
-
-	// 各頂点の JOINTS_0 / WEIGHTS_0 を joint 単位へばらす
-	for (uint32_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex) {
-		for (uint32_t influenceIndex = 0; influenceIndex < 4; ++influenceIndex) {
-			float weight = weights[vertexIndex * 4 + influenceIndex];
-
-			// 重み 0 は無視する
-			if (weight == 0.0f) {
-				continue;
+			const uint8_t* normalData = nullptr;
+			uint32_t normalStride = 0;
+			if (foundNormal) {
+				const GltfAccessor& normalAccessor = accessors[normalAccessorIndex];
+				assert(normalAccessor.componentType == 5126);
+				normalData = getAccessorPointer(normalAccessor, binary);
+				normalStride = getAccessorStride(normalAccessor, sizeof(float), 3);
 			}
 
-			uint32_t jointIndex = 0;
-			if (jointsU8) {
-				jointIndex = jointsU8[vertexIndex * 4 + influenceIndex];
+			const uint8_t* texcoordData = nullptr;
+			uint32_t texcoordStride = 0;
+			if (hasTexcoord) {
+				const GltfAccessor& texcoordAccessor = accessors[texcoordAccessorIndex];
+				assert(texcoordAccessor.componentType == 5126);
+				texcoordData = getAccessorPointer(texcoordAccessor, binary);
+				texcoordStride = getAccessorStride(texcoordAccessor, sizeof(float), 2);
+			}
+
+			MeshData meshData;
+			meshData.name = meshName + "_" + std::to_string(primitiveNumber++);
+			uint32_t materialIndex = 0;
+			if (tryFindUIntValue(primitiveObject, "material", materialIndex) &&
+				materialIndex < materials.size()) {
+				meshData.material = materials[materialIndex];
 			} else {
-				jointIndex = jointsU16[vertexIndex * 4 + influenceIndex];
+				meshData.material = materials[0];
 			}
 
-			assert(jointIndex < jointNames.size());
+			meshData.vertices.resize(positionAccessor.count);
+			for (uint32_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex) {
+				const float* positionValues =
+					reinterpret_cast<const float*>(positionData + vertexIndex * positionStride);
+				Vector4 position = {
+					positionValues[0],
+					positionValues[1],
+					positionValues[2],
+					1.0f
+				};
 
-			VertexWeightData vertexWeightData{};
-			vertexWeightData.weight = weight;
-			vertexWeightData.vertexIndex = vertexIndex;
+				Vector3 normal = { 0.0f, 1.0f, 0.0f };
+				if (normalData) {
+					const float* normalValues =
+						reinterpret_cast<const float*>(normalData + vertexIndex * normalStride);
+					normal = { normalValues[0], normalValues[1], normalValues[2] };
+				}
 
-			modelData.skinClusterData[jointNames[jointIndex]]
-				.vertexWeights.push_back(vertexWeightData);
+				Vector2 texcoord = { 0.0f, 0.0f };
+				if (texcoordData) {
+					const float* texcoordValues =
+						reinterpret_cast<const float*>(texcoordData + vertexIndex * texcoordStride);
+					texcoord = { texcoordValues[0], 1.0f - texcoordValues[1] };
+				}
+
+				// glTFは右手座標系なので、エンジン側に合わせてXを反転する
+				position.x *= -1.0f;
+				normal.x *= -1.0f;
+
+				meshData.vertices[vertexIndex].position = position;
+				meshData.vertices[vertexIndex].texcoord = texcoord;
+				meshData.vertices[vertexIndex].normal = normal;
+				meshData.vertices[vertexIndex].pad = 0.0f;
+			}
+
+			if (hasIndices) {
+				const GltfAccessor& indexAccessor = accessors[indexAccessorIndex];
+				const uint8_t* indexData = getAccessorPointer(indexAccessor, binary);
+				meshData.indices.resize(indexAccessor.count);
+				for (uint32_t index = 0; index < indexAccessor.count; ++index) {
+					if (indexAccessor.componentType == 5121) {
+						meshData.indices[index] = indexData[index];
+					} else if (indexAccessor.componentType == 5123) {
+						const uint16_t* indices = reinterpret_cast<const uint16_t*>(indexData);
+						meshData.indices[index] = indices[index];
+					} else if (indexAccessor.componentType == 5125) {
+						const uint32_t* indices = reinterpret_cast<const uint32_t*>(indexData);
+						meshData.indices[index] = indices[index];
+					} else {
+						assert(false);
+					}
+				}
+			} else {
+				meshData.indices.resize(positionAccessor.count);
+				for (uint32_t index = 0; index < positionAccessor.count; ++index) {
+					meshData.indices[index] = index;
+				}
+			}
+
+			if (hasJoints && hasWeights && !jointNames.empty()) {
+				const GltfAccessor& jointsAccessor = accessors[jointsAccessorIndex];
+				const GltfAccessor& weightsAccessor = accessors[weightsAccessorIndex];
+				assert(jointsAccessor.componentType == 5121 || jointsAccessor.componentType == 5123);
+				assert(weightsAccessor.componentType == 5126);
+				const uint8_t* jointsData = getAccessorPointer(jointsAccessor, binary);
+				const uint8_t* weightsData = getAccessorPointer(weightsAccessor, binary);
+				const uint32_t jointComponentSize =
+					(jointsAccessor.componentType == 5121) ? sizeof(uint8_t) : sizeof(uint16_t);
+				const uint32_t jointsStride = getAccessorStride(jointsAccessor, jointComponentSize, 4);
+				const uint32_t weightsStride = getAccessorStride(weightsAccessor, sizeof(float), 4);
+
+				for (uint32_t vertexIndex = 0; vertexIndex < positionAccessor.count; ++vertexIndex) {
+					const uint8_t* vertexJoints = jointsData + vertexIndex * jointsStride;
+					const float* vertexWeights =
+						reinterpret_cast<const float*>(weightsData + vertexIndex * weightsStride);
+
+					for (uint32_t influenceIndex = 0; influenceIndex < 4; ++influenceIndex) {
+						float weight = vertexWeights[influenceIndex];
+						if (weight == 0.0f) {
+							continue;
+						}
+
+						uint32_t jointIndex = 0;
+						if (jointsAccessor.componentType == 5121) {
+							jointIndex = vertexJoints[influenceIndex];
+						} else {
+							const uint16_t* jointsU16 = reinterpret_cast<const uint16_t*>(vertexJoints);
+							jointIndex = jointsU16[influenceIndex];
+						}
+
+						assert(jointIndex < jointNames.size());
+						VertexWeightData vertexWeightData{};
+						vertexWeightData.weight = weight;
+						vertexWeightData.vertexIndex = globalVertexOffset + vertexIndex;
+						modelData.skinClusterData[jointNames[jointIndex]]
+							.vertexWeights.push_back(vertexWeightData);
+					}
+				}
+			}
+
+			modelData.meshes.push_back(meshData);
+			globalVertexOffset += positionAccessor.count;
 		}
 	}
 
-	modelData.meshes.push_back(meshData);
+	uint32_t rootNodeIndex = ParseRootNodeIndex(jsonText);
+	modelData.rootNode = ConvertNode(gltfNodes, rootNodeIndex);
 
-	uint32_t rootNodeIndex = ParseRootNodeIndex(jsonText); // // root node の index を取得
-	modelData.rootNode = ConvertNode(gltfNodes, rootNodeIndex); // // root から node 階層を構築
-
+	modelData.material = modelData.meshes.empty() ? materials[0] : modelData.meshes[0].material;
 	return modelData;
 }
-
 void Model::InitializeVertexBuffer()
 {
 	vertexSrvIndices_.resize(modelData_.meshes.size());
@@ -1028,21 +1177,28 @@ void Model::InitializeMaterial()
 	materialData_->uvTransform = MakeIdentity4x4();
 }
 
-void Model::DrawInstanced(UINT instanceCount)
+void Model::DrawInstanced(UINT instanceCount, const Vector4& color)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
 
 	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
 		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-		// 頂点バッファを設定する
+		// meshごとのマテリアル色に、Object3d側の色を掛け合わせる
+		materialData_->color = MultiplyColor(mesh.material.baseColor, color);
+		commandList->SetGraphicsRootConstantBufferView(
+			0,
+			materialResource_->GetGPUVirtualAddress());
+
+		commandList->SetGraphicsRootDescriptorTable(
+			5,
+			TextureManager::GetInstance()->GetSrvHandleGPU(
+				mesh.material.textureFilePath));
+
 		commandList->IASetVertexBuffers(0, 1, &vertexBufferViews_[meshIndex]);
 
 		if (!mesh.indices.empty()) {
-			// index バッファを設定する
 			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
-
-			// index を使ってインスタンシング描画する
 			commandList->DrawIndexedInstanced(
 				static_cast<UINT>(mesh.indices.size()),
 				instanceCount,
@@ -1050,7 +1206,6 @@ void Model::DrawInstanced(UINT instanceCount)
 				0,
 				0);
 		} else {
-			// index が無い場合は従来の描画にフォールバックする
 			commandList->DrawInstanced(
 				static_cast<UINT>(mesh.vertices.size()),
 				instanceCount,
@@ -1059,8 +1214,6 @@ void Model::DrawInstanced(UINT instanceCount)
 		}
 	}
 }
-
-
 void Model::InitializeIndexBuffer()
 {
 	DirectXCommon* dxCommon = modelCommon_->GetDxCommon();
@@ -1184,63 +1337,88 @@ void Model::DrawInstanced(UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW& in
 
 // ComputeShader で作った変形済み頂点バッファを使って描画する
 #endif
-void Model::DrawWithSkinnedVertexBuffer(const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView)
+void Model::DrawWithSkinnedVertexBuffer(
+	const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView,
+	const Vector4& color)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
+	uint32_t baseVertexLocation = 0;
 
 	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
 		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-		// ComputeShader が書いた変形済み頂点バッファを使う
+		// meshごとのマテリアル色に、Object3d側の点滅色などを掛け合わせる
+		materialData_->color = MultiplyColor(mesh.material.baseColor, color);
+		commandList->SetGraphicsRootConstantBufferView(
+			0,
+			materialResource_->GetGPUVirtualAddress());
+
+		commandList->SetGraphicsRootDescriptorTable(
+			5,
+			TextureManager::GetInstance()->GetSrvHandleGPU(
+				mesh.material.textureFilePath));
+
 		commandList->IASetVertexBuffers(0, 1, &skinnedVertexBufferView);
 
 		if (!mesh.indices.empty()) {
 			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
-
 			commandList->DrawIndexedInstanced(
 				static_cast<UINT>(mesh.indices.size()),
 				1,
 				0,
-				0,
+				static_cast<INT>(baseVertexLocation),
 				0);
 		} else {
 			commandList->DrawInstanced(
 				static_cast<UINT>(mesh.vertices.size()),
 				1,
-				0,
+				baseVertexLocation,
 				0);
 		}
+
+		baseVertexLocation += static_cast<uint32_t>(mesh.vertices.size());
 	}
 }
-
-// ComputeShader で作った変形済み頂点バッファを使って instancing 描画する
 void Model::DrawInstancedWithSkinnedVertexBuffer(
 	UINT instanceCount,
-	const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView)
+	const D3D12_VERTEX_BUFFER_VIEW& skinnedVertexBufferView,
+	const Vector4& color)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();
+	uint32_t baseVertexLocation = 0;
 
 	for (size_t meshIndex = 0; meshIndex < modelData_.meshes.size(); ++meshIndex) {
 		const MeshData& mesh = modelData_.meshes[meshIndex];
 
-		// ComputeShader が書いた変形済み頂点バッファを使う
+		// meshごとのマテリアル色に、Object3d側の色を掛け合わせる
+		materialData_->color = MultiplyColor(mesh.material.baseColor, color);
+		commandList->SetGraphicsRootConstantBufferView(
+			0,
+			materialResource_->GetGPUVirtualAddress());
+
+		commandList->SetGraphicsRootDescriptorTable(
+			5,
+			TextureManager::GetInstance()->GetSrvHandleGPU(
+				mesh.material.textureFilePath));
+
 		commandList->IASetVertexBuffers(0, 1, &skinnedVertexBufferView);
 
 		if (!mesh.indices.empty()) {
 			commandList->IASetIndexBuffer(&indexBufferViews_[meshIndex]);
-
 			commandList->DrawIndexedInstanced(
 				static_cast<UINT>(mesh.indices.size()),
 				instanceCount,
 				0,
-				0,
+				static_cast<INT>(baseVertexLocation),
 				0);
 		} else {
 			commandList->DrawInstanced(
 				static_cast<UINT>(mesh.vertices.size()),
 				instanceCount,
-				0,
+				baseVertexLocation,
 				0);
 		}
+
+		baseVertexLocation += static_cast<uint32_t>(mesh.vertices.size());
 	}
 }
