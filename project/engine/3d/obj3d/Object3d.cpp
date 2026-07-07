@@ -161,11 +161,11 @@ void Object3d::Draw()
     if (model_) {
         if (hasSkinCluster_) {
             // Skinning 用の influence VBV も渡して描画する
-            model_->DrawWithSkinnedVertexBuffer(skinCluster_.skinnedVertexBufferView);
+            model_->DrawWithSkinnedVertexBuffer(skinCluster_.skinnedVertexBufferView, materialData_->color);
 
         } else {
             // 通常描画を行う
-            model_->Draw();
+            model_->Draw(materialData_->color);
         }
     }
 }
@@ -401,11 +401,12 @@ void Object3d::DrawInstanced(UINT instanceCount)
             // Skinning 用の influence VBV も渡して描画する
             model_->DrawInstancedWithSkinnedVertexBuffer(
                 instanceCount,
-                skinCluster_.skinnedVertexBufferView);
+                skinCluster_.skinnedVertexBufferView,
+                materialData_->color);
 
         } else {
             // 通常のインスタンシング描画を行う
-            model_->DrawInstanced(instanceCount);
+            model_->DrawInstanced(instanceCount, materialData_->color);
         }
     }
 }
