@@ -602,7 +602,7 @@ void ParticleSystem::Draw()
     if (meshType_ == EffectMeshType::Plane) {
         Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
         if (model) {
-            model->DrawInstanced(kNumInstance);
+            model->DrawInstancedForParticle(kNumInstance);
         }
     } else if (meshType_ == EffectMeshType::Ring) {
         if (ring_) {
@@ -622,7 +622,7 @@ void ParticleSystem::Draw()
     if (meshType_ == EffectMeshType::Plane) {
         Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
         if (model) {
-            model->DrawInstanced(kNumInstance);
+            model->DrawInstancedForParticle(kNumInstance);
         }
     } else if (meshType_ == EffectMeshType::Ring) {
         if (ring_) {
