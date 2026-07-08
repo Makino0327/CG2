@@ -31,6 +31,7 @@ struct Animation {
 	std::map<std::string, NodeAnimation> nodeAnimations;
 };
 
-Animation LoadAnimationFile(const std::string& directoryPath, const std::string& filename);
+Animation LoadAnimationFile(const std::string& directoryPath, const std::string& filename, uint32_t animationIndex = 0);
+std::vector<std::string> GetAnimationNames(const std::string& directoryPath, const std::string& filename);
 Vector3 CalculateValue(const std::vector<KeyframeVector3>& keyframes, float time);
 Quaternion CalculateValue(const std::vector<KeyframeQuaternion>& keyframes, float time);

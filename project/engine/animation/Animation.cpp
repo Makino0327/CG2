@@ -3,6 +3,8 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <cctype>
+#include <filesystem>
 
 namespace {
 
@@ -261,7 +263,32 @@ namespace {
 }
 
 
-Animation LoadAnimationFile(const std::string& directoryPath, const std::string& filename)
+std::vector<std::string> GetAnimationNames(const std::string& directoryPath, const std::string& filename)
+{
+	std::vector<std::string> names;
+
+	std::ifstream file(directoryPath + "/" + filename);
+	assert(file.is_open());
+
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+	std::string jsonText = buffer.str();
+
+	std::string animationsBlock = ExtractArrayBlock(jsonText, "animations");
+	std::vector<std::string> animationObjects = SplitTopLevelObjects(animationsBlock);
+
+	for (uint32_t index = 0; index < animationObjects.size(); ++index) {
+		if (animationObjects[index].find("\"name\"") != std::string::npos) {
+			names.push_back(FindStringValue(animationObjects[index], "name"));
+		} else {
+			names.push_back("Animation_" + std::to_string(index));
+		}
+	}
+
+	return names;
+}
+
+Animation LoadAnimationFile(const std::string& directoryPath, const std::string& filename, uint32_t animationIndex)
 {
 	Animation animation;
 
@@ -277,20 +304,67 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 	std::vector<GltfAccessor> accessors = ParseAccessors(jsonText);
 	std::vector<GltfBufferView> bufferViews = ParseBufferViews(jsonText);
 
-	// buffers[0].uri を使って対応する .bin を読む
+	const std::filesystem::path gltfDirectory =
+		std::filesystem::path(directoryPath + "/" + filename).parent_path();
+
+	auto decodeBase64 = [](const std::string& text) {
+		std::vector<uint8_t> result;
+		int values[256];
+		for (int index = 0; index < 256; ++index) {
+			values[index] = -1;
+		}
+		const std::string table =
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		for (int index = 0; index < static_cast<int>(table.size()); ++index) {
+			values[static_cast<unsigned char>(table[index])] = index;
+		}
+
+		int currentValue = 0;
+		int bitCount = -8;
+		for (unsigned char c : text) {
+			if (std::isspace(c)) {
+				continue;
+			}
+			if (c == '=') {
+				break;
+			}
+			if (values[c] < 0) {
+				continue;
+			}
+			currentValue = (currentValue << 6) + values[c];
+			bitCount += 6;
+			if (bitCount >= 0) {
+				result.push_back(static_cast<uint8_t>((currentValue >> bitCount) & 0xFF));
+				bitCount -= 8;
+			}
+		}
+		return result;
+	};
+
+	// buffers[0].uri を使って対応するバッファを読む
 	std::string buffersBlock = ExtractArrayBlock(jsonText, "buffers");
 	std::vector<std::string> bufferObjects = SplitTopLevelObjects(buffersBlock);
 	assert(!bufferObjects.empty());
 
 	std::string bufferUri = FindStringValue(bufferObjects[0], "uri");
-	std::vector<uint8_t> binary = ReadBinaryFile(directoryPath + "/" + bufferUri);
+	std::vector<uint8_t> binary;
+	if (bufferUri.rfind("data:", 0) == 0) {
+		// glTF内にbase64で埋め込まれたバッファを読む
+		const size_t commaPos = bufferUri.find(',');
+		assert(commaPos != std::string::npos);
+		binary = decodeBase64(bufferUri.substr(commaPos + 1));
+	} else {
+		// 従来通り、外部binファイルを読む
+		binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
+	}
 
-	// animations 配列の先頭を今回使うアニメーションとして扱う
+	// animations 配列から指定された index のアニメーションを使う
 	std::string animationsBlock = ExtractArrayBlock(jsonText, "animations");
 	std::vector<std::string> animationObjects = SplitTopLevelObjects(animationsBlock);
 	assert(!animationObjects.empty());
+	assert(animationIndex < animationObjects.size());
 
-	const std::string& animationObject = animationObjects[0];
+	const std::string& animationObject = animationObjects[animationIndex];
 
 	// samplers と channels を分けて読む
 	std::vector<GltfAnimationSampler> samplers = ParseAnimationSamplers(animationObject);

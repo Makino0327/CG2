@@ -175,8 +175,10 @@ SkinCluster CreateSkinCluster(
         assert(static_cast<size_t>(jointIndex) < skinCluster.inverseBindPoseMatrices.size());
 
         // 対応 Joint の inverseBindPoseMatrix を保存する
+        // glTFが持つ本来のinverseBindMatricesを使う（restポーズから再計算すると、
+        // bindポーズとrestポーズがズレているモデルで歪みが発生するため）
         skinCluster.inverseBindPoseMatrices[jointIndex] =
-            Inverse(skeleton.joints[jointIndex].skeletonSpaceMatrix);
+            jointWeight.second.inverseBindPoseMatrix;
 
         // この Joint が影響を与える頂点群を反映する
         for (const VertexWeightData& vertexWeight : jointWeight.second.vertexWeights) {

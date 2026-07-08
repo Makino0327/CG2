@@ -457,8 +457,25 @@ namespace {
 			}
 		}
 
-		// glTF の列優先行列をこのエンジンの行列表現へ合わせる
-		return TransposeMatrix(gltfMatrix);
+		// glTFは列優先(column-major)でmatrixValuesを並べているため、
+		// ここを row*4+column で素直に読むと、結果的に「転置された」行列が
+		// 得られる。このエンジンは行ベクトル規約(平行移動はm[3][0..2])なので、
+		// これは好都合で、実際に追加の転置は不要（むしろ転置すると平行移動が
+		// m[0..2][3]側に移ってしまい壊れる）。simpleSkin.gltfのjoint1の
+		// inverseBindMatrixで実測値を確認済み。
+		Matrix4x4 result = gltfMatrix;
+
+		// ノードのtranslate/rotateと同じく、右手系->左手系のX軸ミラーを適用する
+		// (D * result * D の効果。D = diag(-1,1,1,1) なので、0行目と0列目の
+		// 対角成分以外の要素の符号を反転させると等価になる)
+		result.m[0][1] = -result.m[0][1];
+		result.m[0][2] = -result.m[0][2];
+		result.m[0][3] = -result.m[0][3];
+		result.m[1][0] = -result.m[1][0];
+		result.m[2][0] = -result.m[2][0];
+		result.m[3][0] = -result.m[3][0];
+
+		return result;
 	}
 
 	
