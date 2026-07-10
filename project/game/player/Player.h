@@ -86,6 +86,18 @@ public:
     // ナイフを使うモードかどうかを返す
     bool IsMeleeMode() const { return attackMode_ == AttackMode::Knife; }
 
+    // 現在の武器に残っている弾数を返す
+    int GetCurrentAmmo() const;
+
+    // 現在の武器の最大弾数を返す
+    int GetCurrentMaxAmmo() const;
+
+    // 現在リロード中かどうかを返す
+    bool IsReloading() const { return isReloading_; }
+
+    // リロードの残りフレームを返す
+    int GetReloadTimer() const { return reloadTimer_; }
+
     // プレイヤーを復活させる
     void Respawn();
 
@@ -117,7 +129,19 @@ private:
     void ResolveRightCollisionWithMap(Vector3& pos);
 
     // 弾を発射する
-    void FireBullet(Camera* camera, float spreadAngle = 0.0f);
+    bool FireBullet(Camera* camera, float spreadAngle = 0.0f);
+
+    // 現在の銃をリロード状態にする
+    void StartReload();
+
+    // リロードの残り時間を進める
+    void UpdateReload();
+
+    // 現在の武器の最大弾数を返す
+    int GetMaxAmmoForCurrentWeapon() const;
+
+    // 現在の武器のリロード時間を返す
+    int GetReloadDurationForCurrentWeapon() const;
 
     // 弾を更新する
     void UpdateBullets();
@@ -172,6 +196,29 @@ private:
 
     // アサルトライフルの連射ごとに増えるばらけ角度
     float assaultSpreadIncrease_ = 0.008f;
+    // ハンドガンの最大弾数
+    int handgunMaxAmmo_ = 10;
+
+    // アサルトライフルの最大弾数
+    int assaultRifleMaxAmmo_ = 30;
+
+    // ハンドガンの現在弾数
+    int handgunAmmo_ = 10;
+
+    // アサルトライフルの現在弾数
+    int assaultRifleAmmo_ = 30;
+
+    // ハンドガンのリロード時間
+    int handgunReloadDuration_ = 70;
+
+    // アサルトライフルのリロード時間
+    int assaultRifleReloadDuration_ = 110;
+
+    // 現在リロード中かどうか
+    bool isReloading_ = false;
+
+    // リロードの残りフレーム
+    int reloadTimer_ = 0;
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;

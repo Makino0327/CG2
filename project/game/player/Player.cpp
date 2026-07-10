@@ -38,6 +38,87 @@ void Player::Initialize(
 
 }
 
+int Player::GetCurrentAmmo() const
+{
+    // 現在選んでいる銃の残弾数を返す
+    if (attackMode_ == AttackMode::AssaultRifle) {
+        return assaultRifleAmmo_;
+    }
+    if (attackMode_ == AttackMode::Gun) {
+        return handgunAmmo_;
+    }
+    return 0;
+}
+
+int Player::GetCurrentMaxAmmo() const
+{
+    // 現在選んでいる銃の最大弾数を返す
+    return GetMaxAmmoForCurrentWeapon();
+}
+
+int Player::GetMaxAmmoForCurrentWeapon() const
+{
+    // ナイフには弾数がないので0を返す
+    if (attackMode_ == AttackMode::AssaultRifle) {
+        return assaultRifleMaxAmmo_;
+    }
+    if (attackMode_ == AttackMode::Gun) {
+        return handgunMaxAmmo_;
+    }
+    return 0;
+}
+
+int Player::GetReloadDurationForCurrentWeapon() const
+{
+    // 武器ごとにリロード時間を変える
+    if (attackMode_ == AttackMode::AssaultRifle) {
+        return assaultRifleReloadDuration_;
+    }
+    if (attackMode_ == AttackMode::Gun) {
+        return handgunReloadDuration_;
+    }
+    return 0;
+}
+
+void Player::StartReload()
+{
+    // ナイフ中や満タンの時はリロードしない
+    if (attackMode_ == AttackMode::Knife || isReloading_) {
+        return;
+    }
+
+    const int maxAmmo = GetMaxAmmoForCurrentWeapon();
+    if (maxAmmo <= 0 || GetCurrentAmmo() >= maxAmmo) {
+        return;
+    }
+
+    isReloading_ = true;
+    reloadTimer_ = GetReloadDurationForCurrentWeapon();
+}
+
+void Player::UpdateReload()
+{
+    if (!isReloading_) {
+        return;
+    }
+
+    if (reloadTimer_ > 0) {
+        reloadTimer_--;
+    }
+
+    if (reloadTimer_ > 0) {
+        return;
+    }
+
+    // リロード完了時に現在の武器だけ満タンにする
+    isReloading_ = false;
+    if (attackMode_ == AttackMode::AssaultRifle) {
+        assaultRifleAmmo_ = assaultRifleMaxAmmo_;
+    } else if (attackMode_ == AttackMode::Gun) {
+        handgunAmmo_ = handgunMaxAmmo_;
+    }
+}
+
 void Player::Update(Camera* camera)
 {
     if (!object_ || !input_) {
@@ -103,7 +184,7 @@ void Player::Update(Camera* camera)
     object_->Update();
 
 
-    // Qキーで銃、アサルトライフル、ナイフを順番に切り替える
+    // Qキーでハンドガン、アサルトライフル、ナイフを順番に切り替える
     if (input_->TriggerKey(DIK_Q)) {
         if (attackMode_ == AttackMode::Gun) {
             attackMode_ = AttackMode::AssaultRifle;
@@ -112,9 +193,23 @@ void Player::Update(Camera* camera)
         } else {
             attackMode_ = AttackMode::Gun;
         }
+
+        // 武器を切り替えたらリロード状態を解除する
+        isReloading_ = false;
+        reloadTimer_ = 0;
+        assaultFireTimer_ = 0;
+        assaultContinuousShotCount_ = 0;
     }
 
-    // 銃モードのときだけ左クリックした瞬間に弾を撃つ
+    // Rキーで現在の銃をリロードする
+    if (attackMode_ != AttackMode::Knife && input_->TriggerKey(DIK_R)) {
+        StartReload();
+    }
+
+    // リロード中なら残り時間を進める
+    UpdateReload();
+
+    // ハンドガンは左クリックした瞬間に1発撃つ
     if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
     }
@@ -131,9 +226,10 @@ void Player::Update(Camera* camera)
                 assaultMaxSpreadAngle_,
                 static_cast<float>(assaultContinuousShotCount_) * assaultSpreadIncrease_);
 
-            FireBullet(camera, spreadAngle);
-            assaultContinuousShotCount_++;
-            assaultFireTimer_ = assaultFireInterval_;
+            if (FireBullet(camera, spreadAngle)) {
+                assaultContinuousShotCount_++;
+                assaultFireTimer_ = assaultFireInterval_;
+            }
         }
 
         if (!input_->PushMouseLeft()) {
@@ -507,10 +603,30 @@ Vector3 Player::GetWorldPosition() const
     return object_->GetTranslate();
 }
 
-void Player::FireBullet(Camera* camera, float spreadAngle)
+bool Player::FireBullet(Camera* camera, float spreadAngle)
 {
-    if (!object_) {
-        return;
+    if (!object_ || !camera || !input_) {
+        return false;
+    }
+
+    // リロード中は発射できない
+    if (isReloading_) {
+        return false;
+    }
+
+    int* currentAmmo = nullptr;
+    if (attackMode_ == AttackMode::Gun) {
+        currentAmmo = &handgunAmmo_;
+    } else if (attackMode_ == AttackMode::AssaultRifle) {
+        currentAmmo = &assaultRifleAmmo_;
+    } else {
+        return false;
+    }
+
+    // 弾がない時は自動でリロードを開始する
+    if (*currentAmmo <= 0) {
+        StartReload();
+        return false;
     }
 
     // プレイヤーの位置を取る
@@ -529,7 +645,12 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
         camera,
         input_);
 
-    // ばらけ角度がある時だけ、弾の向きを左右に少しランダムでずらす
+    // 発射方向が取れない時は弾を減らさず撃たない
+    if (direction.x == 0.0f && direction.z == 0.0f) {
+        return false;
+    }
+
+    // ばらけ角度がある時だけ弾の向きを少しランダムにずらす
     if (spreadAngle > 0.0f) {
         static std::random_device seedGenerator;
         static std::mt19937 randomEngine(seedGenerator());
@@ -549,7 +670,10 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
         direction = Normalize(spreadDirection);
     }
 
-    // 弾と発射エフェクトをプレイヤー中心ではなく射出口へ移動する
+    // ここまで来たら発射できるので弾を1発減らす
+    (*currentAmmo)--;
+
+    // 弾と発射エフェクトを銃口側へ移動する
     firePosition.x += direction.x * bulletMuzzleDistance_;
     firePosition.z += direction.z * bulletMuzzleDistance_;
 
@@ -583,7 +707,7 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
             { 1.0f, 0.34f, 0.05f, 0.38f },
             0.16f);
 
-        // 発射口の中央へ黄色い閃光を重ねる
+        // 発射口の中央へ黄色い強い光を重ねる
         particleSystem_->Emit(
             firePosition,
             { 0.68f, 0.68f, 0.68f },
@@ -591,7 +715,7 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
             { 1.0f, 0.72f, 0.22f, 0.9f },
             0.11f);
 
-        // 最も明るい白い中心光を重ねる
+        // 最も明るい白い中心を重ねる
         particleSystem_->Emit(
             firePosition,
             { 0.30f, 0.30f, 0.30f },
@@ -629,6 +753,7 @@ void Player::FireBullet(Camera* camera, float spreadAngle)
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));
+    return true;
 }
 
 void Player::ThrowGrenade(Camera* camera)

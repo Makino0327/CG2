@@ -207,6 +207,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
     texMan->LoadTexture("Resources/gradationLine.png");
+    texMan->LoadTexture("Resources/white2x2.png");
 
     materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));
     Material* materialData = nullptr;
@@ -242,6 +243,19 @@ void GamePlayScene::Initialize()
     meleeMarker_->SetSize({ 42.0f, 42.0f });
     meleeMarker_->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
     meleeMarker_->Update();
+    // 残弾UI用に最大30個分の黄色い四角Spriteを作っておく
+    ammoSprites_.clear();
+    for (int index = 0; index < 30; ++index) {
+        auto ammoSprite = std::make_unique<Sprite>();
+        ammoSprite->Initialize(
+            context_.spriteCommon,
+            directionalLightResource_.Get(),
+            "Resources/white2x2.png");
+        ammoSprite->SetAnchorPoint({ 0.0f, 0.5f });
+        ammoSprite->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
+        ammoSprite->Update();
+        ammoSprites_.push_back(std::move(ammoSprite));
+    }
 
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
@@ -475,6 +489,9 @@ void GamePlayScene::Update()
             minimapEnemyPositions);
     }
 
+    // 残弾数に合わせて左下の弾UIを更新する
+    UpdateAmmoUiSprites();
+
     // 全敵の視界判定後に近接攻撃を処理する
     UpdateMeleeAttack();
 
@@ -599,8 +616,82 @@ void GamePlayScene::Draw()
     if (minimap_) {
         minimap_->Draw();
     }
+
+    // 左下に残弾UIを描画する
+    DrawAmmoUiSprites();
 }
 
+void GamePlayScene::UpdateAmmoUiSprites()
+{
+    if (!player_) {
+        return;
+    }
+
+    // ナイフ中は弾UIを表示しない
+    if (player_->GetAttackMode() == Player::AttackMode::Knife) {
+        return;
+    }
+
+    const int maxAmmo = player_->GetCurrentMaxAmmo();
+    const int currentAmmo = player_->GetCurrentAmmo();
+    const bool isAssaultRifle =
+        player_->GetAttackMode() == Player::AttackMode::AssaultRifle;
+
+    // ハンドガンは大きめ、アサルトライフルは小さめの弾にする
+    const Vector2 bulletSize = isAssaultRifle
+        ? Vector2{ 10.0f, 24.0f }
+        : Vector2{ 18.0f, 34.0f };
+    const float gapX = isAssaultRifle ? 5.0f : 8.0f;
+    const float gapY = isAssaultRifle ? 7.0f : 0.0f;
+    const int bulletsPerRow = isAssaultRifle ? 15 : 10;
+    const float startX = 32.0f;
+    const float startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
+
+    for (size_t index = 0; index < ammoSprites_.size(); ++index) {
+        Sprite* sprite = ammoSprites_[index].get();
+        if (!sprite) {
+            continue;
+        }
+
+        // 使わないSpriteは透明にして描画に出ないようにする
+        if (static_cast<int>(index) >= maxAmmo) {
+            sprite->SetColor({ 1.0f, 0.85f, 0.1f, 0.0f });
+            sprite->Update();
+            continue;
+        }
+
+        const int row = static_cast<int>(index) / bulletsPerRow;
+        const int column = static_cast<int>(index) % bulletsPerRow;
+        const Vector2 position = {
+            startX + static_cast<float>(column) * (bulletSize.x + gapX),
+            startY - static_cast<float>(row) * (bulletSize.y + gapY)
+        };
+
+        // 残っている弾は明るく、撃った後の枠は暗く表示する
+        const bool hasAmmo = static_cast<int>(index) < currentAmmo;
+        sprite->SetPosition(position);
+        sprite->SetSize(bulletSize);
+        sprite->SetColor(
+            hasAmmo
+                ? Vector4{ 1.0f, 0.86f, 0.10f, 0.95f }
+                : Vector4{ 0.35f, 0.28f, 0.05f, 0.45f });
+        sprite->Update();
+    }
+}
+
+void GamePlayScene::DrawAmmoUiSprites()
+{
+    if (!player_ || player_->GetAttackMode() == Player::AttackMode::Knife) {
+        return;
+    }
+
+    const int maxAmmo = player_->GetCurrentMaxAmmo();
+    for (int index = 0; index < maxAmmo && index < static_cast<int>(ammoSprites_.size()); ++index) {
+        if (ammoSprites_[index]) {
+            ammoSprites_[index]->Draw();
+        }
+    }
+}
 void GamePlayScene::EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction)
 {
     if (!particleSystem_) {
@@ -816,6 +907,7 @@ void GamePlayScene::UpdateMeleeAttack()
 void GamePlayScene::Finalize()
 {
     sprites_.clear();
+    ammoSprites_.clear();
     meleeMarker_.reset();
     meleeTarget_ = nullptr;
     meleeVictim_ = nullptr;

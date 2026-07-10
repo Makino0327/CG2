@@ -67,6 +67,10 @@ private:
     void ReloadLevel(bool isManualReload);
     // レベルデータからプレイヤーのスポーン位置を更新する
     void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
+    // 左下の残弾UI用Spriteを現在の弾数に合わせて更新する
+    void UpdateAmmoUiSprites();
+    // 左下の残弾UI用Spriteを描画する
+    void DrawAmmoUiSprites();
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -137,6 +141,9 @@ private:
 
     // 近接攻撃可能な敵の頭上に表示するマーク
     std::unique_ptr<Sprite> meleeMarker_;
+
+    // 左下に表示する残弾UI用の黄色い四角Sprite
+    std::vector<std::unique_ptr<Sprite>> ammoSprites_;
 
     // グレネード爆発で敵を即死させる半径
     float grenadeExplosionRadius_ = 4.0f;
