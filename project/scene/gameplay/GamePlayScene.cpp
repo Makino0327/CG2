@@ -117,6 +117,34 @@ namespace {
 
         return outUV.x >= 0.0f && outUV.x <= 1.0f && outUV.y >= 0.0f && outUV.y <= 1.0f;
     }
+
+    // 残弾UIの並び方をまとめた情報
+    struct AmmoUiLayout {
+        Vector2 bulletSize{};
+        float gapX = 0.0f;
+        float gapY = 0.0f;
+        int bulletsPerRow = 1;
+        float startX = 0.0f;
+        float startY = 0.0f;
+        int maxAmmo = 0;
+    };
+
+    // スロット番号から弾の描画位置を求める
+    // 最終スロット(次に撃つ弾)が下段の右端になり、撃つたびに全弾が出口へ向かって詰まる
+    // 2段以上のときは上の段が蛇行してつながるように折り返す
+    Vector2 GetAmmoSlotPosition(const AmmoUiLayout& layout, int slot)
+    {
+        const int fromExit = layout.maxAmmo - 1 - slot;
+        const int row = fromExit / layout.bulletsPerRow;
+        const int positionInRow = fromExit % layout.bulletsPerRow;
+        const int column = (row % 2 == 0)
+            ? layout.bulletsPerRow - 1 - positionInRow
+            : positionInRow;
+        return {
+            layout.startX + static_cast<float>(column) * (layout.bulletSize.x + layout.gapX),
+            layout.startY - static_cast<float>(row) * (layout.bulletSize.y + layout.gapY)
+        };
+    }
 }
 
 void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
@@ -256,6 +284,33 @@ void GamePlayScene::Initialize()
         ammoSprite->Update();
         ammoSprites_.push_back(std::move(ammoSprite));
     }
+    // 残弾UIの後ろに敷く黒い半透明パネルを作っておく
+    ammoBackgroundSprite_ = std::make_unique<Sprite>();
+    ammoBackgroundSprite_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/white2x2.png");
+    ammoBackgroundSprite_->SetAnchorPoint({ 0.0f, 0.0f });
+    ammoBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.35f });
+    ammoBackgroundSprite_->Update();
+    // 発射演出用のSpriteを作っておく(中心を基準に動かす)
+    ammoFireEffectSprites_.clear();
+    for (int index = 0; index < 8; ++index) {
+        auto effectSprite = std::make_unique<Sprite>();
+        effectSprite->Initialize(
+            context_.spriteCommon,
+            directionalLightResource_.Get(),
+            "Resources/white2x2.png");
+        effectSprite->SetAnchorPoint({ 0.5f, 0.5f });
+        effectSprite->SetColor({ 1.0f, 0.9f, 0.35f, 0.0f });
+        effectSprite->Update();
+        ammoFireEffectSprites_.push_back(std::move(effectSprite));
+    }
+    ammoFireEffects_.assign(ammoFireEffectSprites_.size(), AmmoFireEffect{});
+    ammoBulletAnims_.assign(ammoSprites_.size(), AmmoBulletAnim{});
+    ammoUiPrevAmmo_ = -1;
+    ammoUiPrevMaxAmmo_ = -1;
+    ammoUiPrevMode_ = Player::AttackMode::Knife;
 
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
@@ -632,21 +687,93 @@ void GamePlayScene::UpdateAmmoUiSprites()
         return;
     }
 
+    const Player::AttackMode attackMode = player_->GetAttackMode();
     const int maxAmmo = player_->GetCurrentMaxAmmo();
     const int currentAmmo = player_->GetCurrentAmmo();
-    const bool isAssaultRifle =
-        player_->GetAttackMode() == Player::AttackMode::AssaultRifle;
+    const bool isAssaultRifle = attackMode == Player::AttackMode::AssaultRifle;
 
     // ハンドガンは大きめ、アサルトライフルは小さめの弾にする
-    const Vector2 bulletSize = isAssaultRifle
+    AmmoUiLayout layout{};
+    layout.bulletSize = isAssaultRifle
         ? Vector2{ 10.0f, 24.0f }
         : Vector2{ 18.0f, 34.0f };
-    const float gapX = isAssaultRifle ? 5.0f : 8.0f;
-    const float gapY = isAssaultRifle ? 7.0f : 0.0f;
-    const int bulletsPerRow = isAssaultRifle ? 15 : 10;
-    const float startX = 32.0f;
-    const float startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
+    layout.gapX = isAssaultRifle ? 5.0f : 8.0f;
+    layout.gapY = isAssaultRifle ? 7.0f : 0.0f;
+    layout.bulletsPerRow = isAssaultRifle ? 15 : 10;
+    layout.startX = 32.0f;
+    layout.startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
+    layout.maxAmmo = maxAmmo;
 
+    // 武器が替わったら並びが変わるので、アニメーションせず即座に整列させる
+    const bool layoutChanged =
+        (attackMode != ammoUiPrevMode_) || (maxAmmo != ammoUiPrevMaxAmmo_);
+    if (layoutChanged) {
+        for (int index = 0;
+             index < currentAmmo && index < static_cast<int>(ammoBulletAnims_.size());
+             ++index) {
+            const int slot = maxAmmo - currentAmmo + index;
+            ammoBulletAnims_[index].position = GetAmmoSlotPosition(layout, slot);
+            ammoBulletAnims_[index].alpha = 0.95f;
+            ammoBulletAnims_[index].delay = 0.0f;
+        }
+        for (AmmoFireEffect& effect : ammoFireEffects_) {
+            effect.active = false;
+        }
+    } else if (currentAmmo < ammoUiPrevAmmo_) {
+        // 撃った弾は出口(右端)の位置から前へ飛び出して消える
+        const Vector2 exitPosition = GetAmmoSlotPosition(layout, maxAmmo - 1);
+        const Vector2 exitCenter = {
+            exitPosition.x + layout.bulletSize.x * 0.5f,
+            exitPosition.y
+        };
+        for (int shot = 0; shot < ammoUiPrevAmmo_ - currentAmmo; ++shot) {
+            SpawnAmmoFireEffect(exitCenter, layout.bulletSize);
+        }
+    } else if (currentAmmo > ammoUiPrevAmmo_) {
+        // リロードで増えた弾は左端の外から順番に入ってくる
+        // 残っていた弾は出口側のスロットに居座り、新しい弾を奥へ詰める
+        const int addedCount = currentAmmo - ammoUiPrevAmmo_;
+        for (int index = ammoUiPrevAmmo_ - 1; index >= 0; --index) {
+            ammoBulletAnims_[index + addedCount] = ammoBulletAnims_[index];
+        }
+        const float entryX = layout.startX - layout.bulletSize.x - 40.0f;
+        for (int index = 0; index < addedCount; ++index) {
+            const int slot = maxAmmo - currentAmmo + index;
+            const Vector2 target = GetAmmoSlotPosition(layout, slot);
+            ammoBulletAnims_[index].position = { entryX, target.y };
+            ammoBulletAnims_[index].alpha = 0.0f;
+            // 奥(右寄り)のスロットへ入る弾から順番に装填する
+            ammoBulletAnims_[index].delay =
+                static_cast<float>(addedCount - 1 - index) * 2.0f;
+        }
+    }
+
+    ammoUiPrevAmmo_ = currentAmmo;
+    ammoUiPrevMaxAmmo_ = maxAmmo;
+    ammoUiPrevMode_ = attackMode;
+
+    // UI全体の後ろへ黒い半透明パネルを敷いて見えやすくする
+    if (ammoBackgroundSprite_) {
+        const float padding = 10.0f;
+        const int rowCount =
+            (maxAmmo + layout.bulletsPerRow - 1) / layout.bulletsPerRow;
+        const float width =
+            static_cast<float>(layout.bulletsPerRow) *
+                (layout.bulletSize.x + layout.gapX) -
+            layout.gapX + padding * 2.0f;
+        const float height =
+            static_cast<float>(rowCount) * (layout.bulletSize.y + layout.gapY) -
+            layout.gapY + padding * 2.0f;
+        const float topY = layout.startY -
+            static_cast<float>(rowCount - 1) * (layout.bulletSize.y + layout.gapY) -
+            layout.bulletSize.y * 0.5f - padding;
+        ammoBackgroundSprite_->SetPosition({ layout.startX - padding, topY });
+        ammoBackgroundSprite_->SetSize({ width, height });
+        ammoBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.35f });
+        ammoBackgroundSprite_->Update();
+    }
+
+    // 残っている弾を目標スロットへ滑らかに寄せる
     for (size_t index = 0; index < ammoSprites_.size(); ++index) {
         Sprite* sprite = ammoSprites_[index].get();
         if (!sprite) {
@@ -654,27 +781,91 @@ void GamePlayScene::UpdateAmmoUiSprites()
         }
 
         // 使わないSpriteは透明にして描画に出ないようにする
-        if (static_cast<int>(index) >= maxAmmo) {
+        if (static_cast<int>(index) >= currentAmmo) {
             sprite->SetColor({ 1.0f, 0.85f, 0.1f, 0.0f });
             sprite->Update();
             continue;
         }
 
-        const int row = static_cast<int>(index) / bulletsPerRow;
-        const int column = static_cast<int>(index) % bulletsPerRow;
+        AmmoBulletAnim& anim = ammoBulletAnims_[index];
+        const int slot = maxAmmo - currentAmmo + static_cast<int>(index);
+        const Vector2 target = GetAmmoSlotPosition(layout, slot);
+
+        // リロード直後の弾は時間差を消化してから入ってくる
+        if (anim.delay > 0.0f) {
+            anim.delay -= 1.0f;
+        } else {
+            anim.position.x += (target.x - anim.position.x) * 0.30f;
+            anim.position.y += (target.y - anim.position.y) * 0.30f;
+            anim.alpha += (0.95f - anim.alpha) * 0.35f;
+        }
+
+        sprite->SetPosition(anim.position);
+        sprite->SetSize(layout.bulletSize);
+        sprite->SetColor({ 1.0f, 0.86f, 0.10f, anim.alpha });
+        sprite->Update();
+    }
+
+    UpdateAmmoFireEffects();
+}
+
+void GamePlayScene::SpawnAmmoFireEffect(const Vector2& center, const Vector2& size)
+{
+    // 空いている演出スロットを1つだけ使う
+    for (AmmoFireEffect& effect : ammoFireEffects_) {
+        if (effect.active) {
+            continue;
+        }
+        effect.active = true;
+        effect.position = center;
+        effect.size = size;
+        effect.timer = 0.0f;
+        return;
+    }
+}
+
+void GamePlayScene::UpdateAmmoFireEffects()
+{
+    // 発射演出の全体フレーム数
+    constexpr float kDuration = 10.0f;
+
+    for (size_t index = 0;
+         index < ammoFireEffects_.size() && index < ammoFireEffectSprites_.size();
+         ++index) {
+        AmmoFireEffect& effect = ammoFireEffects_[index];
+        Sprite* sprite = ammoFireEffectSprites_[index].get();
+        if (!sprite) {
+            continue;
+        }
+
+        if (effect.active) {
+            effect.timer += 1.0f;
+            if (effect.timer >= kDuration) {
+                effect.active = false;
+            }
+        }
+        if (!effect.active) {
+            sprite->SetColor({ 1.0f, 0.9f, 0.35f, 0.0f });
+            sprite->Update();
+            continue;
+        }
+
+        // 勢いよく飛び出してすぐ減速する動きにする
+        const float t = effect.timer / kDuration;
+        const float pop = 1.0f - (1.0f - t) * (1.0f - t);
+
+        // サイズは変えずにそのまま真上へ勢いよく飛ばす
         const Vector2 position = {
-            startX + static_cast<float>(column) * (bulletSize.x + gapX),
-            startY - static_cast<float>(row) * (bulletSize.y + gapY)
+            effect.position.x,
+            effect.position.y - 70.0f * pop
         };
 
-        // 残っている弾は明るく、撃った後の枠は暗く表示する
-        const bool hasAmmo = static_cast<int>(index) < currentAmmo;
+        // 飛びながら徐々に薄くなっていき、上がり切ったところで消える
+        const float alpha = 0.95f * (1.0f - t);
+
         sprite->SetPosition(position);
-        sprite->SetSize(bulletSize);
-        sprite->SetColor(
-            hasAmmo
-                ? Vector4{ 1.0f, 0.86f, 0.10f, 0.95f }
-                : Vector4{ 0.35f, 0.28f, 0.05f, 0.45f });
+        sprite->SetSize(effect.size);
+        sprite->SetColor({ 1.0f, 0.9f, 0.35f, alpha });
         sprite->Update();
     }
 }
@@ -685,10 +876,24 @@ void GamePlayScene::DrawAmmoUiSprites()
         return;
     }
 
-    const int maxAmmo = player_->GetCurrentMaxAmmo();
-    for (int index = 0; index < maxAmmo && index < static_cast<int>(ammoSprites_.size()); ++index) {
+    const int currentAmmo = player_->GetCurrentAmmo();
+
+    // 奥から順に、背景パネル → 残弾 → 発射演出の順で重ねる
+    if (ammoBackgroundSprite_) {
+        ammoBackgroundSprite_->Draw();
+    }
+    for (int index = 0;
+         index < currentAmmo && index < static_cast<int>(ammoSprites_.size());
+         ++index) {
         if (ammoSprites_[index]) {
             ammoSprites_[index]->Draw();
+        }
+    }
+    for (size_t index = 0;
+         index < ammoFireEffects_.size() && index < ammoFireEffectSprites_.size();
+         ++index) {
+        if (ammoFireEffects_[index].active && ammoFireEffectSprites_[index]) {
+            ammoFireEffectSprites_[index]->Draw();
         }
     }
 }

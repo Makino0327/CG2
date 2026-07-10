@@ -71,6 +71,10 @@ private:
     void UpdateAmmoUiSprites();
     // 左下の残弾UI用Spriteを描画する
     void DrawAmmoUiSprites();
+    // 発射した弾が前へ飛び出して消える演出を開始する
+    void SpawnAmmoFireEffect(const Vector2& center, const Vector2& size);
+    // 発射演出の経過を進めてSpriteへ反映する
+    void UpdateAmmoFireEffects();
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -144,6 +148,37 @@ private:
 
     // 左下に表示する残弾UI用の黄色い四角Sprite
     std::vector<std::unique_ptr<Sprite>> ammoSprites_;
+
+    // 残弾UIを見えやすくする黒い半透明の背景パネル用Sprite
+    std::unique_ptr<Sprite> ammoBackgroundSprite_;
+
+    // 発射した弾が前へ飛び出して消える演出の状態
+    struct AmmoFireEffect {
+        Vector2 position{};   // 弾の中心位置
+        Vector2 size{};       // 弾のサイズ
+        float timer = 0.0f;   // 経過フレーム
+        bool active = false;  // 演出中かどうか
+    };
+    // 発射演出の状態(連射に備えて複数持つ)
+    std::vector<AmmoFireEffect> ammoFireEffects_;
+    // 発射演出用のSprite(ammoFireEffects_と同じ数)
+    std::vector<std::unique_ptr<Sprite>> ammoFireEffectSprites_;
+
+    // 弾1発ごとの移動・フェードのアニメーション状態
+    struct AmmoBulletAnim {
+        Vector2 position{};   // 現在の描画位置
+        float alpha = 0.0f;   // 現在の透明度
+        float delay = 0.0f;   // リロードで順番に入ってくるまでの待ちフレーム
+    };
+    // 弾ごとのアニメーション状態(ammoSprites_と同じ数)
+    std::vector<AmmoBulletAnim> ammoBulletAnims_;
+
+    // 発射とリロードを検出するための前フレームの残弾数
+    int ammoUiPrevAmmo_ = -1;
+    // 武器切り替えを検出するための前フレームの最大弾数
+    int ammoUiPrevMaxAmmo_ = -1;
+    // 武器切り替えを検出するための前フレームの攻撃モード
+    Player::AttackMode ammoUiPrevMode_ = Player::AttackMode::Knife;
 
     // グレネード爆発で敵を即死させる半径
     float grenadeExplosionRadius_ = 4.0f;
