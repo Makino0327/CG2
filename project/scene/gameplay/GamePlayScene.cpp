@@ -126,20 +126,34 @@ namespace {
         int bulletsPerRow = 1;
         float startX = 0.0f;
         float startY = 0.0f;
-        int maxAmmo = 0;
     };
 
-    // スロット番号から弾の描画位置を求める
-    // 最終スロット(次に撃つ弾)が下段の右端になり、撃つたびに全弾が出口へ向かって詰まる
-    // 2段以上のときは上の段が蛇行してつながるように折り返す
-    Vector2 GetAmmoSlotPosition(const AmmoUiLayout& layout, int slot)
+    // 弾番号(0が最後に撃つ弾)と現在の残弾数から描画位置を求める
+    // 下段(一段目)が先に消費され、撃つたびに下段の弾は出口(右端)へ詰まる
+    // 上段(2段目)は列を保ったまま待機し、下段を撃ち切ると真下へ落ちて下段になる
+    Vector2 GetAmmoBulletPosition(
+        const AmmoUiLayout& layout, int currentAmmo, int bulletIndex)
     {
-        const int fromExit = layout.maxAmmo - 1 - slot;
-        const int row = fromExit / layout.bulletsPerRow;
-        const int positionInRow = fromExit % layout.bulletsPerRow;
-        const int column = (row % 2 == 0)
-            ? layout.bulletsPerRow - 1 - positionInRow
-            : positionInRow;
+        // 下段の弾数を求める(あふれた分だけ上段が満杯で残る)
+        int bottomCount = currentAmmo;
+        int topCount = 0;
+        if (currentAmmo > layout.bulletsPerRow) {
+            topCount = layout.bulletsPerRow;
+            bottomCount = currentAmmo - layout.bulletsPerRow;
+        }
+
+        int row = 0;
+        int column = 0;
+        if (bulletIndex < topCount) {
+            // 上段は左端から列を固定して並ぶ
+            row = 1;
+            column = bulletIndex;
+        } else {
+            // 下段は出口(右端)へ右詰めで並ぶ
+            row = 0;
+            column = layout.bulletsPerRow - bottomCount + (bulletIndex - topCount);
+        }
+
         return {
             layout.startX + static_cast<float>(column) * (layout.bulletSize.x + layout.gapX),
             layout.startY - static_cast<float>(row) * (layout.bulletSize.y + layout.gapY)
@@ -702,7 +716,6 @@ void GamePlayScene::UpdateAmmoUiSprites()
     layout.bulletsPerRow = isAssaultRifle ? 15 : 10;
     layout.startX = 32.0f;
     layout.startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
-    layout.maxAmmo = maxAmmo;
 
     // 武器が替わったら並びが変わるので、アニメーションせず即座に整列させる
     const bool layoutChanged =
@@ -711,8 +724,8 @@ void GamePlayScene::UpdateAmmoUiSprites()
         for (int index = 0;
              index < currentAmmo && index < static_cast<int>(ammoBulletAnims_.size());
              ++index) {
-            const int slot = maxAmmo - currentAmmo + index;
-            ammoBulletAnims_[index].position = GetAmmoSlotPosition(layout, slot);
+            ammoBulletAnims_[index].position =
+                GetAmmoBulletPosition(layout, currentAmmo, index);
             ammoBulletAnims_[index].alpha = 0.95f;
             ammoBulletAnims_[index].delay = 0.0f;
         }
@@ -720,8 +733,9 @@ void GamePlayScene::UpdateAmmoUiSprites()
             effect.active = false;
         }
     } else if (currentAmmo < ammoUiPrevAmmo_) {
-        // 撃った弾は出口(右端)の位置から前へ飛び出して消える
-        const Vector2 exitPosition = GetAmmoSlotPosition(layout, maxAmmo - 1);
+        // 撃った弾は出口(下段の右端)の位置から前へ飛び出して消える
+        const Vector2 exitPosition =
+            GetAmmoBulletPosition(layout, ammoUiPrevAmmo_, ammoUiPrevAmmo_ - 1);
         const Vector2 exitCenter = {
             exitPosition.x + layout.bulletSize.x * 0.5f,
             exitPosition.y
@@ -738,8 +752,8 @@ void GamePlayScene::UpdateAmmoUiSprites()
         }
         const float entryX = layout.startX - layout.bulletSize.x - 40.0f;
         for (int index = 0; index < addedCount; ++index) {
-            const int slot = maxAmmo - currentAmmo + index;
-            const Vector2 target = GetAmmoSlotPosition(layout, slot);
+            const Vector2 target =
+                GetAmmoBulletPosition(layout, currentAmmo, index);
             ammoBulletAnims_[index].position = { entryX, target.y };
             ammoBulletAnims_[index].alpha = 0.0f;
             // 奥(右寄り)のスロットへ入る弾から順番に装填する
@@ -788,8 +802,8 @@ void GamePlayScene::UpdateAmmoUiSprites()
         }
 
         AmmoBulletAnim& anim = ammoBulletAnims_[index];
-        const int slot = maxAmmo - currentAmmo + static_cast<int>(index);
-        const Vector2 target = GetAmmoSlotPosition(layout, slot);
+        const Vector2 target =
+            GetAmmoBulletPosition(layout, currentAmmo, static_cast<int>(index));
 
         // リロード直後の弾は時間差を消化してから入ってくる
         if (anim.delay > 0.0f) {
