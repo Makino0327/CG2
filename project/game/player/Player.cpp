@@ -125,6 +125,9 @@ void Player::Update(Camera* camera)
         return;
     }
 
+    // 発砲検知用フラグを毎フレーム下ろす
+    firedThisFrame_ = false;
+
     // 死亡中にRキーで復活する
         // 死亡中の復活処理はシーン側でまとめて行う
     if (isDead_) {
@@ -672,6 +675,9 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
 
     // ここまで来たら発射できるので弾を1発減らす
     (*currentAmmo)--;
+
+    // 銃声を発生させたことをシーンへ伝える
+    firedThisFrame_ = true;
 
     // 弾と発射エフェクトを銃口側へ移動する
     firePosition.x += direction.x * bulletMuzzleDistance_;

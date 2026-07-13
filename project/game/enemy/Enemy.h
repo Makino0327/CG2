@@ -55,6 +55,9 @@ public:
     // 死亡演出が終わり、敵を配列から削除してよいか返す
     bool IsReadyToRemove() const { return isReadyToRemove_; }
 
+    // 銃声などの音を聞いたときに音のした位置へ振り向かせる
+    void OnHearSound(const Vector3& soundPosition);
+
     // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
     void SetWaypoints(const std::vector<Vector3>& waypoints);
@@ -194,6 +197,15 @@ private:
 
     // 前フレームで追跡していたか
     bool wasChasing_ = false;
+
+    // 聞こえた音の位置
+    Vector3 heardSoundPosition_ = { 0.0f, 0.0f, 0.0f };
+
+    // 音の方向を向いて警戒している残りフレーム(0なら通常状態)
+    int hearingTimer_ = 0;
+
+    // 音の方向へ振り向くときの旋回速度(ラジアン/フレーム)
+    float hearingTurnSpeed_ = 0.12f;
 
     // 敵OBJを再利用した破片1個分の情報
     struct DeathFragment {

@@ -92,6 +92,12 @@ public:
     // 現在の武器の最大弾数を返す
     int GetCurrentMaxAmmo() const;
 
+    // このフレームに発砲したかを返す(銃声の発生検知用)
+    bool HasFiredThisFrame() const { return firedThisFrame_; }
+
+    // 銃声が敵に届く範囲の半径を返す
+    float GetGunshotSoundRange() const { return gunshotSoundRange_; }
+
     // 現在リロード中かどうかを返す
     bool IsReloading() const { return isReloading_; }
 
@@ -219,6 +225,12 @@ private:
 
     // リロードの残りフレーム
     int reloadTimer_ = 0;
+
+    // このフレームに発砲したか
+    bool firedThisFrame_ = false;
+
+    // 銃声が敵に届く範囲の半径
+    float gunshotSoundRange_ = 18.0f;
 
     // グレネード爆発後に残す煙用パーティクルシステム
     ParticleSystem* grenadeSmokeParticleSystem_ = nullptr;

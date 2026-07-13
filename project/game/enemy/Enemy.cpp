@@ -112,6 +112,9 @@ void Enemy::Update()
     }
 
     if (isChasing_ && distanceToPlayer > 0.001f) {
+        // 追跡中は音への警戒を打ち切って追跡を優先する
+        hearingTimer_ = 0;
+
         // 追跡方向の単位ベクトルを求める
         Vector3 direction = Normalize(toPlayer);
 
@@ -121,6 +124,37 @@ void Enemy::Update()
 
         // 追跡方向を向く
         rotation_.y = std::atan2(direction.x, direction.z);
+    } else if (hearingTimer_ > 0) {
+        // 音を聞いたときは移動を止めて、音のした方向へその場で振り向く
+        hearingTimer_--;
+
+        const Vector3 toSound = {
+            heardSoundPosition_.x - position_.x,
+            0.0f,
+            heardSoundPosition_.z - position_.z
+        };
+
+        if (std::fabs(toSound.x) > 0.001f || std::fabs(toSound.z) > 0.001f) {
+            const float targetYaw = std::atan2(toSound.x, toSound.z);
+
+            // 最短の回転方向を求めて一定速度で旋回する
+            constexpr float kPi = 3.14159265f;
+            float yawDiff = targetYaw - rotation_.y;
+            while (yawDiff > kPi) { yawDiff -= kPi * 2.0f; }
+            while (yawDiff < -kPi) { yawDiff += kPi * 2.0f; }
+
+            if (std::fabs(yawDiff) <= hearingTurnSpeed_) {
+                rotation_.y = targetYaw;
+            } else {
+                rotation_.y +=
+                    (yawDiff > 0.0f) ? hearingTurnSpeed_ : -hearingTurnSpeed_;
+            }
+        }
+
+        // 警戒が終わったら巡回へ戻る
+        if (hearingTimer_ == 0) {
+            waypointMover_.ResumePatrol();
+        }
     } else {
         // 追跡していないときは巡回を更新する
         waypointMover_.Update();
@@ -178,6 +212,23 @@ Vector3 Enemy::GetWorldPosition() const
 {
     // 現在位置を返す
     return position_;
+}
+
+void Enemy::OnHearSound(const Vector3& soundPosition)
+{
+    // 死亡中は反応しない
+    if (isDead_) {
+        return;
+    }
+
+    // 追跡中はすでにプレイヤーを狙っているので音には反応しない
+    if (isChasing_) {
+        return;
+    }
+
+    // 音の位置を記録して、しばらく音の方向を警戒する(60fpsで約3秒)
+    heardSoundPosition_ = soundPosition;
+    hearingTimer_ = 180;
 }
 
 SphereCollider Enemy::GetCollider() const

@@ -23,6 +23,9 @@ namespace
 
     // 度数法をラジアンへ変換する
     constexpr float kDegreeToRadian = 3.1415926535f / 180.0f;
+
+    // 発砲後に音の範囲円を光らせるフレーム数
+    constexpr float kGunshotFlashFrames = 40.0f;
 }
 
 Minimap::~Minimap() = default;
@@ -178,6 +181,17 @@ void Minimap::Initialize(
             rotationDegree);
     }
 
+    // 銃声の届く範囲を示す円を作成する
+    soundRangeSprite_ = std::make_unique<Sprite>();
+    soundRangeSprite_->Initialize(
+        spriteCommon_,
+        directionalLightResource_,
+        "Resources/circle2.png");
+
+    soundRangeSprite_->SetAnchorPoint({ 0.5f, 0.5f });
+    soundRangeSprite_->SetColor({ 1.0f, 0.85f, 0.3f, 0.15f });
+    soundRangeSprite_->Update();
+
     // プレイヤーマーカーを作成する
     playerMarker_ = std::make_unique<Sprite>();
     playerMarker_->Initialize(
@@ -255,6 +269,30 @@ void Minimap::Update(
 
     playerMarker_->Update();
 
+    // 音が鳴っている間だけ、銃声の届く範囲円をプレイヤー中心へ表示する
+    if (soundRangeSprite_ &&
+        soundRangeWorldRadius_ > 0.0f &&
+        gunshotFlashTimer_ > 0.0f) {
+        gunshotFlashTimer_ -= 1.0f;
+
+        const float diameter =
+            soundRangeWorldRadius_ * 2.0f * minimapScale_;
+
+        soundRangeSprite_->SetPosition(
+            ConvertWorldToScreen(
+                playerPosition.x,
+                playerPosition.z));
+
+        soundRangeSprite_->SetSize({ diameter, diameter });
+
+        // 鳴った瞬間が一番濃く、時間経過でどんどん薄くなって消える
+        const float alpha =
+            0.5f * (gunshotFlashTimer_ / kGunshotFlashFrames);
+
+        soundRangeSprite_->SetColor({ 1.0f, 0.85f, 0.3f, alpha });
+        soundRangeSprite_->Update();
+    }
+
     // 現在の敵数に合わせてマーカーを確保する
     EnsureEnemyMarkerCount(enemyPositions.size());
     visibleEnemyCount_ = enemyPositions.size();
@@ -286,6 +324,13 @@ void Minimap::Draw()
     // 床と壁を描画する
     for (const auto& sprite : mapSprites_) {
         sprite->Draw();
+    }
+
+    // 音が鳴っている間だけ範囲円をマーカーより奥へ描画する
+    if (soundRangeSprite_ &&
+        soundRangeWorldRadius_ > 0.0f &&
+        gunshotFlashTimer_ > 0.0f) {
+        soundRangeSprite_->Draw();
     }
 
     // プレイヤーを描画する
@@ -418,6 +463,18 @@ void Minimap::CreateWallOutline(
         0.0f,
         lineThickness,
         height);
+}
+
+void Minimap::SetSoundRange(float worldRadius)
+{
+    // 銃声が届く範囲の半径を保存する
+    soundRangeWorldRadius_ = worldRadius;
+}
+
+void Minimap::NotifyGunshot()
+{
+    // 発砲した瞬間から光らせ始める
+    gunshotFlashTimer_ = kGunshotFlashFrames;
 }
 
 void Minimap::ToggleExpanded()

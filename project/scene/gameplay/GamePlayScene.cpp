@@ -527,6 +527,32 @@ void GamePlayScene::Update()
         skybox_->Update();
     }
 
+    // 発砲したら銃声をゲーム内の「音」として発生させ、範囲内の敵へ伝える
+    if (player_ && player_->HasFiredThisFrame()) {
+        const Vector3 soundPosition = player_->GetWorldPosition();
+        const float soundRange = player_->GetGunshotSoundRange();
+
+        for (const auto& enemy : enemies_) {
+            if (enemy->IsDead()) {
+                continue;
+            }
+
+            // XZ平面の距離で音が届くかを判定する
+            const Vector3 enemyPosition = enemy->GetWorldPosition();
+            const float deltaX = enemyPosition.x - soundPosition.x;
+            const float deltaZ = enemyPosition.z - soundPosition.z;
+            if (deltaX * deltaX + deltaZ * deltaZ <=
+                soundRange * soundRange) {
+                enemy->OnHearSound(soundPosition);
+            }
+        }
+
+        // ミニマップの音範囲円を光らせる
+        if (minimap_) {
+            minimap_->NotifyGunshot();
+        }
+    }
+
     for (auto& enemy : enemies_) {
         // 敵の追跡目標を現在のプレイヤー位置に更新する
         enemy->SetTargetPosition(player_->GetWorldPosition());
@@ -553,6 +579,8 @@ void GamePlayScene::Update()
 
     // プレイヤーと敵の現在位置をミニマップへ反映する
     if (minimap_ && player_) {
+        // 銃声の届く範囲をミニマップの円表示へ渡す
+        minimap_->SetSoundRange(player_->GetGunshotSoundRange());
         minimap_->Update(
             player_->GetWorldPosition(),
             minimapEnemyPositions);

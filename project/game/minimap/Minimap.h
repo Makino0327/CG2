@@ -35,6 +35,12 @@ public:
     // ミニマップの通常表示と拡大表示を切り替える
     void ToggleExpanded();
 
+    // 銃声が届く範囲(ワールド座標の半径)を設定する
+    void SetSoundRange(float worldRadius);
+
+    // 発砲した瞬間に音の範囲円を明るく光らせる
+    void NotifyGunshot();
+
 private:
     // ゲーム内のX/Z座標をミニマップ上の画面座標へ変換する
     Vector2 ConvertWorldToScreen(float worldX, float worldZ) const;
@@ -65,6 +71,15 @@ private:
 
     // 現在のプレイヤー位置
     std::unique_ptr<Sprite> playerMarker_;
+
+    // プレイヤー中心に表示する銃声の届く範囲円
+    std::unique_ptr<Sprite> soundRangeSprite_;
+
+    // 銃声が届く範囲(ワールド座標の半径)
+    float soundRangeWorldRadius_ = 0.0f;
+
+    // 発砲直後に範囲円を明るくする残りフレーム
+    float gunshotFlashTimer_ = 0.0f;
 
     // 現在の敵位置
     std::vector<std::unique_ptr<Sprite>> enemyMarkers_;
