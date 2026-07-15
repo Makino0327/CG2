@@ -2,6 +2,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include "../../engine/3d/obj3d/DebugLine3D.h"
 #include "../../engine/3d/obj3d/Object3d.h"
@@ -89,6 +90,9 @@ public:
         wallColliders_ = wallColliders;
     }
 
+    // 敵AI用のNavMeshを設定する
+    void SetNavMesh(const LevelNavMeshData* navMesh);
+
     // デバッグカメラ用に描画だけ更新する
     void UpdateRenderOnly();
 private:
@@ -110,6 +114,34 @@ private:
     // 壁コライダーとの衝突を解決する
     void ResolveWallCollision(Vector3& pos);
     bool CheckTargetInSight() const;
+
+    // 指定位置に移動したとき壁と重なるか調べる
+    bool IsPositionBlockedByWall(const Vector3& pos) const;
+
+    // 始点から終点までの直線が壁に遮られるかを調べる
+    bool IsSegmentBlockedByWall(
+        const Vector3& start,
+        const Vector3& end,
+        const LevelColliderData** hitWall,
+        const LevelColliderData* ignoredWall = nullptr) const;
+
+    // 壁の角を一時目標にして追跡方向を決める
+    Vector3 CalculateChaseDirection(const Vector3& chaseTarget) const;
+
+    // NavMesh上の経路から追跡方向を決める
+    Vector3 CalculateNavMeshChaseDirection(const Vector3& chaseTarget);
+
+    // NavMeshの三角形同士のつながりを作る
+    void BuildNavMeshLinks();
+
+    // 指定位置が乗っているNavMesh三角形を探す
+    int FindNavMeshTriangle(const Vector3& position) const;
+
+    // NavMesh上で開始三角形から目標三角形までの経路を探す
+    bool FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int>& outPath) const;
+
+    // NavMesh三角形の中心位置を返す
+    Vector3 GetNavMeshTriangleCenter(int triangleIndex) const;
 
     // 被弾方向へ血しぶきを生成する
     void EmitBloodSplatter(const Vector3& hitPosition, const Vector3& hitDirection);
@@ -177,6 +209,21 @@ private:
     // 壁コライダー一覧
     const std::vector<LevelColliderData>* wallColliders_ = nullptr;
 
+    // 敵AIが使うNavMesh
+    const LevelNavMeshData* navMesh_ = nullptr;
+
+    // NavMesh三角形ごとの隣接三角形一覧
+    std::vector<std::vector<int>> navMeshNeighbors_;
+
+    // 現在使っているNavMesh経路
+    std::vector<int> navMeshPath_;
+
+    // NavMesh経路を再計算するまでの残りフレーム
+    int navMeshPathRefreshTimer_ = 0;
+
+    // NavMesh追跡中の進行方向をなめらかにするために保存する
+    Vector3 navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+
     // 視認できる距離
     float detectRange_ = 12.0f;
     float sightHalfAngleRad_ = 0.785398163f;
@@ -197,6 +244,18 @@ private:
 
     // 前フレームで追跡していたか
     bool wasChasing_ = false;
+
+    // 追跡終了後にNavMeshで巡回地点へ戻っているか
+    bool isReturningToPatrol_ = false;
+
+    // 視界から外れてもすぐ見失わないための猶予フレーム
+    int lostSightGraceTimer_ = 0;
+
+    // 見失ったあと、その場で周囲を見る残りフレーム
+    int lostSightLookTimer_ = 0;
+
+    // 見失った瞬間の向き
+    float lostSightLookStartYaw_ = 0.0f;
 
     // 聞こえた音の位置
     Vector3 heardSoundPosition_ = { 0.0f, 0.0f, 0.0f };

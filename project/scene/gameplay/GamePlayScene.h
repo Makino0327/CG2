@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include <vector>
 #include <string>
@@ -198,6 +198,9 @@ private:
 
     // Blender JSONから読み込んだ壁コライダー
     std::vector<LevelColliderData> wallColliders_;
+
+    // 敵AI用のNavMeshデータ
+    LevelNavMeshData navMeshData_;
 
     // レベルJSONの更新を監視する
     LevelHotReload levelHotReload_;

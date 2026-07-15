@@ -1,4 +1,4 @@
-#include "WaypointMover.h"
+﻿#include "WaypointMover.h"
 
 #include <cassert>
 #include <cmath>
@@ -100,6 +100,15 @@ bool WaypointMover::HasWaypoints() const {
     return !waypoints_.empty();
 }
 
+Vector3 WaypointMover::GetCurrentWaypointPosition() const {
+    // ウェイポイントがない場合は現在位置を返す
+    if (waypoints_.empty()) {
+        return object3d_ ? object3d_->GetTranslate() : Vector3{ 0.0f, 0.0f, 0.0f };
+    }
+
+    return waypoints_[currentWaypointIndex_];
+}
+
 void WaypointMover::Update() {
     if (!object3d_) {
         return;
@@ -181,7 +190,7 @@ void WaypointMover::UpdateWaitState() {
 
     currentWaitFrame_ = 0;
 
-    // With only one waypoint, choose a random direction to watch.
+    // ウェイポイントが1つだけの敵は、少し待ってから周りを見渡す
     if (waypoints_.size() <= 1) {
         lookAroundStartYaw_ = object3d_->GetRotate().y;
 

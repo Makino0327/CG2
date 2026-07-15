@@ -23,10 +23,24 @@ struct LevelObjectData {
     LevelColliderData collider; // Blender から読み込んだコライダー情報
 };
 
+// NavMesh の三角形 1 枚分の情報
+struct LevelNavMeshTriangle {
+    int index0 = 0;
+    int index1 = 0;
+    int index2 = 0;
+};
+
+// NavMesh 全体の情報
+struct LevelNavMeshData {
+    std::vector<Vector3> vertices; // NavMesh の頂点一覧
+    std::vector<LevelNavMeshTriangle> triangles; // NavMesh の三角形一覧
+};
+
 // レベル全体の情報
 struct LevelData {
     std::string name; // ルート名
     std::vector<LevelObjectData> objects; // ルート直下のオブジェクト一覧
+    LevelNavMeshData navMesh; // 敵AI用のNavMeshデータ
 };
 
 // JSON ファイルから LevelData を作るローダー

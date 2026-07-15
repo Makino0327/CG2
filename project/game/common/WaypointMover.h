@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdint>
 #include <memory>
@@ -48,6 +48,12 @@ public:
     uint32_t GetCurrentWaypointIndex() const { return currentWaypointIndex_; }
     uint32_t GetWaypointCount() const { return static_cast<uint32_t>(waypoints_.size()); }
     Object3d* GetObject3d() const { return object3d_.get(); }
+
+    // 現在向かっているウェイポイント位置を返す
+    Vector3 GetCurrentWaypointPosition() const;
+
+    // ウェイポイントへ到着扱いにする距離を返す
+    float GetReachDistance() const { return reachDistance_; }
 
 private:
     // Patrol state used to insert waiting and turning behaviors.

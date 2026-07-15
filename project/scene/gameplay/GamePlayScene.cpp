@@ -1,4 +1,4 @@
-#include "GamePlayScene.h"
+﻿#include "GamePlayScene.h"
 
 #include <algorithm>
 #include <cassert>
@@ -1446,6 +1446,8 @@ void GamePlayScene::CreateMapObjects()
     wallColliders_.clear();
 
     LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
+    navMeshData_ = levelData.navMesh;
+    // 敵AI用のNavMeshデータを保存する
     // マップ用のモデルとコライダーを作る前に、レベル階層を平坦化する
     std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
 
@@ -1563,7 +1565,9 @@ void GamePlayScene::SpawnEnemies()
         enemy->SetMap(&mapField_, tileSize_);
         enemy->SetFloorColliders(&floorColliders_);
         enemy->SetWallColliders(&wallColliders_);
+        enemy->SetNavMesh(&navMeshData_);
 
+        // 敵にNavMeshを渡して、壁を回り込めるようにする
         // 敵に渡す前にウェイポイントを番号順に並べる
         std::vector<Vector3> waypoints;
         auto found = enemyWaypointMap.find(enemyName);

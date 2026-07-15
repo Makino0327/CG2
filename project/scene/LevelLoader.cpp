@@ -22,6 +22,45 @@ static Vector3 ReadVector3(const json& array) {
     };
 }
 
+// JSON の NavMesh 情報を読む
+static LevelNavMeshData ParseNavMesh(const json& navMeshJson) {
+    LevelNavMeshData navMeshData{};
+
+    if (!navMeshJson.is_object()) {
+        return navMeshData;
+    }
+
+    if (navMeshJson.contains("vertices")) {
+        for (const json& vertexJson : navMeshJson["vertices"]) {
+            assert(vertexJson.is_array());
+            assert(vertexJson.size() == 3);
+
+            // Blender: X右, Y奥, Z上
+            // Game   : X右, Y上, Z奥
+            Vector3 vertex{};
+            vertex.x = static_cast<float>(vertexJson[0]);
+            vertex.y = static_cast<float>(vertexJson[2]);
+            vertex.z = static_cast<float>(vertexJson[1]);
+            navMeshData.vertices.push_back(vertex);
+        }
+    }
+
+    if (navMeshJson.contains("triangles")) {
+        for (const json& triangleJson : navMeshJson["triangles"]) {
+            assert(triangleJson.is_array());
+            assert(triangleJson.size() == 3);
+
+            LevelNavMeshTriangle triangle{};
+            triangle.index0 = triangleJson[0].get<int>();
+            triangle.index1 = triangleJson[1].get<int>();
+            triangle.index2 = triangleJson[2].get<int>();
+            navMeshData.triangles.push_back(triangle);
+        }
+    }
+
+    return navMeshData;
+}
+
 // JSON の 1 オブジェクト分を再帰的に読む
 static LevelObjectData ParseObject(const json& objectJson) {
     assert(objectJson.contains("type")); // type は必須
@@ -104,6 +143,10 @@ LevelData LevelLoader::LoadFile(const std::string& filePath) {
 
     for (const json& objectJson : rootJson["objects"]) {
         levelData.objects.push_back(ParseObject(objectJson)); // 直下のオブジェクトを順番に読む
+    }
+
+    if (rootJson.contains("nav_mesh")) {
+        levelData.navMesh = ParseNavMesh(rootJson["nav_mesh"]);
     }
 
     return levelData;
