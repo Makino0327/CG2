@@ -271,6 +271,22 @@ void Object3d::SetModel(const std::string& filePath)
     }
 }
 
+void Object3d::ResetSkeletonPose()
+{
+    if (!model_) {
+        return;
+    }
+
+    const ModelData& modelData = model_->GetModelData();
+    if (modelData.rootNode.name.empty() && modelData.rootNode.children.empty()) {
+        return;
+    }
+
+    // Skeletonをモデル読み込み時のTRSへ作り直してTポーズに戻す
+    skeleton_ = CreateSkeleton(modelData.rootNode);
+    UpdateSkeleton(skeleton_);
+    hasSkeleton_ = true;
+}
 void Object3d::SetTexture(const std::string& filePath)
 {
     TextureManager* texMan = TextureManager::GetInstance();

@@ -69,6 +69,12 @@ public:
     // Game View 内で 0.0f ～ 1.0f に正規化した座標を返す
     Vector2 GetGameViewMouseUV() const { return gameViewMouseUV_; }
 
+    // Game Viewの画像が表示されている左上座標を返す
+    Vector2 GetGameViewTopLeft() const { return gameViewTopLeft_; }
+
+    // Game Viewの画像が表示されているサイズを返す
+    Vector2 GetGameViewSize() const { return gameViewSize_; }
+
     void DrawImGui();
 
     // デバッグ用にゲーム画面をImGuiへ表示する

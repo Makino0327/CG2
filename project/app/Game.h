@@ -29,6 +29,7 @@ using Microsoft::WRL::ComPtr;
 #include "../engine/2d/texture/TextureManager.h"
 #include "../engine/3d/obj3d/Object3dCommon.h"
 #include "../engine/3d/obj3d/Object3d.h"
+#include "../engine/3d/obj3d/Line3DCommon.h"
 #include "../engine/3d/model/ModelCommon.h"
 #include "../engine/3d/model/ModelManager.h"
 #include "../engine/particle/ParticleCommon.h"
@@ -74,6 +75,7 @@ private:
     std::unique_ptr<SrvManager> srvManager_;
     std::unique_ptr<SpriteCommon> spriteCommon_;
     std::unique_ptr<Object3dCommon> object3dCommon_;
+    std::unique_ptr<Line3DCommon> line3dCommon_;
     std::unique_ptr<Object3d> object3d_;
     std::unique_ptr<ModelCommon> modelCommon_;
     std::unique_ptr<Camera> camera_;

@@ -100,6 +100,7 @@ public:
 	void SetAnimation(const Animation& animation) { animation_ = animation; }
 	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
 	void ResetAnimationTime() { animationTime_ = 0.0f; }
+	void ResetSkeletonPose(); // Skeletonをモデル読み込み時の姿勢に戻す
 	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
 
 	const Skeleton& GetSkeleton() const { return skeleton_; } // Skeleton を参照する

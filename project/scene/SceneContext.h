@@ -6,6 +6,7 @@ class DirectXCommon;
 class SrvManager;
 class SpriteCommon;
 class Object3dCommon;
+class Line3DCommon;
 class ModelCommon;
 class ParticleCommon;
 class Camera;
@@ -18,6 +19,7 @@ struct SceneContext {
     SrvManager* srvManager = nullptr;
     SpriteCommon* spriteCommon = nullptr;
     Object3dCommon* object3dCommon = nullptr;
+    Line3DCommon* line3dCommon = nullptr;
     ModelCommon* modelCommon = nullptr;
     ParticleCommon* particleCommon = nullptr;
     Camera* camera = nullptr;
