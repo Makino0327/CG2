@@ -30,6 +30,10 @@ void Game::Initialize() {
     object3dCommon_ = std::make_unique<Object3dCommon>();
     object3dCommon_->Initialize(dxCommon_.get(), srvManager_.get());
 
+    // 骨のデバッグ表示で使う線描画の共通設定を初期化する
+    line3dCommon_ = std::make_unique<Line3DCommon>();
+    line3dCommon_->Initialize(dxCommon_.get(), srvManager_.get());
+
 
     // ★ カメラ生成 & デフォルトカメラに設定
     camera_ = std::make_unique<Camera>();
@@ -87,6 +91,7 @@ void Game::Initialize() {
     context.srvManager = srvManager_.get();
     context.spriteCommon = spriteCommon_.get();
     context.object3dCommon = object3dCommon_.get();
+    context.line3dCommon = line3dCommon_.get();
     context.modelCommon = modelCommon_.get();
     context.particleCommon = particleCommon_.get();
     context.camera = camera_.get();
@@ -210,6 +215,7 @@ void Game::Finalize() {
     particleCommon_.reset();
     modelCommon_.reset();
     object3d_.reset();
+    line3dCommon_.reset();
     object3dCommon_.reset();
     spriteCommon_.reset();
     input_.reset();
