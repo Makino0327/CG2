@@ -55,6 +55,18 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
     ModelManager::GetInstance()->LoadModel("cube.obj");
+    // AnimatedCube の glTF モデルを読み込む
+    ModelManager::GetInstance()->LoadModel("AnimatedCube/AnimatedCube.gltf");
+
+    // AnimatedCube をゲーム画面に表示する
+    object3d_->SetModel("AnimatedCube/AnimatedCube.gltf");
+    // AnimatedCube のアニメーションを読み込んで再生する
+    object3d_->SetAnimation(LoadAnimationFile("Resources", "AnimatedCube/AnimatedCube.gltf"));
+    object3d_->SetAnimationNodeName("AnimatedCube");
+    object3d_->SetIsAnimationPlaying(true);
+    // カメラから見える位置と大きさにする
+    object3d_->SetTranslate({ 0.0f, 0.0f, 0.0f });
+    object3d_->SetScale({ 1.0f, 1.0f, 1.0f });
 
     // テクスチャ
     auto texMan = TextureManager::GetInstance();
@@ -109,6 +121,14 @@ void GamePlayScene::Update()
     // Particleを毎フレーム更新する
     if (particleSystem_) { particleSystem_->Update(dt); }
 
+    // AnimatedCube を毎フレーム回転させる
+    if (object3d_) {
+        Vector3 rotate = object3d_->GetRotate();
+        rotate.y += 0.02f;
+        object3d_->SetRotate(rotate);
+        object3d_->Update();
+    }
+
        // デバッグ用のカメラ操作を更新する
     if (debugCamera_ && context_.isDebugMode) {
         debugCamera_->Update(
@@ -140,7 +160,9 @@ void GamePlayScene::Draw()
         skybox_->Draw();
     }
 
-
+    // 3D オブジェクトを描画する
+    context_.object3dCommon->CommonDrawSetting();
+    if (object3d_) { object3d_->Draw(); }
 
     // Particle
     context_.particleCommon->CommonDrawSetting();
