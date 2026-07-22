@@ -74,6 +74,8 @@ public:
 	void SetScale(const Vector3& scale) { transform.scale = scale; }
 	void SetRotate(const Vector3& rotate) { transform.rotate = rotate; }
 	void SetTranslate(const Vector3& translate) { transform.translate = translate; }
+	void SetWorldMatrix(const Matrix4x4& worldMatrix);
+	void ClearWorldMatrix() { useCustomWorldMatrix_ = false; }
 	void SetCamera(Camera* camera) { camera_ = camera; }	
 
 	// ----- getter -----
@@ -168,6 +170,8 @@ private:
 	std::string environmentTextureFilePath_ = "Resources/skybox.dds";
 
 	Matrix4x4 viewProjectionMatrix_{};
+	Matrix4x4 customWorldMatrix_{};
+	bool useCustomWorldMatrix_ = false;
 
 	// アニメーション関連
 	Animation animation_;

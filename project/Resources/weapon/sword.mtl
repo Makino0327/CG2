@@ -1,0 +1,8 @@
+newmtl Blade
+Kd 0.80 0.86 0.92
+
+newmtl Guard
+Kd 0.95 0.72 0.25
+
+newmtl Handle
+Kd 0.22 0.12 0.07

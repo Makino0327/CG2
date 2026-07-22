@@ -45,6 +45,36 @@ private:
 
     // ===== シーン固有（GamePlaySceneが所有）=====
     std::unique_ptr<Object3d> object3d_;
+    std::unique_ptr<Object3d> humanObject_;
+    std::unique_ptr<Object3d> weaponObject_;
+    std::unique_ptr<Object3d> multiMeshObject_;
+    std::unique_ptr<Object3d> multiMaterialObject_;
+    Animation humanAnimation_;
+    bool showMultiMeshMaterialDemo_ = true;
+    bool showHumanObject_ = true;
+    bool emitHandParticles_ = true;
+    bool emitLeftHandParticles_ = true;
+    bool emitRightHandParticles_ = true;
+    bool showWeaponObject_ = true;
+    float handParticleInterval_ = 0.05f;
+    float handParticleTimer_ = 0.0f;
+    Vector3 leftHandPosition_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 rightHandPosition_ = { 0.0f, 0.0f, 0.0f };
+    Matrix4x4 rightHandWorldMatrix_{};
+    Vector3 weaponOffset_ = { 0.0f, 0.0f, 0.0f };
+    Vector3 weaponRotate_ = { 0.0f, 0.0f, 1.570796f };
+    Vector3 weaponScale_ = { 0.18f, 0.18f, 0.18f };
+    bool leftHandFound_ = false;
+    bool rightHandFound_ = false;
+    bool attachWeaponToHand_ = true;
+    bool reverseWeaponMatrixOrder_ = false;
+
+    bool GetJointWorldPosition(const std::string& jointName, Vector3& worldPosition) const;
+    bool GetJointWorldMatrix(const std::string& jointName, Matrix4x4& worldMatrix) const;
+    bool GetGripSocketWorldMatrix(Matrix4x4& worldMatrix) const;
+    void UpdateHandJointPositions();
+    void UpdateWeaponTransform();
+    void EmitHandParticles(float deltaTime);
 
     std::unique_ptr<SkyboxCommon> skyboxCommon_;
     std::unique_ptr<Skybox> skybox_;

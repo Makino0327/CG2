@@ -490,6 +490,51 @@ namespace {
 		};
 	}
 
+	std::map<std::string, MaterialData> LoadMaterialMap(const std::string& directoryPath, const std::string& mtlFileName)
+	{
+		std::map<std::string, MaterialData> materials;
+		std::ifstream file(directoryPath + "/" + mtlFileName);
+		if (!file.is_open()) {
+			return materials;
+		}
+
+		std::string currentName;
+		MaterialData currentMaterial;
+		currentMaterial.textureFilePath = "Resources/white1x1.png";
+		currentMaterial.baseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+		std::string line;
+		while (std::getline(file, line)) {
+			std::istringstream s(line);
+			std::string id;
+			s >> id;
+
+			if (id == "newmtl") {
+				if (!currentName.empty()) {
+					materials[currentName] = currentMaterial;
+				}
+
+				s >> currentName;
+				currentMaterial = MaterialData{};
+				currentMaterial.textureFilePath = "Resources/white1x1.png";
+				currentMaterial.baseColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+			} else if (id == "Kd") {
+				// MTLの拡散色をmeshごとのベースカラーとして使う
+				s >> currentMaterial.baseColor.x >> currentMaterial.baseColor.y >> currentMaterial.baseColor.z;
+				currentMaterial.baseColor.w = 1.0f;
+			} else if (id == "map_Kd") {
+				std::string textureName;
+				s >> textureName;
+				currentMaterial.textureFilePath = directoryPath + "/" + textureName;
+			}
+		}
+
+		if (!currentName.empty()) {
+			materials[currentName] = currentMaterial;
+		}
+
+		return materials;
+	}
 }
 
 void Model::Initialize(ModelCommon* modelCommon,
@@ -616,12 +661,18 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 		}
 	}
 
+	std::map<std::string, MaterialData> materialMap;
 	if (!mtlFileName.empty()) {
 		Object3d::LoadMaterialTemplateFile(
 			modelDirectoryPath,
 			mtlFileName,
 			modelData.material);
 
+		// OBJのusemtlに対応するため、MTL内の全materialを名前付きで保持する
+		materialMap = LoadMaterialMap(modelDirectoryPath, mtlFileName);
+		if (!materialMap.empty()) {
+			modelData.material = materialMap.begin()->second;
+		}
 	}
 
 	std::vector<Vector4> positions;
@@ -646,6 +697,37 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 
 	MeshData currentMesh;
 	currentMesh.name = "Default";
+	currentMesh.material = modelData.material;
+	std::string currentMaterialName;
+
+	auto applyCurrentMaterial = [&]() {
+		if (!currentMaterialName.empty()) {
+			auto materialIt = materialMap.find(currentMaterialName);
+			if (materialIt != materialMap.end()) {
+				currentMesh.material = materialIt->second;
+				return;
+			}
+		}
+
+		currentMesh.material = modelData.material;
+	};
+
+	auto flushCurrentMesh = [&]() {
+		if (currentMesh.vertices.empty()) {
+			return;
+		}
+
+		// meshごとに独立したindexを作って、あとでmesh単位で描画できるようにする
+		currentMesh.indices.resize(currentMesh.vertices.size());
+		for (uint32_t index = 0; index < currentMesh.indices.size(); ++index) {
+			currentMesh.indices[index] = index;
+		}
+
+		modelData.meshes.push_back(currentMesh);
+		currentMesh = MeshData();
+		currentMesh.name = "Default";
+		applyCurrentMaterial();
+	};
 
 	while (std::getline(file, line)) {
 		std::string identifier;
@@ -704,37 +786,22 @@ ModelData Model::LoadObjFile(const std::string& directoryPath, const std::string
 			currentMesh.vertices.push_back(triangle[2]);
 			currentMesh.vertices.push_back(triangle[1]);
 			currentMesh.vertices.push_back(triangle[0]);
+		} else if (identifier == "usemtl") {
+			flushCurrentMesh();
+			s >> currentMaterialName;
+			applyCurrentMaterial();
 		} else if (identifier == "o" || identifier == "g") {
-			if (!currentMesh.vertices.empty()) {
-				// ひとまず頂点数ぶんの連番 index を作る
-				currentMesh.indices.resize(currentMesh.vertices.size());
-
-				for (uint32_t index = 0; index < currentMesh.indices.size(); ++index) {
-					// 0, 1, 2, 3 ... の順で index を入れる
-					currentMesh.indices[index] = index;
-				}
-
-				modelData.meshes.push_back(currentMesh);
-				currentMesh = MeshData();
-			}
+			flushCurrentMesh();
 
 			std::string meshName;
 			s >> meshName;
 			currentMesh.name = meshName;
+			applyCurrentMaterial();
 		}
 	}
 
-	if (!currentMesh.vertices.empty()) {
-		// 最後の mesh に対しても連番 index を作る
-		currentMesh.indices.resize(currentMesh.vertices.size());
+	flushCurrentMesh();
 
-		for (uint32_t index = 0; index < currentMesh.indices.size(); ++index) {
-			// 0, 1, 2, 3 ... の順で index を入れる
-			currentMesh.indices[index] = index;
-		}
-
-		modelData.meshes.push_back(currentMesh);
-	}
 
 	return modelData;
 }

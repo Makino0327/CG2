@@ -27,8 +27,24 @@ void Player::Update()
     prevPos_ = pos;
 
     // ==== 左右移動 ====
-    if (input_->PushKey(DIK_A)) { pos.x -= moveSpeed_; }
-    if (input_->PushKey(DIK_D)) { pos.x += moveSpeed_; }
+    // 左右入力を先に保存して、移動と向きの両方に使う
+    const bool moveLeft = input_->PushKey(DIK_A);
+    const bool moveRight = input_->PushKey(DIK_D);
+
+    // ==== 左右移動 ====
+    if (moveLeft) { pos.x -= moveSpeed_; }
+    if (moveRight) { pos.x += moveSpeed_; }
+
+    // プレイヤーの正面を移動方向へ向ける
+    if (moveLeft && !moveRight) {
+        Vector3 rotate = object_->GetRotate();
+        rotate.y = 1.570796f;
+        object_->SetRotate(rotate);
+    } else if (moveRight && !moveLeft) {
+        Vector3 rotate = object_->GetRotate();
+        rotate.y = -1.570796f;
+        object_->SetRotate(rotate);
+    }
 
     // ==== ジャンプ ====
     if (onGround_ && input_->TriggerKey(DIK_SPACE)) {

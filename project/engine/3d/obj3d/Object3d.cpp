@@ -25,9 +25,15 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
     InitializeMaterial();
     SetEnvironmentTexture(environmentTextureFilePath_);
     InitializeSkinningInformation();
-
 }
 
+
+void Object3d::SetWorldMatrix(const Matrix4x4& worldMatrix)
+{
+    // 武器などをJointに親子付けするとき、計算済みのWorld行列を使う
+    customWorldMatrix_ = worldMatrix;
+    useCustomWorldMatrix_ = true;
+}
 void Object3d::Update()
 {
     assert(transformationMatrixData_);
@@ -36,7 +42,7 @@ void Object3d::Update()
     bool hasAnimationRotate = false;
 
     if (isAnimationPlaying_ && animation_.duration > 0.0f) {
-        // ひとまず 60fps 前提で時刻を進める
+        // ひとまず60fps前提で時間を進める
         animationTime_ += 1.0f / 60.0f;
 
         // 最後まで行ったら先頭に戻してループ再生する
@@ -44,30 +50,30 @@ void Object3d::Update()
     }
 
     if (hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
-        // Skeleton に animation を適用する
+        // Skeletonにanimationを適用する
         ApplyAnimation(skeleton_, animation_, animationTime_);
     }
 
     if (!hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
         auto it = animation_.nodeAnimations.find(animationNodeName_);
 
-        // 指定した node 名の Animation があるときだけ再生する
+        // 指定したnode名のAnimationがあるときだけ再生する
         if (it != animation_.nodeAnimations.end()) {
             const NodeAnimation& nodeAnimation = it->second;
 
-            // translate のキーがあれば現在時刻の値を反映する
+            // translateのキーがあれば現在時刻の値を反映する
             if (!nodeAnimation.translate.keyframes.empty()) {
                 transform.translate =
                     CalculateValue(nodeAnimation.translate.keyframes, animationTime_);
             }
 
-            // scale のキーがあれば現在時刻の値を反映する
+            // scaleのキーがあれば現在時刻の値を反映する
             if (!nodeAnimation.scale.keyframes.empty()) {
                 transform.scale =
                     CalculateValue(nodeAnimation.scale.keyframes, animationTime_);
             }
 
-            // rotate のキーがあれば現在時刻の値を取得する
+            // rotateのキーがあれば現在時刻の値を取得する
             if (!nodeAnimation.rotate.keyframes.empty()) {
                 animationRotate =
                     CalculateValue(nodeAnimation.rotate.keyframes, animationTime_);
@@ -77,29 +83,32 @@ void Object3d::Update()
     }
 
     if (hasSkeleton_) {
-        // animation 適用後の transform から Skeleton 行列を更新する
+        // animation適用後のtransformからSkeleton行列を更新する
         UpdateSkeleton(skeleton_);
     }
 
     if (hasSkinCluster_) {
-        // 現在の Skeleton 状態から SkinCluster を更新する
+        // 現在のSkeleton状態からSkinClusterを更新する
         UpdateSkinCluster(skinCluster_, skeleton_);
         ApplySkinningCompute();
-
     }
-
 
     Matrix4x4 worldMatrix;
 
-
     if (hasAnimationRotate) {
-        // アニメーション回転があるときは Quaternion 版を使う
+        // アニメーション回転があるときはQuaternion版を使う
         worldMatrix =
             MakeAffineMatrix(transform.scale, animationRotate, transform.translate);
     } else {
-        // これまで通り Euler 角版を使う
+        // 通常はEuler角でWorld行列を作る
         worldMatrix =
             MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+    }
+
+
+    if (useCustomWorldMatrix_) {
+        // World行列が直接指定されている場合は、通常のTRSより優先する
+        worldMatrix = customWorldMatrix_;
     }
 
     Matrix4x4 worldViewProjectionMatrix;
@@ -121,7 +130,6 @@ void Object3d::Update()
         cameraData_->padding = 0.0f;
     }
 }
-
 void Object3d::Draw()
 {
     assert(object3dCommon_);
