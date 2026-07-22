@@ -44,7 +44,10 @@ public:
 private:
 
     // ===== シーン固有（GamePlaySceneが所有）=====
-    std::unique_ptr<Object3d> object3d_;
+    std::unique_ptr<Object3d> walkHuman_;
+    std::unique_ptr<Object3d> sneakHuman_;
+    std::unique_ptr<DebugSkeletonRenderer> walkSkeletonRenderer_;
+    std::unique_ptr<DebugSkeletonRenderer> sneakSkeletonRenderer_;
 
     std::unique_ptr<SkyboxCommon> skyboxCommon_;
     std::unique_ptr<Skybox> skybox_;
