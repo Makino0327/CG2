@@ -1,4 +1,4 @@
-static const uint kMaxParticles = 1024;
+static const uint kMaxParticles = 10000;
 
 struct Particle
 {

@@ -1,4 +1,4 @@
-static const uint kMaxParticles = 1024;
+static const uint kMaxParticles = 10000;
 
 struct Particle
 {
@@ -99,36 +99,42 @@ void main(uint3 DTid : SV_DispatchThreadID)
                 (float) countIndex * 0.23f
             );
 
-            // 位置用乱数
-            float3 randomPos = rand3dTo3d(localSeed);
-            randomPos = randomPos * 2.0f - 1.0f;
+            // 中心から外側へ飛ばすための方向を作る
+            float3 randomDirection = rand3dTo3d(localSeed) * 2.0f - 1.0f;
+            if (length(randomDirection) < 0.001f)
+            {
+                randomDirection = float3(0.0f, 1.0f, 0.0f);
+            }
+            randomDirection = normalize(randomDirection);
 
-            // 速度用乱数
-            float3 randomVelocity = rand3dTo3d(randomPos + 1.234f);
-            randomVelocity = randomVelocity * 2.0f - 1.0f;
+            // 発生位置は中心の近くに小さく散らす
+            float spawnRadius = rand1dTo1d(localSeed.x + 3.456f) * gEmitter.radius;
+            float3 spawnOffset = randomDirection * spawnRadius;
 
-            // 色用乱数
-            float3 randomColor = rand3dTo3d(randomVelocity + 2.345f);
+            // 外側へ広がる速度に少しだけ強弱を付ける
+            float speed = 1.2f + rand1dTo1d(localSeed.y + 4.567f) * 1.8f;
+            float3 randomVelocity = randomDirection * speed;
 
-            // scale用乱数
-            float randomScale = 0.1f + rand1dTo1d(localSeed.x + 3.456f) * 0.4f;
+            // 少しだけ上に浮くようにする
+            randomVelocity.y += 0.25f;
 
-            // lifeTime用乱数
-            float randomLifeTime = 0.5f + rand1dTo1d(localSeed.y + 4.567f) * 1.5f;
+            // サイズと寿命は控えめにする
+            float randomScale = 0.06f + rand1dTo1d(localSeed.z + 5.678f) * 0.12f;
+            float randomLifeTime = 1.0f + rand1dTo1d(localSeed.y + 6.789f) * 1.0f;
 
-            // 発生位置を半径内でずらす
-            float3 spawnOffset = randomPos * gEmitter.radius;
+            // 中心から外へ出るのが見やすい暖色にする
+            float3 randomColor = lerp(
+                float3(1.0f, 0.45f, 0.12f),
+                float3(1.0f, 0.95f, 0.35f),
+                rand1dTo1d(localSeed.x + 7.890f));
 
-            // 少し上方向に飛びやすくする
-            randomVelocity.y = abs(randomVelocity.y) + 0.5f;
-
-            // Particleを初期化する
+            // Particle を初期化する
             gParticles[particleIndex].translate = gEmitter.translate + spawnOffset;
             gParticles[particleIndex].scale = float3(randomScale, randomScale, randomScale);
             gParticles[particleIndex].lifeTime = randomLifeTime;
             gParticles[particleIndex].velocity = randomVelocity;
             gParticles[particleIndex].currentTime = 0.0f;
-            gParticles[particleIndex].color = float4(randomColor, 1.0f);
+            gParticles[particleIndex].color = float4(randomColor, 0.9f);
         }
         else
         {

@@ -158,6 +158,14 @@ public:
     // // 描画形状を切り替える
     void SetMeshType(EffectMeshType type);
 
+    // GPU パーティクルの発生量と範囲をまとめて設定する
+    void SetGPUParticleEmitter(
+        const Vector3& position,
+        float radius,
+        uint32_t count,
+        float frequency,
+        bool isEmitting);
+
 
 private:
     // インスタンス数と SRV 関連

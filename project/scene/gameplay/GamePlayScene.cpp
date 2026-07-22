@@ -56,6 +56,8 @@ void GamePlayScene::Initialize()
     // human の歩きモデルとしゃがみ歩きモデルを読み込む
     ModelManager::GetInstance()->LoadModel("human/walk.gltf");
     ModelManager::GetInstance()->LoadModel("human/sneakWalk.gltf");
+    // GPU パーティクル描画用の板ポリモデルを読み込む
+    ModelManager::GetInstance()->LoadModel("plane.obj");
 
     // 歩きアニメーションの human を左側に配置する
     walkHuman_ = std::make_unique<Object3d>();
@@ -95,6 +97,23 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/Cube.png");
     texMan->LoadTexture("Resources/skybox.dds");
     texMan->LoadTexture("Resources/gradationLine.png");
+
+    // GPU パーティクルを初期化して大量に発生させる
+    particleSystem_ = std::make_unique<ParticleSystem>();
+    particleSystem_->Initialize(
+        context_.dxCommon,
+        context_.particleCommon,
+        context_.camera,
+        context_.srvManager,
+        ParticleType::Explosion);
+    particleSystem_->SetBlendMode(ParticleBlendMode::Additive);
+    particleSystem_->SetMeshType(EffectMeshType::Plane);
+    particleSystem_->SetGPUParticleEmitter(
+        { 0.0f, 0.8f, 0.0f },
+        0.12f,
+        24,
+        0.04f,
+        true);
 
     // マテリアル用の定数バッファを作る
     materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));

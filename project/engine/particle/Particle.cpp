@@ -682,6 +682,37 @@ void ParticleSystem::ShowImGui(const char* windowName)
 }
 
 
+void ParticleSystem::SetGPUParticleEmitter(
+    const Vector3& position,
+    float radius,
+    uint32_t count,
+    float frequency,
+    bool isEmitting)
+{
+    // GPU エミッターの位置を設定する
+    emitterPosition_ = position;
+    emitterSphere_.translate = position;
+
+    // 負の半径にならないようにする
+    emitterSphere_.radius = radius < 0.0f ? 0.0f : radius;
+
+    // GPU バッファの最大数を超えないように発生数を制限する
+    if (count > kNumInstance) {
+        count = kNumInstance;
+    }
+    emitterSphere_.count = count;
+
+    // 0 秒以下の間隔にならないようにする
+    emitterSphere_.frequency = frequency < 0.001f ? 0.001f : frequency;
+    emitterSphere_.frequencyTime = 0.0f;
+    emitterSphere_.emit = 0;
+    isEmitting_ = isEmitting;
+
+    // すでに ConstantBuffer がある場合は即座に GPU 側へ反映する
+    if (emitterData_) {
+        *emitterData_ = emitterSphere_;
+    }
+}
 void ParticleSystem::SetMeshType(EffectMeshType type)
 {
     // // 新しい形状を保存する
