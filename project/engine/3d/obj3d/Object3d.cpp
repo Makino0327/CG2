@@ -7,6 +7,55 @@
 #include "../../../externals/imgui/imgui.h"
 #endif
 
+namespace {
+float Clamp01(float value)
+{
+    if (value < 0.0f) {
+        return 0.0f;
+    }
+    if (value > 1.0f) {
+        return 1.0f;
+    }
+    return value;
+}
+
+float WrapAnimationTime(float time, float duration)
+{
+    if (duration <= 0.0f) {
+        return 0.0f;
+    }
+
+    float wrappedTime = std::fmod(time, duration);
+    if (wrappedTime < 0.0f) {
+        wrappedTime += duration;
+    }
+    return wrappedTime;
+}
+
+QuaternionTransform SampleJointTransform(const Joint& joint, const Animation& animation, float animationTime)
+{
+    QuaternionTransform transform = joint.transform;
+
+    auto it = animation.nodeAnimations.find(joint.name);
+    if (it == animation.nodeAnimations.end()) {
+        return transform;
+    }
+
+    const NodeAnimation& nodeAnimation = it->second;
+
+    if (!nodeAnimation.translate.keyframes.empty()) {
+        transform.translate = CalculateValue(nodeAnimation.translate.keyframes, animationTime);
+    }
+    if (!nodeAnimation.rotate.keyframes.empty()) {
+        transform.rotate = CalculateValue(nodeAnimation.rotate.keyframes, animationTime);
+    }
+    if (!nodeAnimation.scale.keyframes.empty()) {
+        transform.scale = CalculateValue(nodeAnimation.scale.keyframes, animationTime);
+    }
+
+    return transform;
+}
+}
 // Shared light intensity for all Object3d instances.
 float Object3d::lightIntensity_ = 0.5f;
 
@@ -30,9 +79,52 @@ void Object3d::Initialize(Object3dCommon* object3dCommon)
 
 void Object3d::SetWorldMatrix(const Matrix4x4& worldMatrix)
 {
-    // 武器などをJointに親子付けするとき、計算済みのWorld行列を使う
+    // 豁ｦ蝎ｨ縺ｪ縺ｩ繧谷oint縺ｫ隕ｪ蟄蝉ｻ倥￠縺吶ｋ縺ｨ縺阪∬ｨ育ｮ玲ｸ医∩縺ｮWorld陦悟・繧剃ｽｿ縺・
     customWorldMatrix_ = worldMatrix;
     useCustomWorldMatrix_ = true;
+}
+void Object3d::ApplyAnimationPose(float animationTime)
+{
+    if (animation_.duration <= 0.0f || animation_.nodeAnimations.empty()) {
+        return;
+    }
+
+    // ImGui縺ｮ陬憺俣遒ｺ隱咲畑縺ｫ縲∵欠螳壹＠縺滓凾蛻ｻ縺ｮ繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ蟋ｿ蜍｢繧貞叉蠎ｧ縺ｫ蜿肴丐縺吶ｋ
+    if (animationTime < 0.0f) {
+        animationTime = 0.0f;
+    }
+    animationTime_ = std::fmod(animationTime, animation_.duration);
+
+    if (hasSkeleton_) {
+        ApplyAnimation(skeleton_, animation_, animationTime_);
+        UpdateSkeleton(skeleton_);
+    }
+}
+void Object3d::ApplyAnimationBlendPose(const Animation& fromAnimation, float fromTime, const Animation& toAnimation, float toTime, float blendRate)
+{
+    if (!hasSkeleton_) {
+        return;
+    }
+    if (fromAnimation.nodeAnimations.empty() || toAnimation.nodeAnimations.empty()) {
+        return;
+    }
+
+    const float t = Clamp01(blendRate);
+    const float fromWrappedTime = WrapAnimationTime(fromTime, fromAnimation.duration);
+    const float toWrappedTime = WrapAnimationTime(toTime, toAnimation.duration);
+
+    // 2つのアニメーション姿勢をJointごとに混ぜて、切り替え時の急なジャンプを防ぐ
+    for (Joint& joint : skeleton_.joints) {
+        QuaternionTransform fromTransform = SampleJointTransform(joint, fromAnimation, fromWrappedTime);
+        QuaternionTransform toTransform = SampleJointTransform(joint, toAnimation, toWrappedTime);
+
+        joint.transform.translate = Lerp(fromTransform.translate, toTransform.translate, t);
+        joint.transform.rotate = Slerp(fromTransform.rotate, toTransform.rotate, t);
+        joint.transform.scale = Lerp(fromTransform.scale, toTransform.scale, t);
+    }
+
+    animationTime_ = toWrappedTime;
+    UpdateSkeleton(skeleton_);
 }
 void Object3d::Update()
 {
@@ -42,38 +134,38 @@ void Object3d::Update()
     bool hasAnimationRotate = false;
 
     if (isAnimationPlaying_ && animation_.duration > 0.0f) {
-        // ひとまず60fps前提で時間を進める
+        // 縺ｲ縺ｨ縺ｾ縺・0fps蜑肴署縺ｧ譎る俣繧帝ｲ繧√ｋ
         animationTime_ += 1.0f / 60.0f;
 
-        // 最後まで行ったら先頭に戻してループ再生する
+        // 譛蠕後∪縺ｧ陦後▲縺溘ｉ蜈磯ｭ縺ｫ謌ｻ縺励※繝ｫ繝ｼ繝怜・逕溘☆繧・
         animationTime_ = std::fmod(animationTime_, animation_.duration);
     }
 
     if (hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
-        // Skeletonにanimationを適用する
+        // Skeleton縺ｫanimation繧帝←逕ｨ縺吶ｋ
         ApplyAnimation(skeleton_, animation_, animationTime_);
     }
 
     if (!hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
         auto it = animation_.nodeAnimations.find(animationNodeName_);
 
-        // 指定したnode名のAnimationがあるときだけ再生する
+        // 謖・ｮ壹＠縺殤ode蜷阪・Animation縺後≠繧九→縺阪□縺大・逕溘☆繧・
         if (it != animation_.nodeAnimations.end()) {
             const NodeAnimation& nodeAnimation = it->second;
 
-            // translateのキーがあれば現在時刻の値を反映する
+            // translate縺ｮ繧ｭ繝ｼ縺後≠繧後・迴ｾ蝨ｨ譎ょ綾縺ｮ蛟､繧貞渚譏縺吶ｋ
             if (!nodeAnimation.translate.keyframes.empty()) {
                 transform.translate =
                     CalculateValue(nodeAnimation.translate.keyframes, animationTime_);
             }
 
-            // scaleのキーがあれば現在時刻の値を反映する
+            // scale縺ｮ繧ｭ繝ｼ縺後≠繧後・迴ｾ蝨ｨ譎ょ綾縺ｮ蛟､繧貞渚譏縺吶ｋ
             if (!nodeAnimation.scale.keyframes.empty()) {
                 transform.scale =
                     CalculateValue(nodeAnimation.scale.keyframes, animationTime_);
             }
 
-            // rotateのキーがあれば現在時刻の値を取得する
+            // rotate縺ｮ繧ｭ繝ｼ縺後≠繧後・迴ｾ蝨ｨ譎ょ綾縺ｮ蛟､繧貞叙蠕励☆繧・
             if (!nodeAnimation.rotate.keyframes.empty()) {
                 animationRotate =
                     CalculateValue(nodeAnimation.rotate.keyframes, animationTime_);
@@ -83,12 +175,12 @@ void Object3d::Update()
     }
 
     if (hasSkeleton_) {
-        // animation適用後のtransformからSkeleton行列を更新する
+        // animation驕ｩ逕ｨ蠕後・transform縺九ｉSkeleton陦悟・繧呈峩譁ｰ縺吶ｋ
         UpdateSkeleton(skeleton_);
     }
 
     if (hasSkinCluster_) {
-        // 現在のSkeleton状態からSkinClusterを更新する
+        // 迴ｾ蝨ｨ縺ｮSkeleton迥ｶ諷九°繧唄kinCluster繧呈峩譁ｰ縺吶ｋ
         UpdateSkinCluster(skinCluster_, skeleton_);
         ApplySkinningCompute();
     }
@@ -96,18 +188,18 @@ void Object3d::Update()
     Matrix4x4 worldMatrix;
 
     if (hasAnimationRotate) {
-        // アニメーション回転があるときはQuaternion版を使う
+        // 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ蝗櫁ｻ｢縺後≠繧九→縺阪・Quaternion迚医ｒ菴ｿ縺・
         worldMatrix =
             MakeAffineMatrix(transform.scale, animationRotate, transform.translate);
     } else {
-        // 通常はEuler角でWorld行列を作る
+        // 騾壼ｸｸ縺ｯEuler隗偵〒World陦悟・繧剃ｽ懊ｋ
         worldMatrix =
             MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
     }
 
 
     if (useCustomWorldMatrix_) {
-        // World行列が直接指定されている場合は、通常のTRSより優先する
+        // World陦悟・縺檎峩謗･謖・ｮ壹＆繧後※縺・ｋ蝣ｴ蜷医・縲・壼ｸｸ縺ｮTRS繧医ｊ蜆ｪ蜈医☆繧・
         worldMatrix = customWorldMatrix_;
     }
 
@@ -149,30 +241,30 @@ void Object3d::Draw()
         2, transformationMatrixResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
-    // このオブジェクト専用のディゾルブ設定をb4へ渡す
+    // 縺薙・繧ｪ繝悶ず繧ｧ繧ｯ繝亥ｰら畑縺ｮ繝・ぅ繧ｾ繝ｫ繝冶ｨｭ螳壹ｒb4縺ｸ貂｡縺・
     commandList->SetGraphicsRootConstantBufferView(
         7, dissolveResource_->GetGPUVirtualAddress());
 
     if (model_) {
-        // モデルに設定されているテクスチャを t1 に設定する
+        // 繝｢繝・Ν縺ｫ險ｭ螳壹＆繧後※縺・ｋ繝・け繧ｹ繝√Ε繧・t1 縺ｫ險ｭ螳壹☆繧・
         commandList->SetGraphicsRootDescriptorTable(
             5,
             TextureManager::GetInstance()->GetSrvHandleGPU(
                 model_->GetModelData().material.textureFilePath));
     }
 
-    // 環境マップを t2 に設定する
+    // 迺ｰ蠅・・繝・・繧・t2 縺ｫ險ｭ螳壹☆繧・
     commandList->SetGraphicsRootDescriptorTable(
         6,
         TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
         if (hasSkinCluster_) {
-            // Skinning 用の influence VBV も渡して描画する
+            // Skinning 逕ｨ縺ｮ influence VBV 繧よｸ｡縺励※謠冗判縺吶ｋ
             model_->DrawWithSkinnedVertexBuffer(skinCluster_.skinnedVertexBufferView, materialData_->color);
 
         } else {
-            // 通常描画を行う
+            // 騾壼ｸｸ謠冗判繧定｡後≧
             model_->Draw(materialData_->color);
         }
     }
@@ -259,14 +351,14 @@ void Object3d::SetModel(const std::string& filePath)
     if (model_) {
         const ModelData& modelData = model_->GetModelData();
 
-        // rootNode に名前や子が入っていれば Skeleton を作る
+        // rootNode 縺ｫ蜷榊燕繧・ｭ舌′蜈･縺｣縺ｦ縺・ｌ縺ｰ Skeleton 繧剃ｽ懊ｋ
         if (!modelData.rootNode.name.empty() || !modelData.rootNode.children.empty()) {
             skeleton_ = CreateSkeleton(modelData.rootNode);
             UpdateSkeleton(skeleton_);
             hasSkeleton_ = true;
         }
 
-        // Skeleton と skinClusterData の両方があるなら SkinCluster を作る
+        // Skeleton 縺ｨ skinClusterData 縺ｮ荳｡譁ｹ縺後≠繧九↑繧・SkinCluster 繧剃ｽ懊ｋ
         if (hasSkeleton_ && !modelData.skinClusterData.empty()) {
             skinCluster_ = CreateSkinCluster(
                 object3dCommon_->GetDxCommon(),
@@ -290,7 +382,7 @@ void Object3d::ResetSkeletonPose()
         return;
     }
 
-    // Skeletonをモデル読み込み時のTRSへ作り直してTポーズに戻す
+    // Skeleton繧偵Δ繝・Ν隱ｭ縺ｿ霎ｼ縺ｿ譎ゅ・TRS縺ｸ菴懊ｊ逶ｴ縺励※T繝昴・繧ｺ縺ｫ謌ｻ縺・
     skeleton_ = CreateSkeleton(modelData.rootNode);
     UpdateSkeleton(skeleton_);
     hasSkeleton_ = true;
@@ -317,7 +409,7 @@ void Object3d::InitializeMaterial()
     materialData_->environmentCoefficient = 0.0f;
     materialData_->uvTransform = MakeIdentity4x4();
 
-    // ディゾルブを使わない通常表示の状態で初期化する
+    // 繝・ぅ繧ｾ繝ｫ繝悶ｒ菴ｿ繧上↑縺・壼ｸｸ陦ｨ遉ｺ縺ｮ迥ｶ諷九〒蛻晄悄蛹悶☆繧・
     dissolveResource_ = dxCommon->CreateBufferResource(sizeof(DissolveData));
     dissolveResource_->Map(0, nullptr, reinterpret_cast<void**>(&dissolveData_));
     dissolveData_->threshold = 0.0f;
@@ -350,7 +442,7 @@ void Object3d::SetEnvironmentCoefficient(float coefficient)
 void Object3d::SetDissolveEnabled(bool enabled)
 {
     if (dissolveData_) {
-        // HLSL側で扱いやすいように真偽値を0か1で保存する
+        // HLSL蛛ｴ縺ｧ謇ｱ縺・ｄ縺吶＞繧医≧縺ｫ逵溷⊃蛟､繧・縺・縺ｧ菫晏ｭ倥☆繧・
         dissolveData_->isEnabled = enabled ? 1u : 0u;
     }
 }
@@ -358,7 +450,7 @@ void Object3d::SetDissolveEnabled(bool enabled)
 void Object3d::SetDissolveThreshold(float threshold)
 {
     if (dissolveData_) {
-        // 想定外の値で全体が消えないよう0.0fから1.0fへ制限する
+        // 諠ｳ螳壼､悶・蛟､縺ｧ蜈ｨ菴薙′豸医∴縺ｪ縺・ｈ縺・.0f縺九ｉ1.0f縺ｸ蛻ｶ髯舌☆繧・
         if (threshold < 0.0f) {
             threshold = 0.0f;
         } else if (threshold > 1.0f) {
@@ -371,7 +463,7 @@ void Object3d::SetDissolveThreshold(float threshold)
 void Object3d::SetDissolveEdgeWidth(float edgeWidth)
 {
     if (dissolveData_) {
-        // 境界幅が負にならないようにする
+        // 蠅・阜蟷・′雋縺ｫ縺ｪ繧峨↑縺・ｈ縺・↓縺吶ｋ
         dissolveData_->edgeWidth = edgeWidth < 0.0f ? 0.0f : edgeWidth;
     }
 }
@@ -379,7 +471,7 @@ void Object3d::SetDissolveEdgeWidth(float edgeWidth)
 void Object3d::SetDissolveEdgeColor(const Vector4& edgeColor)
 {
     if (dissolveData_) {
-        // ディゾルブ境界へ加算する色を保存する
+        // 繝・ぅ繧ｾ繝ｫ繝門｢・阜縺ｸ蜉邂励☆繧玖牡繧剃ｿ晏ｭ倥☆繧・
         dissolveData_->edgeColor = edgeColor;
     }
 }
@@ -403,33 +495,33 @@ void Object3d::DrawInstanced(UINT instanceCount)
         2, transformationMatrixResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(
         3, cameraResource_->GetGPUVirtualAddress());
-    // インスタンシング描画でも同じディゾルブ設定をb4へ渡す
+    // 繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｷ繝ｳ繧ｰ謠冗判縺ｧ繧ょ酔縺倥ョ繧｣繧ｾ繝ｫ繝冶ｨｭ螳壹ｒb4縺ｸ貂｡縺・
     commandList->SetGraphicsRootConstantBufferView(
         7, dissolveResource_->GetGPUVirtualAddress());
 
     if (model_) {
-        // モデルに設定されているテクスチャを t1 に設定する
+        // 繝｢繝・Ν縺ｫ險ｭ螳壹＆繧後※縺・ｋ繝・け繧ｹ繝√Ε繧・t1 縺ｫ險ｭ螳壹☆繧・
         commandList->SetGraphicsRootDescriptorTable(
             5,
             TextureManager::GetInstance()->GetSrvHandleGPU(
                 model_->GetModelData().material.textureFilePath));
     }
 
-    // 環境マップを t2 に設定する
+    // 迺ｰ蠅・・繝・・繧・t2 縺ｫ險ｭ螳壹☆繧・
     commandList->SetGraphicsRootDescriptorTable(
         6,
         TextureManager::GetInstance()->GetSrvHandleGPU(environmentTextureFilePath_));
 
     if (model_) {
         if (hasSkinCluster_) {
-            // Skinning 用の influence VBV も渡して描画する
+            // Skinning 逕ｨ縺ｮ influence VBV 繧よｸ｡縺励※謠冗判縺吶ｋ
             model_->DrawInstancedWithSkinnedVertexBuffer(
                 instanceCount,
                 skinCluster_.skinnedVertexBufferView,
                 materialData_->color);
 
         } else {
-            // 通常のインスタンシング描画を行う
+            // 騾壼ｸｸ縺ｮ繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｷ繝ｳ繧ｰ謠冗判繧定｡後≧
             model_->DrawInstanced(instanceCount, materialData_->color);
         }
     }
@@ -438,7 +530,7 @@ void Object3d::DrawInstanced(UINT instanceCount)
 
 
 
-// ComputeShader に渡す頂点数情報の定数バッファを初期化する
+// ComputeShader 縺ｫ貂｡縺咎らせ謨ｰ諠・ｱ縺ｮ螳壽焚繝舌ャ繝輔ぃ繧貞・譛溷喧縺吶ｋ
 void Object3d::InitializeSkinningInformation()
 {
     DirectXCommon* dxCommon = object3dCommon_->GetDxCommon();
@@ -457,7 +549,7 @@ void Object3d::InitializeSkinningInformation()
     skinningInformationData_->padding[2] = 0;
 }
 
-// ComputeShader でスキニングを実行する
+// ComputeShader 縺ｧ繧ｹ繧ｭ繝九Φ繧ｰ繧貞ｮ溯｡後☆繧・
 void Object3d::ApplySkinningCompute()
 {
     if (!hasSkinCluster_ || !model_) {
@@ -470,18 +562,18 @@ void Object3d::ApplySkinningCompute()
     const ModelData& modelData = model_->GetModelData();
     uint32_t vertexCount = GetSkinClusterVertexCount(modelData);
 
-    // 頂点が無い場合は ComputeShader を起動しない
+    // 鬆らせ縺檎┌縺・ｴ蜷医・ ComputeShader 繧定ｵｷ蜍輔＠縺ｪ縺・
     if (vertexCount == 0) {
         return;
     }
 
-    // ComputeShader に渡す頂点数を更新する
+    // ComputeShader 縺ｫ貂｡縺咎らせ謨ｰ繧呈峩譁ｰ縺吶ｋ
     skinningInformationData_->numVertices = vertexCount;
 
-    // ComputeShader 用の RootSignature と PSO を設定する
+    // ComputeShader 逕ｨ縺ｮ RootSignature 縺ｨ PSO 繧定ｨｭ螳壹☆繧・
     object3dCommon_->SkinningComputeSetting();
 
-    // UAV へ書き込む前に Compute 用状態へ遷移する
+    // UAV 縺ｸ譖ｸ縺崎ｾｼ繧蜑阪↓ Compute 逕ｨ迥ｶ諷九∈驕ｷ遘ｻ縺吶ｋ
     D3D12_RESOURCE_BARRIER barrierToUav{};
     barrierToUav.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrierToUav.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -491,7 +583,7 @@ void Object3d::ApplySkinningCompute()
     barrierToUav.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &barrierToUav);
 
-    // 現在の ResourceState を更新する
+    // 迴ｾ蝨ｨ縺ｮ ResourceState 繧呈峩譁ｰ縺吶ｋ
     skinCluster_.skinnedVertexCurrentState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 
 
@@ -522,18 +614,18 @@ void Object3d::ApplySkinningCompute()
         4,
         skinningInformationResource_->GetGPUVirtualAddress());
 
-    // 1024 thread ごとに切り上げて Dispatch する
+    // 1024 thread 縺斐→縺ｫ蛻・ｊ荳翫￡縺ｦ Dispatch 縺吶ｋ
     commandList->Dispatch((vertexCount + 255) / 256, 1, 1);
 
 
-    // UAV 書き込み完了を保証する
+    // UAV 譖ｸ縺崎ｾｼ縺ｿ螳御ｺ・ｒ菫晁ｨｼ縺吶ｋ
     D3D12_RESOURCE_BARRIER uavBarrier{};
     uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     uavBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
     uavBarrier.UAV.pResource = skinCluster_.skinnedVertexResource.Get();
     commandList->ResourceBarrier(1, &uavBarrier);
 
-    // 描画で読める状態へ戻す
+    // 謠冗判縺ｧ隱ｭ繧√ｋ迥ｶ諷九∈謌ｻ縺・
     D3D12_RESOURCE_BARRIER barrierToVertexAndConstantBuffer{};
     barrierToVertexAndConstantBuffer.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrierToVertexAndConstantBuffer.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -543,7 +635,7 @@ void Object3d::ApplySkinningCompute()
     barrierToVertexAndConstantBuffer.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &barrierToVertexAndConstantBuffer);
 
-    // 描画用の ResourceState へ戻したことを記録する
+    // 謠冗判逕ｨ縺ｮ ResourceState 縺ｸ謌ｻ縺励◆縺薙→繧定ｨ倬鹸縺吶ｋ
     skinCluster_.skinnedVertexCurrentState = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
 
 }

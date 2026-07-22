@@ -101,6 +101,13 @@ public:
 	// アニメーション関連
 	void SetAnimation(const Animation& animation) { animation_ = animation; }
 	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
+	void ApplyAnimationPose(float animationTime);
+	void ApplyAnimationBlendPose(const Animation& fromAnimation, float fromTime, const Animation& toAnimation, float toTime, float blendRate);
+	bool IsAnimationPlaying() const { return isAnimationPlaying_; }
+	float GetAnimationTime() const { return animationTime_; }
+	float GetAnimationDuration() const { return animation_.duration; }
+	void SetAnimationTime(float animationTime) { animationTime_ = animationTime; }
+	size_t GetAnimationNodeCount() const { return animation_.nodeAnimations.size(); }
 	void ResetAnimationTime() { animationTime_ = 0.0f; }
 	void ResetSkeletonPose(); // Skeletonをモデル読み込み時の姿勢に戻す
 	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
