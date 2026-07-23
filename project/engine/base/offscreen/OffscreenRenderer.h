@@ -3,6 +3,7 @@
 #include "../DirectX/DirectXCommon.h"
 #include "../srv/SrvManager.h"
 #include "../renderTexture/RenderTexture.h"
+#include <array>
 
 enum class PostEffectType {
     Copy,
@@ -29,6 +30,8 @@ public:
     // セッター
     void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
     PostEffectType GetPostEffectType() const { return postEffectType_; }
+    void SetPostEffectEnabled(PostEffectType type, bool enabled);
+    bool IsPostEffectEnabled(PostEffectType type) const;
 
     // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
@@ -130,6 +133,7 @@ private:
     SrvManager* srvManager_ = nullptr;
 
     std::unique_ptr<RenderTexture> renderTexture_;
+    std::unique_ptr<RenderTexture> workRenderTexture_; // 複数のポストエフェクトを順番にかけるための作業用テクスチャ
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 
@@ -154,6 +158,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> shockwavePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
+    std::array<bool, static_cast<size_t>(PostEffectType::DepthOutline) + 1> enabledPostEffects_{}; // 同時に有効化するポストエフェクト一覧
 
     uint32_t depthSrvIndex_ = 0; // // DepthTextureを読むためのSRV番号
     Microsoft::WRL::ComPtr<ID3D12Resource> outlineParameterResource_; // // Outline用定数バッファ

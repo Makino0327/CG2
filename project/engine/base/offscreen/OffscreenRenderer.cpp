@@ -20,6 +20,14 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
         WinApp::kClientHeight,
         DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         Vector4(1.0f, 0.0f, 0.0f, 1.0f));
+    workRenderTexture_ = std::make_unique<RenderTexture>();
+    workRenderTexture_->Initialize(
+        dxCommon_,
+        srvManager_,
+        WinApp::kClientWidth,
+        WinApp::kClientHeight,
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+        Vector4(0.0f, 0.0f, 0.0f, 1.0f)); // 複数ポストエフェクトの途中結果を書き込む
 
     depthSrvIndex_ = srvManager_->Allocate(); // DepthTexture逕ｨ縺ｮSRV逡ｪ蜿ｷ繧堤｢ｺ菫昴☆繧・
     srvManager_->CreateSRVForDepthTexture(
@@ -103,14 +111,38 @@ void OffscreenRenderer::PreDrawScene()
         srvManager_->GetDescriptorHeap());
 }
 
+void OffscreenRenderer::SetPostEffectEnabled(PostEffectType type, bool enabled)
+{
+    size_t index = static_cast<size_t>(type);
+    if (index >= enabledPostEffects_.size()) {
+        return;
+    }
+
+    if (type == PostEffectType::Copy) {
+        return; // Copyは何もしないエフェクトなので、複数指定の対象外にする
+    }
+
+    enabledPostEffects_[index] = enabled;
+}
+
+bool OffscreenRenderer::IsPostEffectEnabled(PostEffectType type) const
+{
+    size_t index = static_cast<size_t>(type);
+    if (index >= enabledPostEffects_.size()) {
+        return false;
+    }
+
+    return enabledPostEffects_[index];
+}
+
 void OffscreenRenderer::DrawToBackBuffer()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
     assert(commandList);
     assert(renderTexture_);
+    assert(workRenderTexture_);
 
-    ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource(); // // Outline縺ｧ隱ｭ繧DepthResource
-
+    ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource();
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTVHandle = dxCommon_->GetCurrentBackBufferRTVHandle();
 
     D3D12_VIEWPORT viewport{};
@@ -127,132 +159,151 @@ void OffscreenRenderer::DrawToBackBuffer()
     scissorRect.right = WinApp::kClientWidth;
     scissorRect.bottom = WinApp::kClientHeight;
 
-    if (postEffectType_ == PostEffectType::DepthOutline) {
-        D3D12_RESOURCE_BARRIER depthBarrier{};
-        depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        depthBarrier.Transition.pResource = depthResource;
-        depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        commandList->ResourceBarrier(1, &depthBarrier); // // Depth繧呈嶌縺崎ｾｼ縺ｿ逕ｨ縺九ｉ隱ｭ縺ｿ霎ｼ縺ｿ逕ｨ縺ｸ蛻・ｊ譖ｿ縺医ｋ
+    std::array<PostEffectType, static_cast<size_t>(PostEffectType::DepthOutline) + 1> activeEffects{};
+    size_t activeEffectCount = 0;
+
+    for (size_t index = 1; index < enabledPostEffects_.size(); ++index) {
+        if (enabledPostEffects_[index]) {
+            activeEffects[activeEffectCount] = static_cast<PostEffectType>(index);
+            ++activeEffectCount;
+        }
     }
 
-    // シーン描画先をRenderTargetからPixelShaderの読み込み用へ切り替える
-    D3D12_RESOURCE_BARRIER renderTextureToRead{};
-    renderTextureToRead.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    renderTextureToRead.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    renderTextureToRead.Transition.pResource = renderTexture_->GetResource();
-    renderTextureToRead.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    renderTextureToRead.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    renderTextureToRead.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &renderTextureToRead);
-
-    commandList->OMSetRenderTargets(1, &backBufferRTVHandle, FALSE, nullptr);
-    const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    commandList->ClearRenderTargetView(backBufferRTVHandle, clearColor, 0, nullptr);
-
-    commandList->RSSetViewports(1, &viewport);
-    commandList->RSSetScissorRects(1, &scissorRect);
-
-    commandList->SetGraphicsRootSignature(rootSignature_.Get());
-    switch (postEffectType_) {
-    case PostEffectType::Copy:
-        commandList->SetPipelineState(copyPipelineState_.Get());
-        break;
-
-    case PostEffectType::Grayscale:
-        commandList->SetPipelineState(grayscalePipelineState_.Get());
-        break;
-
-    case PostEffectType::Sepia:
-        commandList->SetPipelineState(sepiaPipelineState_.Get());
-        break;
-    case PostEffectType::Vignette:
-        commandList->SetPipelineState(vignettePipelineState_.Get());
-        break;
-    case PostEffectType::BoxFilter:
-        // 繝懊ャ繧ｯ繧ｹ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
-        commandList->SetPipelineState(boxFilterPipelineState_.Get());
-        break;
-    case PostEffectType::GaussianFilter:
-        // 繧ｬ繧ｦ繧ｷ繧｢繝ｳ繝輔ぅ繝ｫ繧ｿ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
-        commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
-        break;
-    case PostEffectType::DepthOutline:
-        commandList->SetPipelineState(depthOutlinePipelineState_.Get()); // Depth繝吶・繧ｹ縺ｮOutline繧剃ｽｿ縺・
-        break;
-
-    case PostEffectType::RadialBlur:
-        // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
-        commandList->SetPipelineState(radialBlurPipelineState_.Get());
-        break;
-    case PostEffectType::Dissolve:
-        // 繝・ぅ繧ｾ繝ｫ繝也畑縺ｮ繝代う繝励Λ繧､繝ｳ繧ｹ繝・・繝医ｒ險ｭ螳壹☆繧・
-        commandList->SetPipelineState(dissolvePipelineState_.Get());
-        break;
-    case PostEffectType::RandomNoise:
-        commandList->SetPipelineState(randomNoisePipelineState_.Get());
-        break;
-    case PostEffectType::Shockwave:
-        commandList->SetPipelineState(shockwavePipelineState_.Get());
-        break;
-
+    if (activeEffectCount == 0) {
+        activeEffects[activeEffectCount] = postEffectType_;
+        ++activeEffectCount; // チェックがない場合は今まで通り1つだけ適用する
     }
 
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
-    commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-    srvManager_->SetGraphicsRootDescriptorTable(0, renderTexture_->GetSRVIndex()); // t0
-    srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1
-
-    uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
-    srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2
-
-    commandList->SetGraphicsRootConstantBufferView(
-        3,
-        radialBlurResource_->GetGPUVirtualAddress()); // b0
-
-    commandList->SetGraphicsRootConstantBufferView(
-        4,
-        dissolveResource_->GetGPUVirtualAddress()); // b4
-
-    commandList->SetGraphicsRootConstantBufferView(
-        5,
-        randomNoiseResource_->GetGPUVirtualAddress()); // b2
-
-    commandList->SetGraphicsRootConstantBufferView(
-        6,
-        shockwaveResource_->GetGPUVirtualAddress()); // b3
-
-    if (postEffectType_ == PostEffectType::DepthOutline) {
-        D3D12_RESOURCE_BARRIER depthBarrier{};
-        depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        depthBarrier.Transition.pResource = depthResource;
-        depthBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        commandList->ResourceBarrier(1, &depthBarrier); // // 谺｡繝輔Ξ繝ｼ繝縺ｧDepth繧呈嶌縺代ｋ迥ｶ諷九↓謌ｻ縺・
+    bool needsDepthTexture = false;
+    for (size_t index = 0; index < activeEffectCount; ++index) {
+        if (activeEffects[index] == PostEffectType::DepthOutline) {
+            needsDepthTexture = true;
+            break;
+        }
     }
 
+    auto TransitionResource = [&](ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+        if (before == after) {
+            return;
+        }
 
-    commandList->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        barrier.Transition.pResource = resource;
+        barrier.Transition.StateBefore = before;
+        barrier.Transition.StateAfter = after;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        commandList->ResourceBarrier(1, &barrier);
+    };
 
-    // 画面へのコピー完了後、次フレームのシーン描画用へ戻す
-    D3D12_RESOURCE_BARRIER renderTextureToWrite{};
-    renderTextureToWrite.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    renderTextureToWrite.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    renderTextureToWrite.Transition.pResource = renderTexture_->GetResource();
-    renderTextureToWrite.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    renderTextureToWrite.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    renderTextureToWrite.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    commandList->ResourceBarrier(1, &renderTextureToWrite);
+    auto SetPipelineState = [&](PostEffectType type) {
+        switch (type) {
+        case PostEffectType::Copy:
+            commandList->SetPipelineState(copyPipelineState_.Get());
+            break;
+        case PostEffectType::Grayscale:
+            commandList->SetPipelineState(grayscalePipelineState_.Get());
+            break;
+        case PostEffectType::Sepia:
+            commandList->SetPipelineState(sepiaPipelineState_.Get());
+            break;
+        case PostEffectType::Vignette:
+            commandList->SetPipelineState(vignettePipelineState_.Get());
+            break;
+        case PostEffectType::BoxFilter:
+            commandList->SetPipelineState(boxFilterPipelineState_.Get());
+            break;
+        case PostEffectType::GaussianFilter:
+            commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
+            break;
+        case PostEffectType::DepthOutline:
+            commandList->SetPipelineState(depthOutlinePipelineState_.Get());
+            break;
+        case PostEffectType::RadialBlur:
+            commandList->SetPipelineState(radialBlurPipelineState_.Get());
+            break;
+        case PostEffectType::Dissolve:
+            commandList->SetPipelineState(dissolvePipelineState_.Get());
+            break;
+        case PostEffectType::RandomNoise:
+            commandList->SetPipelineState(randomNoisePipelineState_.Get());
+            break;
+        case PostEffectType::Shockwave:
+            commandList->SetPipelineState(shockwavePipelineState_.Get());
+            break;
+        }
+    };
+
+    auto DrawPostEffectPass = [&](PostEffectType type, uint32_t inputSrvIndex, D3D12_CPU_DESCRIPTOR_HANDLE outputRTVHandle) {
+        commandList->OMSetRenderTargets(1, &outputRTVHandle, FALSE, nullptr);
+
+        const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        commandList->ClearRenderTargetView(outputRTVHandle, clearColor, 0, nullptr);
+
+        commandList->RSSetViewports(1, &viewport);
+        commandList->RSSetScissorRects(1, &scissorRect);
+        commandList->SetGraphicsRootSignature(rootSignature_.Get());
+        SetPipelineState(type);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
+        commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        srvManager_->SetGraphicsRootDescriptorTable(0, inputSrvIndex); // t0: 直前の描画結果
+        srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1: 深度テクスチャ
+
+        uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
+        srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2: ディゾルブ用マスク
+
+        commandList->SetGraphicsRootConstantBufferView(3, radialBlurResource_->GetGPUVirtualAddress()); // b0
+        commandList->SetGraphicsRootConstantBufferView(4, dissolveResource_->GetGPUVirtualAddress()); // b1
+        commandList->SetGraphicsRootConstantBufferView(5, randomNoiseResource_->GetGPUVirtualAddress()); // b2
+        commandList->SetGraphicsRootConstantBufferView(6, shockwaveResource_->GetGPUVirtualAddress()); // b3
+
+        commandList->DrawInstanced(3, 1, 0, 0);
+    };
+
+    if (needsDepthTexture) {
+        // DepthOutlineがある時だけ深度をシェーダーから読めるようにする
+        TransitionResource(depthResource, D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+
+    D3D12_RESOURCE_STATES sceneTextureState = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    D3D12_RESOURCE_STATES workTextureState = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+    for (size_t index = 0; index < activeEffectCount; ++index) {
+        const bool isLastPass = index + 1 == activeEffectCount;
+        const bool readSceneTexture = (index % 2) == 0;
+        RenderTexture* inputTexture = readSceneTexture ? renderTexture_.get() : workRenderTexture_.get();
+        D3D12_RESOURCE_STATES& inputState = readSceneTexture ? sceneTextureState : workTextureState;
+
+        // 入力側をPixelShaderから読める状態にする
+        TransitionResource(inputTexture->GetResource(), inputState, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        inputState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+
+        if (isLastPass) {
+            DrawPostEffectPass(activeEffects[index], inputTexture->GetSRVIndex(), backBufferRTVHandle);
+            continue;
+        }
+
+        RenderTexture* outputTexture = readSceneTexture ? workRenderTexture_.get() : renderTexture_.get();
+        D3D12_RESOURCE_STATES& outputState = readSceneTexture ? workTextureState : sceneTextureState;
+
+        // 出力側をRenderTargetとして書ける状態にする
+        TransitionResource(outputTexture->GetResource(), outputState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        outputState = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+        DrawPostEffectPass(activeEffects[index], inputTexture->GetSRVIndex(), outputTexture->GetRTVHandle());
+    }
+
+    TransitionResource(renderTexture_->GetResource(), sceneTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    TransitionResource(workRenderTexture_->GetResource(), workTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    if (needsDepthTexture) {
+        TransitionResource(depthResource, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    }
 }
-
-
 void OffscreenRenderer::CreateRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
@@ -574,9 +625,7 @@ void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bo
 
         if (progress >= 1.0f) {
             isShockwavePlaying_ = false;
-            if (postEffectType_ == PostEffectType::Shockwave) {
-                postEffectType_ = shockwaveReturnType_;
-            }
+            enabledPostEffects_[static_cast<size_t>(PostEffectType::Shockwave)] = false; // 再生が終わった衝撃波だけ無効にする
         }
     }
 
@@ -625,17 +674,11 @@ void OffscreenRenderer::StartShockwave(const Vector2& centerUV, float maxRadius)
         return;
     }
 
-    // すでに別のエフェクトを表示している場合は、衝撃波終了後に戻す
-    if (postEffectType_ != PostEffectType::Shockwave) {
-        shockwaveReturnType_ = postEffectType_;
-    }
-
     shockwaveElapsedTime_ = 0.0f;
     isShockwavePlaying_ = true;
-    postEffectType_ = PostEffectType::Shockwave;
+    enabledPostEffects_[static_cast<size_t>(PostEffectType::Shockwave)] = true; // 他のポストエフェクトを残したまま衝撃波を重ねる
 
-    // この1回の衝撃波だけに使う最大サイズを保存する
-    currentShockwaveMaxRadius_ = std::max(maxRadius, 0.01f);
+    currentShockwaveMaxRadius_ = std::max(maxRadius, 0.01f); // この1回の衝撃波だけに使う最大サイズを保存する
 
     shockwaveData_->center = {
         std::clamp(centerUV.x, 0.0f, 1.0f),
@@ -648,7 +691,6 @@ void OffscreenRenderer::StartShockwave(const Vector2& centerUV, float maxRadius)
     shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
     shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 }
-
 void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
 {
     float duration = std::max(dissolveDuration_, 0.1f);
@@ -682,14 +724,19 @@ void OffscreenRenderer::DrawImGui()
         "DepthOutline",
     };
 
-
-
-    int current = static_cast<int>(postEffectType_);
-    if (ImGui::Combo("Effect", &current, items, IM_ARRAYSIZE(items))) {
-        postEffectType_ = static_cast<PostEffectType>(current);
+    ImGui::Text("Enabled Effects");
+    for (int index = 1; index < IM_ARRAYSIZE(items); ++index) {
+        bool enabled = enabledPostEffects_[index];
+        if (ImGui::Checkbox(items[index], &enabled)) {
+            enabledPostEffects_[index] = enabled; // チェックしたポストエフェクトを同時に適用する
+        }
     }
 
-    if (postEffectType_ == PostEffectType::Dissolve) {
+    const bool isDissolveSelected = IsPostEffectEnabled(PostEffectType::Dissolve) || postEffectType_ == PostEffectType::Dissolve;
+    const bool isRandomNoiseSelected = IsPostEffectEnabled(PostEffectType::RandomNoise) || postEffectType_ == PostEffectType::RandomNoise;
+    const bool isShockwaveSelected = IsPostEffectEnabled(PostEffectType::Shockwave) || postEffectType_ == PostEffectType::Shockwave;
+
+    if (isDissolveSelected) {
         const char* maskItems[] = { "noise0", "noise1" };
         if (ImGui::Combo("Mask", &dissolveMaskType_, maskItems, IM_ARRAYSIZE(maskItems))) {
         }
@@ -709,18 +756,17 @@ void OffscreenRenderer::DrawImGui()
         ImGui::Text("Threshold: %.2f", dissolveData_ ? dissolveData_->threshold : 0.0f);
     }
 
-    if (postEffectType_ == PostEffectType::RandomNoise) {
+    if (isRandomNoiseSelected) {
         ImGui::DragFloat("Intensity", &randomNoiseData_->intensity, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Speed", &randomNoiseData_->speed, 0.01f, 0.0f, 10.0f);
     }
 
-    if (postEffectType_ == PostEffectType::Shockwave) {
+    if (isShockwaveSelected) {
         ImGui::DragFloat2("Center UV", &shockwaveData_->center.x, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Duration", &shockwaveDuration_, 0.01f, 0.05f, 1.0f);
         ImGui::DragFloat("Shockwave Size", &shockwaveMaxRadius_, 0.01f, 0.05f, 0.40f);
         if (ImGui::Checkbox("White Wave", &shockwaveWhiteWaveEnabled_) && shockwaveData_) {
-            // チェック変更をすぐにシェーダーへ反映する
-            shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
+            shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f; // 白い波の表示設定をシェーダーへ反映する
         }
         if (ImGui::Button("Start Shockwave")) {
             StartShockwave(shockwaveData_->center);
@@ -728,11 +774,9 @@ void OffscreenRenderer::DrawImGui()
         ImGui::Text("Playing: %s", isShockwavePlaying_ ? "true" : "false");
     }
 
-
     ImGui::End();
 #endif
 }
-
 void OffscreenRenderer::DrawDebugGameViewImGui()
 {
 #ifdef USE_IMGUI
