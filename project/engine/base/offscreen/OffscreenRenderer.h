@@ -32,6 +32,7 @@ public:
     PostEffectType GetPostEffectType() const { return postEffectType_; }
     void SetPostEffectEnabled(PostEffectType type, bool enabled);
     bool IsPostEffectEnabled(PostEffectType type) const;
+    void SetVignetteIntensity(float intensity);
 
     // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
@@ -117,6 +118,11 @@ private:
         float padding;    // 16byte揃え
     };
 
+    struct VignetteData {
+        float intensity; // ビネットの強さ
+        Vector3 padding; // 16byte境界に合わせる
+    };
+
     struct ShockwaveData {
         Vector2 center;    // 歪みの中心UV
         float radius;      // 衝撃波リングの半径
@@ -182,6 +188,9 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> randomNoiseResource_; // ランダムノイズ用定数バッファ
     RandomNoiseData* randomNoiseData_ = nullptr; // ランダムノイズ用定数データ
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> vignetteResource_; // ビネット用定数バッファ
+    VignetteData* vignetteData_ = nullptr; // ビネット用定数データ
 
     Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
     ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ
