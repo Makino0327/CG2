@@ -3,6 +3,12 @@
 Texture2D<float4> gTexture : register(t0);
 SamplerState gSampler : register(s0);
 
+cbuffer VignetteData : register(b4)
+{
+    float gVignetteIntensity;
+    float3 padding;
+};
+
 struct PixelShaderOutput
 {
     float4 color : SV_TARGET0;
@@ -25,7 +31,8 @@ PixelShaderOutput main(VertexShaderOutput input)
     vignette = saturate(pow(vignette, 0.8f));
 
     // 元画像のRGBにヴィネッティング係数を掛けて、画面端を暗くする
-    output.color.rgb *= vignette;
+    float vignetteRate = saturate(gVignetteIntensity);
+    output.color.rgb *= lerp(1.0f, vignette, vignetteRate);
 
     return output;
 }

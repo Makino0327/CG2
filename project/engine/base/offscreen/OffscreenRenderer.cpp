@@ -73,6 +73,11 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     randomNoiseData_->speed = 1.0f;
     randomNoiseData_->padding = 0.0f;
 
+    vignetteResource_ = dxCommon_->CreateBufferResource(sizeof(VignetteData));
+    vignetteResource_->Map(0, nullptr, reinterpret_cast<void**>(&vignetteData_));
+    vignetteData_->intensity = 1.0f; // 既存のVignette単体表示は今まで通りの濃さにする
+    vignetteData_->padding = { 0.0f, 0.0f, 0.0f };
+
     // 衝撃波歪み用の定数バッファを作る
     shockwaveResource_ = dxCommon_->CreateBufferResource(sizeof(ShockwaveData));
     shockwaveResource_->Map(0, nullptr, reinterpret_cast<void**>(&shockwaveData_));
@@ -135,6 +140,14 @@ bool OffscreenRenderer::IsPostEffectEnabled(PostEffectType type) const
     return enabledPostEffects_[index];
 }
 
+void OffscreenRenderer::SetVignetteIntensity(float intensity)
+{
+    if (!vignetteData_) {
+        return;
+    }
+
+    vignetteData_->intensity = std::clamp(intensity, 0.0f, 1.0f); // ビネットの濃さを0から1に収める
+}
 void OffscreenRenderer::DrawToBackBuffer()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
@@ -260,6 +273,7 @@ void OffscreenRenderer::DrawToBackBuffer()
         commandList->SetGraphicsRootConstantBufferView(4, dissolveResource_->GetGPUVirtualAddress()); // b1
         commandList->SetGraphicsRootConstantBufferView(5, randomNoiseResource_->GetGPUVirtualAddress()); // b2
         commandList->SetGraphicsRootConstantBufferView(6, shockwaveResource_->GetGPUVirtualAddress()); // b3
+        commandList->SetGraphicsRootConstantBufferView(7, vignetteResource_->GetGPUVirtualAddress()); // b4
 
         commandList->DrawInstanced(3, 1, 0, 0);
     };
@@ -326,7 +340,7 @@ void OffscreenRenderer::CreateRootSignature()
     maskRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     maskRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER rootParameters[7]{};
+    D3D12_ROOT_PARAMETER rootParameters[8]{};
     rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -357,6 +371,10 @@ void OffscreenRenderer::CreateRootSignature()
     rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[6].Descriptor.ShaderRegister = 3;
+
+    rootParameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[7].Descriptor.ShaderRegister = 4;
 
 
     D3D12_STATIC_SAMPLER_DESC staticSamplers[2]{};
