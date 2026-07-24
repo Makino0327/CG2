@@ -83,6 +83,9 @@ public:
     // 現在の攻撃方法を返す
     AttackMode GetAttackMode() const { return attackMode_; }
 
+    // 弾UIとリロードで使う選択中の銃を返す
+    AttackMode GetSelectedGunMode() const { return selectedGunMode_; }
+
     // ナイフを使うモードかどうかを返す
     bool IsMeleeMode() const { return attackMode_ == AttackMode::Knife; }
 
@@ -186,7 +189,8 @@ private:
     ParticleSystem* particleSystem_ = nullptr;
 
     // 現在選んでいる攻撃方法
-    AttackMode attackMode_ = AttackMode::Gun;
+    AttackMode attackMode_ = AttackMode::Knife;
+    AttackMode selectedGunMode_ = AttackMode::Gun; // 右クリック中に使う銃の種類を保存する
 
     // アサルトライフルの連射間隔
     int assaultFireInterval_ = 6;
@@ -237,6 +241,7 @@ private:
 
     // 移動関係のパラメータ
     float moveSpeed_ = 0.2f;
+    float aimingMoveSpeed_ = 0.10f; // 銃を構えている間のゆっくり歩く速度
     float velocityY_ = 0.0f;
     float jumpPower_ = 0.6f;
     float gravity_ = -0.03f;

@@ -41,10 +41,10 @@ void Player::Initialize(
 int Player::GetCurrentAmmo() const
 {
     // 現在選んでいる銃の残弾数を返す
-    if (attackMode_ == AttackMode::AssaultRifle) {
+    if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleAmmo_;
     }
-    if (attackMode_ == AttackMode::Gun) {
+    if (selectedGunMode_ == AttackMode::Gun) {
         return handgunAmmo_;
     }
     return 0;
@@ -58,11 +58,11 @@ int Player::GetCurrentMaxAmmo() const
 
 int Player::GetMaxAmmoForCurrentWeapon() const
 {
-    // ナイフには弾数がないので0を返す
-    if (attackMode_ == AttackMode::AssaultRifle) {
+    // 選択中の銃に応じて最大弾数を返す
+    if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleMaxAmmo_;
     }
-    if (attackMode_ == AttackMode::Gun) {
+    if (selectedGunMode_ == AttackMode::Gun) {
         return handgunMaxAmmo_;
     }
     return 0;
@@ -71,10 +71,10 @@ int Player::GetMaxAmmoForCurrentWeapon() const
 int Player::GetReloadDurationForCurrentWeapon() const
 {
     // 武器ごとにリロード時間を変える
-    if (attackMode_ == AttackMode::AssaultRifle) {
+    if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleReloadDuration_;
     }
-    if (attackMode_ == AttackMode::Gun) {
+    if (selectedGunMode_ == AttackMode::Gun) {
         return handgunReloadDuration_;
     }
     return 0;
@@ -82,8 +82,8 @@ int Player::GetReloadDurationForCurrentWeapon() const
 
 void Player::StartReload()
 {
-    // ナイフ中や満タンの時はリロードしない
-    if (attackMode_ == AttackMode::Knife || isReloading_) {
+    // 選択中の銃が満タンの時やリロード中は何もしない
+    if (selectedGunMode_ == AttackMode::Knife || isReloading_) {
         return;
     }
 
@@ -110,11 +110,11 @@ void Player::UpdateReload()
         return;
     }
 
-    // リロード完了時に現在の武器だけ満タンにする
+    // リロード完了時に選択中の銃だけ満タンにする
     isReloading_ = false;
-    if (attackMode_ == AttackMode::AssaultRifle) {
+    if (selectedGunMode_ == AttackMode::AssaultRifle) {
         assaultRifleAmmo_ = assaultRifleMaxAmmo_;
-    } else if (attackMode_ == AttackMode::Gun) {
+    } else if (selectedGunMode_ == AttackMode::Gun) {
         handgunAmmo_ = handgunMaxAmmo_;
     }
 }
@@ -135,28 +135,31 @@ void Player::Update(Camera* camera)
     }
 
 
+    const bool isAimingGun = input_->PushMouseRight();
+    const float currentMoveSpeed = isAimingGun ? aimingMoveSpeed_ : moveSpeed_; // 構え中はゆっくり歩く
+
     Vector3 pos = object_->GetTranslate();
 
     prevPos_ = pos;
 
     // 左に動く
     if (input_->PushKey(DIK_A)) {
-        pos.x -= moveSpeed_;
+        pos.x -= currentMoveSpeed;
     }
 
     // 右に動く
     if (input_->PushKey(DIK_D)) {
-        pos.x += moveSpeed_;
+        pos.x += currentMoveSpeed;
     }
 
     // 前に動く
     if (input_->PushKey(DIK_W)) {
-        pos.z += moveSpeed_;
+        pos.z += currentMoveSpeed;
     }
 
     // 後ろに動く
     if (input_->PushKey(DIK_S)) {
-        pos.z -= moveSpeed_;
+        pos.z -= currentMoveSpeed;
     }
 
     //// 左方向の壁判定を行う
@@ -187,29 +190,32 @@ void Player::Update(Camera* camera)
     object_->Update();
 
 
-    // Qキーでハンドガン、アサルトライフル、ナイフを順番に切り替える
+    // Qキーでは銃だけを切り替え、近距離攻撃は右クリックを離した時の通常状態にする
     if (input_->TriggerKey(DIK_Q)) {
-        if (attackMode_ == AttackMode::Gun) {
-            attackMode_ = AttackMode::AssaultRifle;
-        } else if (attackMode_ == AttackMode::AssaultRifle) {
-            attackMode_ = AttackMode::Knife;
-        } else {
-            attackMode_ = AttackMode::Gun;
-        }
+        selectedGunMode_ = (selectedGunMode_ == AttackMode::Gun)
+            ? AttackMode::AssaultRifle
+            : AttackMode::Gun;
 
-        // 武器を切り替えたらリロード状態を解除する
+        // 銃を切り替えたらリロードや連射状態をリセットする
         isReloading_ = false;
         reloadTimer_ = 0;
         assaultFireTimer_ = 0;
         assaultContinuousShotCount_ = 0;
     }
 
-    // Rキーで現在の銃をリロードする
-    if (attackMode_ != AttackMode::Knife && input_->TriggerKey(DIK_R)) {
-        StartReload();
+    // 右クリック長押し中だけ選択中の銃、それ以外はナイフにする
+    attackMode_ = isAimingGun ? selectedGunMode_ : AttackMode::Knife;
+
+    if (!isAimingGun) {
+        // 銃を構えていない間は連射状態だけ止め、リロードはそのまま進める
+        assaultFireTimer_ = 0;
+        assaultContinuousShotCount_ = 0;
     }
 
-    // リロード中なら残り時間を進める
+    // Rキーは構え中でなくても選択中の銃をリロードできる
+    if (input_->TriggerKey(DIK_R)) {
+        StartReload();
+    }
     UpdateReload();
 
     // ハンドガンは左クリックした瞬間に1発撃つ

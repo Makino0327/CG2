@@ -600,7 +600,36 @@ void GamePlayScene::Update()
     }
 
     if (player_ && context_.offscreenRenderer) {
+        const bool isAimingGun =
+            context_.input &&
+            context_.input->PushMouseRight() &&
+            !player_->IsDead();
+
+        const float targetVignetteIntensity = isAimingGun ? 1.0f : 0.0f;
+        const float vignetteFadeSpeed = isAimingGun
+            ? aimingVignetteFadeInSpeed_
+            : aimingVignetteFadeOutSpeed_;
+
+        // 右クリック状態に合わせてビネットを急に切り替えず、少しずつ近づける
+        if (aimingVignetteIntensity_ < targetVignetteIntensity) {
+            aimingVignetteIntensity_ = std::min(
+                aimingVignetteIntensity_ + vignetteFadeSpeed,
+                targetVignetteIntensity);
+        } else if (aimingVignetteIntensity_ > targetVignetteIntensity) {
+            aimingVignetteIntensity_ = std::max(
+                aimingVignetteIntensity_ - vignetteFadeSpeed,
+                targetVignetteIntensity);
+        }
+
+        context_.offscreenRenderer->SetVignetteIntensity(aimingVignetteIntensity_);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::Vignette,
+            aimingVignetteIntensity_ > 0.0f);
+
         if (player_->IsDead()) {
+            aimingVignetteIntensity_ = 0.0f;
+            context_.offscreenRenderer->SetVignetteIntensity(0.0f);
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
             context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
         } else if (context_.offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
             // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
@@ -724,12 +753,8 @@ void GamePlayScene::UpdateAmmoUiSprites()
         return;
     }
 
-    // ナイフ中は弾UIを表示しない
-    if (player_->GetAttackMode() == Player::AttackMode::Knife) {
-        return;
-    }
-
-    const Player::AttackMode attackMode = player_->GetAttackMode();
+    // 近距離攻撃中でも、弾UIは選択中の銃を表示する
+    const Player::AttackMode attackMode = player_->GetSelectedGunMode();
     const int maxAmmo = player_->GetCurrentMaxAmmo();
     const int currentAmmo = player_->GetCurrentAmmo();
     const bool isAssaultRifle = attackMode == Player::AttackMode::AssaultRifle;
@@ -914,7 +939,7 @@ void GamePlayScene::UpdateAmmoFireEffects()
 
 void GamePlayScene::DrawAmmoUiSprites()
 {
-    if (!player_ || player_->GetAttackMode() == Player::AttackMode::Knife) {
+    if (!player_) {
         return;
     }
 

@@ -213,4 +213,11 @@ private:
 
     // ミニマップの読み込み、更新、描画を管理する
     std::unique_ptr<Minimap> minimap_;
+
+    // 銃を構えた時のビネットをゆっくり変化させるための現在値
+    float aimingVignetteIntensity_ = 0.0f;
+    // ビネットが濃くなる速さ
+    float aimingVignetteFadeInSpeed_ = 0.045f;
+    // ビネットが薄くなる速さ
+    float aimingVignetteFadeOutSpeed_ = 0.060f;
 };
