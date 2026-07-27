@@ -758,17 +758,23 @@ void GamePlayScene::UpdateAmmoUiSprites()
     const int maxAmmo = player_->GetCurrentMaxAmmo();
     const int currentAmmo = player_->GetCurrentAmmo();
     const bool isAssaultRifle = attackMode == Player::AttackMode::AssaultRifle;
+    const bool isShotgun = attackMode == Player::AttackMode::Shotgun;
 
-    // ハンドガンは大きめ、アサルトライフルは小さめの弾にする
+    // 武器ごとに弾UIの大きさと並びを変える
     AmmoUiLayout layout{};
     layout.bulletSize = isAssaultRifle
         ? Vector2{ 10.0f, 24.0f }
-        : Vector2{ 18.0f, 34.0f };
-    layout.gapX = isAssaultRifle ? 5.0f : 8.0f;
+        : (isShotgun ? Vector2{ 22.0f, 38.0f } : Vector2{ 18.0f, 34.0f });
+    layout.gapX = isAssaultRifle ? 5.0f : (isShotgun ? 10.0f : 8.0f);
     layout.gapY = isAssaultRifle ? 7.0f : 0.0f;
-    layout.bulletsPerRow = isAssaultRifle ? 15 : 10;
+    layout.bulletsPerRow = isAssaultRifle ? 15 : (isShotgun ? 6 : 10);
     layout.startX = 32.0f;
     layout.startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
+
+    // ショットガンだけ残弾UIの弾を赤くする
+    const Vector4 ammoColor = isShotgun
+        ? Vector4{ 1.0f, 0.18f, 0.08f, 0.95f }
+        : Vector4{ 1.0f, 0.86f, 0.10f, 0.95f };
 
     // 武器が替わったら並びが変わるので、アニメーションせず即座に整列させる
     const bool layoutChanged =
@@ -849,7 +855,7 @@ void GamePlayScene::UpdateAmmoUiSprites()
 
         // 使わないSpriteは透明にして描画に出ないようにする
         if (static_cast<int>(index) >= currentAmmo) {
-            sprite->SetColor({ 1.0f, 0.85f, 0.1f, 0.0f });
+            sprite->SetColor({ ammoColor.x, ammoColor.y, ammoColor.z, 0.0f });
             sprite->Update();
             continue;
         }
@@ -869,7 +875,7 @@ void GamePlayScene::UpdateAmmoUiSprites()
 
         sprite->SetPosition(anim.position);
         sprite->SetSize(layout.bulletSize);
-        sprite->SetColor({ 1.0f, 0.86f, 0.10f, anim.alpha });
+        sprite->SetColor({ ammoColor.x, ammoColor.y, ammoColor.z, anim.alpha });
         sprite->Update();
     }
 
@@ -1387,6 +1393,8 @@ void GamePlayScene::DrawImGui()
             equipName = "Gun";
         } else if (player_->GetAttackMode() == Player::AttackMode::AssaultRifle) {
             equipName = "Assault Rifle";
+        } else if (player_->GetAttackMode() == Player::AttackMode::Shotgun) {
+            equipName = "Shotgun";
         } else if (player_->GetAttackMode() == Player::AttackMode::Knife) {
             equipName = "Knife";
         }

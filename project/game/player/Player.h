@@ -23,6 +23,7 @@ public:
     enum class AttackMode {
         Gun,
         AssaultRifle,
+        Shotgun,
         Knife,
     };
     void Initialize(
@@ -140,6 +141,9 @@ private:
     // 弾を発射する
     bool FireBullet(Camera* camera, float spreadAngle = 0.0f);
 
+    // ショットガンの弾をまとめて発射する
+    bool FireShotgun(Camera* camera);
+
     // 現在の銃をリロード状態にする
     void StartReload();
 
@@ -212,17 +216,26 @@ private:
     // アサルトライフルの最大弾数
     int assaultRifleMaxAmmo_ = 30;
 
+    // ショットガンの最大弾数
+    int shotgunMaxAmmo_ = 6;
+
     // ハンドガンの現在弾数
     int handgunAmmo_ = 10;
 
     // アサルトライフルの現在弾数
     int assaultRifleAmmo_ = 30;
 
+    // ショットガンの現在弾数
+    int shotgunAmmo_ = 6;
+
     // ハンドガンのリロード時間
     int handgunReloadDuration_ = 70;
 
     // アサルトライフルのリロード時間
     int assaultRifleReloadDuration_ = 110;
+
+    // ショットガンのリロード時間
+    int shotgunReloadDuration_ = 95;
 
     // 現在リロード中かどうか
     bool isReloading_ = false;
@@ -322,6 +335,19 @@ private:
 
     // プレイヤー中心から射出口までの前方向距離
     float bulletMuzzleDistance_ = 1.6f;
+
+    // ショットガンで一度に出す弾の数
+    int shotgunPelletCount_ = 5;
+
+    // ショットガン弾が広がる角度
+    float shotgunSpreadAngle_ = 0.34f;
+
+    // ショットガン弾ごとのランダムな角度ブレ
+    float shotgunRandomSpreadAngle_ = 0.08f;
+
+    // ショットガン弾ごとの速度ブレ
+    float shotgunMinSpeedScale_ = 0.85f;
+    float shotgunMaxSpeedScale_ = 1.08f;
 
     // グレネードの投擲開始位置の高さ
     float grenadeSpawnHeight_ = 0.8f;

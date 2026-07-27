@@ -44,6 +44,9 @@ int Player::GetCurrentAmmo() const
     if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleAmmo_;
     }
+    if (selectedGunMode_ == AttackMode::Shotgun) {
+        return shotgunAmmo_;
+    }
     if (selectedGunMode_ == AttackMode::Gun) {
         return handgunAmmo_;
     }
@@ -62,6 +65,9 @@ int Player::GetMaxAmmoForCurrentWeapon() const
     if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleMaxAmmo_;
     }
+    if (selectedGunMode_ == AttackMode::Shotgun) {
+        return shotgunMaxAmmo_;
+    }
     if (selectedGunMode_ == AttackMode::Gun) {
         return handgunMaxAmmo_;
     }
@@ -73,6 +79,9 @@ int Player::GetReloadDurationForCurrentWeapon() const
     // 武器ごとにリロード時間を変える
     if (selectedGunMode_ == AttackMode::AssaultRifle) {
         return assaultRifleReloadDuration_;
+    }
+    if (selectedGunMode_ == AttackMode::Shotgun) {
+        return shotgunReloadDuration_;
     }
     if (selectedGunMode_ == AttackMode::Gun) {
         return handgunReloadDuration_;
@@ -114,6 +123,8 @@ void Player::UpdateReload()
     isReloading_ = false;
     if (selectedGunMode_ == AttackMode::AssaultRifle) {
         assaultRifleAmmo_ = assaultRifleMaxAmmo_;
+    } else if (selectedGunMode_ == AttackMode::Shotgun) {
+        shotgunAmmo_ = shotgunMaxAmmo_;
     } else if (selectedGunMode_ == AttackMode::Gun) {
         handgunAmmo_ = handgunMaxAmmo_;
     }
@@ -192,9 +203,14 @@ void Player::Update(Camera* camera)
 
     // Qキーでは銃だけを切り替え、近距離攻撃は右クリックを離した時の通常状態にする
     if (input_->TriggerKey(DIK_Q)) {
-        selectedGunMode_ = (selectedGunMode_ == AttackMode::Gun)
-            ? AttackMode::AssaultRifle
-            : AttackMode::Gun;
+        // Qキーを押すたびに銃を順番に切り替える
+        if (selectedGunMode_ == AttackMode::Gun) {
+            selectedGunMode_ = AttackMode::AssaultRifle;
+        } else if (selectedGunMode_ == AttackMode::AssaultRifle) {
+            selectedGunMode_ = AttackMode::Shotgun;
+        } else {
+            selectedGunMode_ = AttackMode::Gun;
+        }
 
         // 銃を切り替えたらリロードや連射状態をリセットする
         isReloading_ = false;
@@ -221,6 +237,11 @@ void Player::Update(Camera* camera)
     // ハンドガンは左クリックした瞬間に1発撃つ
     if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
+    }
+
+    // ショットガンは1クリックで複数の弾を扇状に撃つ
+    if (attackMode_ == AttackMode::Shotgun && input_->TriggerMouseLeft()) {
+        FireShotgun(camera);
     }
 
     // アサルトライフルは左クリック押しっぱなしで一定間隔ごとに弾を撃つ
@@ -765,6 +786,125 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));
+    return true;
+}
+
+bool Player::FireShotgun(Camera* camera)
+{
+    if (!object_ || !camera || !input_) {
+        return false;
+    }
+
+    // リロード中は発射できない
+    if (isReloading_) {
+        return false;
+    }
+
+    // 弾がないときは自動でリロードを開始する
+    if (shotgunAmmo_ <= 0) {
+        StartReload();
+        return false;
+    }
+
+    Vector3 playerPosition = object_->GetTranslate();
+    Vector3 firePosition = {
+        playerPosition.x,
+        playerPosition.y + bulletSpawnHeight_,
+        playerPosition.z
+    };
+
+    Vector3 baseDirection = PlayerBullet::CalcDirectionToMouseGround(
+        firePosition,
+        camera,
+        input_);
+
+    // マウス方向が取れない場合は弾を消費しない
+    if (baseDirection.x == 0.0f && baseDirection.z == 0.0f) {
+        return false;
+    }
+
+    // 1回のショットなので、弾薬はここで1つだけ減らす
+    shotgunAmmo_--;
+    firedThisFrame_ = true;
+
+    const int pelletCount = std::max(1, shotgunPelletCount_);
+    const float centerIndex = static_cast<float>(pelletCount - 1) * 0.5f;
+    const float angleStep = (pelletCount > 1)
+        ? shotgunSpreadAngle_ / static_cast<float>(pelletCount - 1)
+        : 0.0f;
+
+    static std::random_device seedGenerator;
+    static std::mt19937 randomEngine(seedGenerator());
+    std::uniform_real_distribution<float> randomAngleDistribution(
+        -shotgunRandomSpreadAngle_,
+        shotgunRandomSpreadAngle_);
+    std::uniform_real_distribution<float> randomSideDistribution(-0.18f, 0.18f);
+    std::uniform_real_distribution<float> randomSpeedDistribution(
+        shotgunMinSpeedScale_,
+        shotgunMaxSpeedScale_);
+
+    for (int index = 0; index < pelletCount; ++index) {
+        // 均等な散弾角度にランダムなブレを足して自然に散らす
+        const float angle =
+            (static_cast<float>(index) - centerIndex) * angleStep +
+            randomAngleDistribution(randomEngine);
+        const float cosAngle = std::cos(angle);
+        const float sinAngle = std::sin(angle);
+
+        Vector3 pelletDirection = Normalize(Vector3{
+            baseDirection.x * cosAngle - baseDirection.z * sinAngle,
+            baseDirection.y,
+            baseDirection.x * sinAngle + baseDirection.z * cosAngle
+        });
+
+        Vector3 sideDirection = { -pelletDirection.z, 0.0f, pelletDirection.x };
+        const float sideOffset = randomSideDistribution(randomEngine);
+
+        Vector3 pelletPosition = {
+            firePosition.x + pelletDirection.x * bulletMuzzleDistance_ + sideDirection.x * sideOffset,
+            firePosition.y,
+            firePosition.z + pelletDirection.z * bulletMuzzleDistance_ + sideDirection.z * sideOffset
+        };
+
+        const float speedScale = randomSpeedDistribution(randomEngine);
+        Vector3 velocity = {
+            pelletDirection.x * bulletSpeed_ * speedScale,
+            pelletDirection.y * bulletSpeed_ * speedScale,
+            pelletDirection.z * bulletSpeed_ * speedScale
+        };
+
+        auto bullet = std::make_unique<PlayerBullet>();
+        bullet->Initialize(
+            object3dCommon_,
+            pelletPosition,
+            velocity,
+            wallColliders_,
+            particleSystem_);
+
+        bullets_.push_back(std::move(bullet));
+    }
+
+    // ショットガン全体で1つの衝撃波だけ出す
+    pendingBulletShockwavePositions_.push_back(firePosition);
+
+    if (particleSystem_) {
+        // 通常弾より大きい発射炎でショットガンらしさを出す
+        particleSystem_->Emit(
+            firePosition,
+            { 1.8f, 1.8f, 1.8f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.38f, 0.06f, 0.48f },
+            0.14f);
+
+        // 中心に短い白い閃光を重ねる
+        particleSystem_->Emit(
+            firePosition,
+            { 0.75f, 0.75f, 0.75f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.92f, 0.58f, 0.9f },
+            0.08f);
+    }
+
     return true;
 }
 
