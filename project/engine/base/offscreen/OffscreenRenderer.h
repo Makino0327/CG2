@@ -16,6 +16,7 @@ enum class PostEffectType {
     Dissolve,
     RandomNoise,
     Shockwave,
+    LuminanceOutline,
     DepthOutline,
 };
 
@@ -33,6 +34,7 @@ public:
     void SetPostEffectEnabled(PostEffectType type, bool enabled);
     bool IsPostEffectEnabled(PostEffectType type) const;
     void SetVignetteIntensity(float intensity);
+    void SetRadialBlurWidth(float blurWidth);
 
     // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
@@ -157,6 +159,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> gaussianFilterPipelineState_;
     // アウトライン
     Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
+    // 輝度差から輪郭を出すポストエフェクト用のパイプラインステート
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> luminanceOutlinePipelineState_;
     // ラジアルブラー用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
     // ディゾルブ用のパイプラインステート

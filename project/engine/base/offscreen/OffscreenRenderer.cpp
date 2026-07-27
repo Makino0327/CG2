@@ -148,6 +148,15 @@ void OffscreenRenderer::SetVignetteIntensity(float intensity)
 
     vignetteData_->intensity = std::clamp(intensity, 0.0f, 1.0f); // ビネットの濃さを0から1に収める
 }
+void OffscreenRenderer::SetRadialBlurWidth(float blurWidth)
+{
+    if (!radialBlurData_) {
+        return;
+    }
+
+    // 照準中だけ画面中央へ引き込むように、ラジアルブラーの強さを外から調整する
+    radialBlurData_->blurWidth = std::clamp(blurWidth, 0.0f, 0.03f);
+}
 void OffscreenRenderer::DrawToBackBuffer()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
@@ -244,6 +253,9 @@ void OffscreenRenderer::DrawToBackBuffer()
             break;
         case PostEffectType::Shockwave:
             commandList->SetPipelineState(shockwavePipelineState_.Get());
+            break;
+        case PostEffectType::LuminanceOutline:
+            commandList->SetPipelineState(luminanceOutlinePipelineState_.Get());
             break;
         }
     };
@@ -458,6 +470,9 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto depthOutlinePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/DepthBasedOutline.PS.hlsl",
         L"ps_6_0");
+    auto luminanceOutlinePixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/LuminanceBasedOutline.PS.hlsl",
+        L"ps_6_0");
     auto radialBlurPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/RadialBlur.PS.hlsl",
         L"ps_6_0");
@@ -572,6 +587,16 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(depthOutlinePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // 輝度差から明るい輪郭を出すポストエフェクト用のパイプラインステートを作る
+    desc.PS = {
+        luminanceOutlinePixelShaderBlob->GetBufferPointer(),
+        luminanceOutlinePixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(luminanceOutlinePipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
     // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
@@ -739,6 +764,7 @@ void OffscreenRenderer::DrawImGui()
         "Dissolve",
         "RandomNoise",
         "Shockwave",
+        "LuminanceOutline",
         "DepthOutline",
     };
 

@@ -220,4 +220,13 @@ private:
     float aimingVignetteFadeInSpeed_ = 0.045f;
     // ビネットが薄くなる速さ
     float aimingVignetteFadeOutSpeed_ = 0.060f;
+
+    // 発射や爆発の後に輝度アウトラインを残すフレーム数
+    int luminanceOutlineTimer_ = 0;
+    // 被弾や爆発の後にボックスフィルタを残すフレーム数
+    int boxFilterTimer_ = 0;
+    // 前フレームのプレイヤーHPを保存し、被弾した瞬間を検知する
+    int previousPlayerHp_ = 3;
+    // 死亡時のディゾルブを何度も最初から再生しないためのフラグ
+    bool deathDissolveStarted_ = false;
 };

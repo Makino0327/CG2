@@ -16,6 +16,7 @@
     <FxCompile Include="Resources\shaders\GaussianFilter.PS.hlsl" />
     <FxCompile Include="Resources\shaders\Line3D.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Line3D.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\LuminanceBasedOutline.PS.hlsl" />
     <FxCompile Include="Resources\shaders\SkinningObject3d.VS.hlsl" />
     <FxCompile Include="Resources\shaders\Skinning.CS.hlsl" />
     <FxCompile Include="Resources\shaders\InitializeParticle.CS.hlsl" />

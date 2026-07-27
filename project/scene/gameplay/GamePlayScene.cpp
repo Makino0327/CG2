@@ -402,6 +402,21 @@ void GamePlayScene::Initialize()
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         // ゲームシーン側で通常の衝撃波サイズを調整する
         context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
+        // 照準していない通常時は、照準用ポストエフェクトを切っておく
+        context_.offscreenRenderer->SetVignetteIntensity(0.0f);
+        context_.offscreenRenderer->SetRadialBlurWidth(0.0f);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RadialBlur, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::BoxFilter, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::GaussianFilter, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::LuminanceOutline, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::DepthOutline, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RandomNoise, false);
+        previousPlayerHp_ = player_ ? player_->GetHp() : previousPlayerHp_;
+        luminanceOutlineTimer_ = 0;
+        boxFilterTimer_ = 0;
+        deathDissolveStarted_ = false;
     }
 
     mapField_.LoadFromCsv("Resources/map.csv");
@@ -447,6 +462,10 @@ void GamePlayScene::Update()
 
             if (context_.offscreenRenderer) {
                 context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+                context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, false);
+                context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RandomNoise, false);
+                previousPlayerHp_ = player_->GetHp();
+                deathDissolveStarted_ = false;
             }
         }
     }
@@ -600,10 +619,26 @@ void GamePlayScene::Update()
     }
 
     if (player_ && context_.offscreenRenderer) {
+        const bool isPlayerDead = player_->IsDead();
         const bool isAimingGun =
             context_.input &&
             context_.input->PushMouseRight() &&
-            !player_->IsDead();
+            !isPlayerDead;
+        const bool isReloadingGun = player_->IsReloading() && !isPlayerDead;
+        const bool isLowHp = player_->GetHp() <= 1 && !isPlayerDead;
+
+        if (player_->GetHp() < previousPlayerHp_) {
+            // 被弾した瞬間は荒いブラーで衝撃を出す
+            boxFilterTimer_ = 18;
+        }
+        previousPlayerHp_ = player_->GetHp();
+
+        if (luminanceOutlineTimer_ > 0) {
+            --luminanceOutlineTimer_;
+        }
+        if (boxFilterTimer_ > 0) {
+            --boxFilterTimer_;
+        }
 
         const float targetVignetteIntensity = isAimingGun ? 1.0f : 0.0f;
         const float vignetteFadeSpeed = isAimingGun
@@ -622,18 +657,48 @@ void GamePlayScene::Update()
         }
 
         context_.offscreenRenderer->SetVignetteIntensity(aimingVignetteIntensity_);
+        context_.offscreenRenderer->SetRadialBlurWidth(aimingVignetteIntensity_ * 0.012f);
         context_.offscreenRenderer->SetPostEffectEnabled(
             PostEffectType::Vignette,
             aimingVignetteIntensity_ > 0.0f);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::RadialBlur,
+            aimingVignetteIntensity_ > 0.0f);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::GaussianFilter,
+            isReloadingGun || isPlayerDead);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::BoxFilter,
+            boxFilterTimer_ > 0);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::LuminanceOutline,
+            luminanceOutlineTimer_ > 0);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::DepthOutline,
+            isLowHp);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::RandomNoise,
+            isPlayerDead);
 
-        if (player_->IsDead()) {
+        if (isPlayerDead) {
             aimingVignetteIntensity_ = 0.0f;
             context_.offscreenRenderer->SetVignetteIntensity(0.0f);
+            context_.offscreenRenderer->SetRadialBlurWidth(0.0f);
             context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
-        } else if (context_.offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
-            // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RadialBlur, false);
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, true);
+            if (!deathDissolveStarted_) {
+                // 死亡した瞬間から画面全体をディゾルブで崩す
+                context_.offscreenRenderer->StartDissolve();
+                deathDissolveStarted_ = true;
+            }
+        } else {
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, false);
+            deathDissolveStarted_ = false;
+            if (context_.offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
+                // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
+                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+            }
         }
     }
 }
@@ -1049,6 +1114,9 @@ void GamePlayScene::UpdateMeleeAttack()
             EmitMeleeSlashEffect(victimPosition, slashDirection);
             meleeVictim_->OnMeleeHit();
 
+            // ばれていない敵を近接で倒した瞬間だけ、輝度アウトラインで画面を光らせる
+            luminanceOutlineTimer_ = 10;
+
             isMeleeAttacking_ = false;
             meleeVictim_ = nullptr;
             meleeAttackTimer_ = 0;
@@ -1263,6 +1331,9 @@ void GamePlayScene::CheckGrenadeExplosions()
                 context_.offscreenRenderer->SetShockwaveDuration(0.28f);
                 context_.offscreenRenderer->StartShockwave(grenadeShockwaveUV, 0.22f);
             }
+
+            // 爆発後は一瞬だけ荒いブラーを重ねる
+            boxFilterTimer_ = 12;
         }
 
         for (auto& enemy : enemies_) {
