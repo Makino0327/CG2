@@ -27,8 +27,8 @@ PixelShaderOutput main(VertexShaderOutput input)
     // 中心付近が1.0、端に近いほど0.0に近づく値に調整する
     float vignette = correct.x * correct.y * 16.0f;
 
-    // powで暗くなり方を調整し、saturateで0.0から1.0の範囲に収める
-    vignette = saturate(pow(vignette, 0.8f));
+    // powに渡す値を0.0から1.0に収めて、負の値による警告を防ぐ
+    vignette = saturate(pow(saturate(vignette), 0.8f));
 
     // 元画像のRGBにヴィネッティング係数を掛けて、画面端を暗くする
     float vignetteRate = saturate(gVignetteIntensity);
