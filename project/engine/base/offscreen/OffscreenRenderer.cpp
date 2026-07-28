@@ -1,4 +1,4 @@
-#include "OffscreenRenderer.h"
+﻿#include "OffscreenRenderer.h"
 #include <cassert>
 #include "../../2d/texture/TextureManager.h"
 #include <algorithm>
@@ -257,6 +257,12 @@ void OffscreenRenderer::DrawToBackBuffer()
         case PostEffectType::LuminanceOutline:
             commandList->SetPipelineState(luminanceOutlinePipelineState_.Get());
             break;
+        case PostEffectType::ChromaticAberration:
+            commandList->SetPipelineState(chromaticAberrationPipelineState_.Get());
+            break;
+        case PostEffectType::Bloom:
+            commandList->SetPipelineState(bloomPipelineState_.Get());
+            break;
         }
     };
 
@@ -473,6 +479,12 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto luminanceOutlinePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/LuminanceBasedOutline.PS.hlsl",
         L"ps_6_0");
+    auto chromaticAberrationPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/ChromaticAberration.PS.hlsl",
+        L"ps_6_0");
+    auto bloomPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/Bloom.PS.hlsl",
+        L"ps_6_0");
     auto radialBlurPixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/RadialBlur.PS.hlsl",
         L"ps_6_0");
@@ -597,6 +609,26 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(luminanceOutlinePipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // RGBずらし用のポストエフェクトパイプラインを作る
+    desc.PS = {
+        chromaticAberrationPixelShaderBlob->GetBufferPointer(),
+        chromaticAberrationPixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(chromaticAberrationPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // 明るい部分をにじませるポストエフェクトパイプラインを作る
+    desc.PS = {
+        bloomPixelShaderBlob->GetBufferPointer(),
+        bloomPixelShaderBlob->GetBufferSize()
+    };
+    hr = device->CreateGraphicsPipelineState(
+        &desc,
+        IID_PPV_ARGS(bloomPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
     // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ繝斐け繧ｻ繝ｫ繧ｷ繧ｧ繝ｼ繝繧定ｨｭ螳壹☆繧・
@@ -765,6 +797,8 @@ void OffscreenRenderer::DrawImGui()
         "RandomNoise",
         "Shockwave",
         "LuminanceOutline",
+        "ChromaticAberration",
+        "Bloom",
         "DepthOutline",
     };
 

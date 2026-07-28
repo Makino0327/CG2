@@ -410,12 +410,16 @@ void GamePlayScene::Initialize()
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::BoxFilter, false);
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::GaussianFilter, false);
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::LuminanceOutline, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::ChromaticAberration, false);
+        context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, false);
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::DepthOutline, false);
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, false);
         context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RandomNoise, false);
         previousPlayerHp_ = player_ ? player_->GetHp() : previousPlayerHp_;
         luminanceOutlineTimer_ = 0;
         boxFilterTimer_ = 0;
+        chromaticAberrationTimer_ = 0;
+        bloomTimer_ = 0;
         deathDissolveStarted_ = false;
     }
 
@@ -464,7 +468,11 @@ void GamePlayScene::Update()
                 context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
                 context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, false);
                 context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RandomNoise, false);
+                context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::ChromaticAberration, false);
+                context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, false);
                 previousPlayerHp_ = player_->GetHp();
+                chromaticAberrationTimer_ = 0;
+                bloomTimer_ = 0;
                 deathDissolveStarted_ = false;
             }
         }
@@ -570,6 +578,14 @@ void GamePlayScene::Update()
         if (minimap_) {
             minimap_->NotifyGunshot();
         }
+
+        // 発砲の火花にBloomを短く重ねる
+        bloomTimer_ = 8;
+
+        if (player_->GetSelectedGunMode() == Player::AttackMode::Shotgun) {
+            // ショットガン発射時はRGBずれで反動の派手さを出す
+            chromaticAberrationTimer_ = 8;
+        }
     }
 
     for (auto& enemy : enemies_) {
@@ -628,8 +644,9 @@ void GamePlayScene::Update()
         const bool isLowHp = player_->GetHp() <= 1 && !isPlayerDead;
 
         if (player_->GetHp() < previousPlayerHp_) {
-            // 被弾した瞬間は荒いブラーで衝撃を出す
+            // 被弾した瞬間は荒いブラーとRGBずれで衝撃を出す
             boxFilterTimer_ = 18;
+            chromaticAberrationTimer_ = 14;
         }
         previousPlayerHp_ = player_->GetHp();
 
@@ -638,6 +655,12 @@ void GamePlayScene::Update()
         }
         if (boxFilterTimer_ > 0) {
             --boxFilterTimer_;
+        }
+        if (chromaticAberrationTimer_ > 0) {
+            --chromaticAberrationTimer_;
+        }
+        if (bloomTimer_ > 0) {
+            --bloomTimer_;
         }
 
         const float targetVignetteIntensity = isAimingGun ? 1.0f : 0.0f;
@@ -674,6 +697,12 @@ void GamePlayScene::Update()
             PostEffectType::LuminanceOutline,
             luminanceOutlineTimer_ > 0);
         context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::ChromaticAberration,
+            chromaticAberrationTimer_ > 0 || isLowHp);
+        context_.offscreenRenderer->SetPostEffectEnabled(
+            PostEffectType::Bloom,
+            bloomTimer_ > 0);
+        context_.offscreenRenderer->SetPostEffectEnabled(
             PostEffectType::DepthOutline,
             isLowHp);
         context_.offscreenRenderer->SetPostEffectEnabled(
@@ -686,6 +715,8 @@ void GamePlayScene::Update()
             context_.offscreenRenderer->SetRadialBlurWidth(0.0f);
             context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
             context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::RadialBlur, false);
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::ChromaticAberration, false);
+            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, false);
             context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Dissolve, true);
             if (!deathDissolveStarted_) {
                 // 死亡した瞬間から画面全体をディゾルブで崩す
@@ -1116,6 +1147,8 @@ void GamePlayScene::UpdateMeleeAttack()
 
             // ばれていない敵を近接で倒した瞬間だけ、輝度アウトラインで画面を光らせる
             luminanceOutlineTimer_ = 10;
+            // ステルス近接キル後の光をBloomでも少しにじませる
+            bloomTimer_ = 16;
 
             isMeleeAttacking_ = false;
             meleeVictim_ = nullptr;
@@ -1334,6 +1367,9 @@ void GamePlayScene::CheckGrenadeExplosions()
 
             // 爆発後は一瞬だけ荒いブラーを重ねる
             boxFilterTimer_ = 12;
+            // 爆発の衝撃はRGBずれ、爆発の火花はBloomで強調する
+            chromaticAberrationTimer_ = 16;
+            bloomTimer_ = 18;
         }
 
         for (auto& enemy : enemies_) {

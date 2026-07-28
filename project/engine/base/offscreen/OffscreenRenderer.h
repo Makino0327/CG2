@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #define NOMINMAX
 #include "../DirectX/DirectXCommon.h"
 #include "../srv/SrvManager.h"
@@ -17,6 +17,8 @@ enum class PostEffectType {
     RandomNoise,
     Shockwave,
     LuminanceOutline,
+    ChromaticAberration,
+    Bloom,
     DepthOutline,
 };
 
@@ -161,6 +163,10 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> depthOutlinePipelineState_;
     // 輝度差から輪郭を出すポストエフェクト用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> luminanceOutlinePipelineState_;
+    // RGBを少しずらして衝撃感を出すポストエフェクト用パイプライン
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> chromaticAberrationPipelineState_;
+    // 明るい部分をにじませて発光感を出すポストエフェクト用パイプライン
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> bloomPipelineState_;
     // ラジアルブラー用のパイプラインステート
     Microsoft::WRL::ComPtr<ID3D12PipelineState> radialBlurPipelineState_;
     // ディゾルブ用のパイプラインステート

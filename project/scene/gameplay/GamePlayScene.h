@@ -225,6 +225,10 @@ private:
     int luminanceOutlineTimer_ = 0;
     // 被弾や爆発の後にボックスフィルタを残すフレーム数
     int boxFilterTimer_ = 0;
+    // 被弾、爆発、ショットガン発射後にRGBずれを残すフレーム数
+    int chromaticAberrationTimer_ = 0;
+    // 発砲、爆発、ステルス近接キル後にBloomを残すフレーム数
+    int bloomTimer_ = 0;
     // 前フレームのプレイヤーHPを保存し、被弾した瞬間を検知する
     int previousPlayerHp_ = 3;
     // 死亡時のディゾルブを何度も最初から再生しないためのフラグ
