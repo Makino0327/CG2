@@ -1,0 +1,68 @@
+{
+    "name": "scene",
+    "objects": [
+        {
+            "type": "MESH",
+            "name": "floor_00",
+            "transform": {
+                "translation": [
+                    0.0,
+                    0.0,
+                    -1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    25.0,
+                    25.0,
+                    1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "object_kind": "floor",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Player_Boss",
+            "transform": {
+                "translation": [
+                    0.0,
+                    0.0,
+                    1.0
+                ],
+                "rotation": [
+                    90.00000762939453,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "player/player.obj",
+            "object_kind": "player"
+        }
+    ],
+    "nav_mesh": {
+        "vertices": [],
+        "triangles": []
+    }
+}

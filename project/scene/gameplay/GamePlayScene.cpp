@@ -81,6 +81,27 @@ namespace {
     }
 
 
+
+    // 球と箱の当たり判定を調べる
+    bool IsSphereHitBox(const SphereCollider& sphere, const Vector3& boxCenter, const Vector3& boxSize)
+    {
+        const Vector3 halfSize = {
+            boxSize.x * 0.5f,
+            boxSize.y * 0.5f,
+            boxSize.z * 0.5f
+        };
+
+        const float closestX = std::clamp(sphere.center.x, boxCenter.x - halfSize.x, boxCenter.x + halfSize.x);
+        const float closestY = std::clamp(sphere.center.y, boxCenter.y - halfSize.y, boxCenter.y + halfSize.y);
+        const float closestZ = std::clamp(sphere.center.z, boxCenter.z - halfSize.z, boxCenter.z + halfSize.z);
+
+        const float dx = sphere.center.x - closestX;
+        const float dy = sphere.center.y - closestY;
+        const float dz = sphere.center.z - closestZ;
+
+        return dx * dx + dy * dy + dz * dz <= sphere.radius * sphere.radius;
+    }
+
     bool TryConvertWorldToScreenUV(
         const Vector3& worldPosition,
         const Matrix4x4& viewProjectionMatrix,
@@ -168,13 +189,45 @@ void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
 
     for (const LevelObjectData& objectData : allObjects) {
         // Use the Player object as the spawn position source.
-        if (objectData.name == "Player") {
+        if (objectData.objectKind == "player" || objectData.name == "Player") {
             if (player_) {
                 player_->SetSpawnPosition(objectData.translation);
             }
             return;
         }
     }
+
+
+}
+
+bool GamePlayScene::CheckBossTeleport()
+{
+    if (!player_) {
+        return false;
+    }
+
+    const SphereCollider playerCollider = player_->GetCollider();
+
+    for (const BossTeleportData& teleport : bossTeleports_) {
+        if (teleport.targetLevel.empty()) {
+            continue;
+        }
+
+        if (!IsSphereHitBox(playerCollider, teleport.center, teleport.size)) {
+            continue;
+        }
+
+        // テレポーターを踏んだら、指定されたJSONを監視対象にしてレベルを読み直す
+        levelFilePath_ = teleport.targetLevel;
+        levelHotReload_.Initialize(levelFilePath_);
+        ReloadLevel(false);
+
+        reloadNoticeText_ = "Teleported to " + levelFilePath_;
+        reloadNoticeFrameCount_ = 180;
+        return true;
+    }
+
+    return false;
 }
 
 void GamePlayScene::ReloadLevel(bool isManualReload)
@@ -379,7 +432,7 @@ void GamePlayScene::Initialize()
 
         for (const LevelObjectData& objectData : allObjects) {
             // Blender上のPlayerオブジェクト位置をスポーン位置として使う
-            if (objectData.name == "Player") {
+            if (objectData.objectKind == "player" || objectData.name == "Player") {
                 player_->SetSpawnPosition(objectData.translation);
                 break;
             }
@@ -594,7 +647,7 @@ void GamePlayScene::Update()
 
     CheckCollisions();
 
-    if (enemies_.empty()) {
+    if (canClearCurrentLevel_ && enemies_.empty()) {
         sceneManager_->SetNextScene(std::make_unique<ClearScene>());
         return;
     }
@@ -1290,6 +1343,11 @@ void GamePlayScene::CheckCollisions()
         return;
     }
 
+    // テレポートでレベルを作り直したフレームは、古い敵や弾との判定を続けない
+    if (CheckBossTeleport()) {
+        return;
+    }
+
     for (auto& enemy : enemies_) {
         if (enemy->IsDead()) {
             continue;
@@ -1477,6 +1535,7 @@ void GamePlayScene::CreateMapObjects()
     wallObjects_.clear();
     floorColliders_.clear();
     wallColliders_.clear();
+    bossTeleports_.clear();
 
     LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
     navMeshData_ = levelData.navMesh;
@@ -1493,7 +1552,7 @@ void GamePlayScene::CreateMapObjects()
             continue;
         }
         // PlayerモデルはPlayerクラスが管理するため、マップ側では作らない
-        if (objectData.name == "Player") {
+        if (objectData.objectKind == "player" || objectData.name == "Player") {
             continue;
         }
 
@@ -1511,6 +1570,41 @@ void GamePlayScene::CreateMapObjects()
         mapObject->SetRotate(objectData.rotation);
         mapObject->SetTranslate(objectData.translation);
         mapObject->Update();
+
+        if (objectData.objectKind == "boss_teleport" || objectData.name.rfind("BossTeleport", 0) == 0) {
+            BossTeleportData teleport{};
+
+            if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
+                teleport.center.x =
+                    objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
+                teleport.center.y =
+                    objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
+                teleport.center.z =
+                    objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
+
+                teleport.size.x = objectData.collider.size.x * objectData.scaling.x;
+                teleport.size.y = objectData.collider.size.y * objectData.scaling.y;
+                teleport.size.z = objectData.collider.size.z * objectData.scaling.z;
+            } else {
+                // コライダーが無い場合は、BlenderのCube基準で見た目と同じくらいの範囲を使う
+                teleport.center = objectData.translation;
+                teleport.size = {
+                    objectData.scaling.x * 2.0f,
+                    objectData.scaling.y * 2.0f,
+                    objectData.scaling.z * 2.0f
+                };
+            }
+
+            // JSONに移動先が無い場合でも、ボステレポーターは標準のボスステージへ飛ばす
+            teleport.targetLevel = objectData.targetLevel.empty()
+                ? "Resources/level/bossStage.json"
+                : objectData.targetLevel;
+            bossTeleports_.push_back(teleport);
+
+            // テレポーターは床や壁の移動コライダーに混ぜず、見た目だけ描画する
+            floorObjects_.push_back(std::move(mapObject));
+            continue;
+        }
 
         if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
             LevelColliderData worldCollider = objectData.collider;
@@ -1538,6 +1632,7 @@ void GamePlayScene::CreateMapObjects()
             floorObjects_.push_back(std::move(mapObject));
         }
     }
+
 }
 
 void GamePlayScene::SpawnEnemies()
@@ -1624,4 +1719,7 @@ void GamePlayScene::SpawnEnemies()
 
         enemies_.push_back(std::move(enemy));
     }
+
+    // 最初から敵がいないレベルでは、読み込んだ瞬間にClearへ進まないようにする
+    canClearCurrentLevel_ = !enemies_.empty();
 }

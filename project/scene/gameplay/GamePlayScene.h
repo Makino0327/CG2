@@ -67,6 +67,8 @@ private:
     void ReloadLevel(bool isManualReload);
     // レベルデータからプレイヤーのスポーン位置を更新する
     void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
+    // ボステレポーターを踏んだか確認して、必要なら移動先レベルへ切り替える
+    bool CheckBossTeleport();
     // 左下の残弾UI用Spriteを現在の弾数に合わせて更新する
     void UpdateAmmoUiSprites();
     // 左下の残弾UI用Spriteを描画する
@@ -199,6 +201,14 @@ private:
     // Blender JSONから読み込んだ壁コライダー
     std::vector<LevelColliderData> wallColliders_;
 
+    // ボスステージへ移動するテレポーター情報
+    struct BossTeleportData {
+        Vector3 center{}; // テレポーター判定の中心
+        Vector3 size{}; // テレポーター判定の大きさ
+        std::string targetLevel; // 踏んだときに読み込むレベルJSON
+    };
+    std::vector<BossTeleportData> bossTeleports_;
+
     // 敵AI用のNavMeshデータ
     LevelNavMeshData navMeshData_;
 
@@ -210,6 +220,9 @@ private:
     std::string reloadNoticeText_;
     // リロード通知をImGuiに表示する残りフレーム数
     uint32_t reloadNoticeFrameCount_ = 0;
+
+    // このレベルに敵が配置されていた場合だけ、敵全滅でClearへ進める
+    bool canClearCurrentLevel_ = false;
 
     // ミニマップの読み込み、更新、描画を管理する
     std::unique_ptr<Minimap> minimap_;

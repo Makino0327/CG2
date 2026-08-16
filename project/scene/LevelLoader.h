@@ -16,6 +16,8 @@ struct LevelObjectData {
     std::string type; // Blender の object.type
     std::string name; // Blender の object.name
     std::string fileName; // 表示に使うモデル名
+    std::string objectKind; // Blender側で設定したゲーム用の種類
+    std::string targetLevel; // テレポーターで移動する先のレベルJSON
     Vector3 translation; // 平行移動
     Vector3 rotation; // 回転
     Vector3 scaling; // 拡大縮小
