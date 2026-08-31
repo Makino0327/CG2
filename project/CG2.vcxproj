@@ -169,6 +169,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
     <ClCompile Include="scene\clear\ClearScene.cpp" />
     <ClCompile Include="game\collision\Collision.cpp" />
+    <ClCompile Include="game\boss\Boss.cpp" />
     <ClCompile Include="game\enemy\Enemy.cpp" />
     <ClCompile Include="game\camera\FollowCamera.cpp" />
     <ClCompile Include="game\camera\DebugCamera.cpp" />
@@ -403,6 +404,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="scene\gameover\GameOverScene.h" />
     <ClInclude Include="scene\clear\ClearScene.h" />
     <ClInclude Include="game\collision\Collision.h" />
+    <ClInclude Include="game\boss\Boss.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />

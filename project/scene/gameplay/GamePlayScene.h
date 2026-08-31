@@ -17,6 +17,7 @@
 #include "../../engine/3d/obj3d/DebugSkeletonRenderer.h"
 #include "../../game/camera/DebugCamera.h"
 #include "../../game/player/Player.h"
+#include "../../game/boss/Boss.h"
 #include "../../game/camera/FollowCamera.h"
 #include "../../game/enemy/Enemy.h"
 #include "../../game/map/MapChipField.h"
@@ -63,14 +64,22 @@ private:
     void CreateMapObjects();
     // レベルデータから敵を生成する
     void SpawnEnemies();
+    // レベルデータからボスを生成する
+    void SpawnBosses();
     // レベルデータを読み直してゲーム内オブジェクトを再構築する
     void ReloadLevel(bool isManualReload);
     // レベルデータからプレイヤーのスポーン位置を更新する
     void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
+    // ボステレポーターを踏んだか確認して、必要なら移動先レベルへ切り替える
+    bool CheckBossTeleport();
     // 左下の残弾UI用Spriteを現在の弾数に合わせて更新する
     void UpdateAmmoUiSprites();
     // 左下の残弾UI用Spriteを描画する
     void DrawAmmoUiSprites();
+    // ボスHPバー用Spriteを現在HPに合わせて更新する
+    void UpdateBossHpUiSprites();
+    // ボスHPバー用Spriteを描画する
+    void DrawBossHpUiSprites();
     // 発射した弾が前へ飛び出して消える演出を開始する
     void SpawnAmmoFireEffect(const Vector2& center, const Vector2& size);
     // 発射演出の経過を進めてSpriteへ反映する
@@ -110,6 +119,19 @@ private:
     /// 敵
     // 現在出現している敵
     std::vector<std::unique_ptr<Enemy>> enemies_;
+
+    /// ボス
+    // 現在出現しているボス
+    std::vector<std::unique_ptr<Boss>> bosses_;
+
+    // ボスHPバーの背景Sprite
+    std::unique_ptr<Sprite> bossHpBackgroundSprite_;
+
+    // ボスHPバーの残量Sprite
+    std::unique_ptr<Sprite> bossHpFillSprite_;
+
+    // ボスHPバーの外枠Sprite
+    std::unique_ptr<Sprite> bossHpFrameSprite_;
     // 自動配置で出現させる敵の数
     uint32_t enemyCount_ = 10;
     // プレイヤー周辺に敵を自動配置するときの半径
@@ -198,6 +220,14 @@ private:
 
     // Blender JSONから読み込んだ壁コライダー
     std::vector<LevelColliderData> wallColliders_;
+
+    // ボスステージへ移動するテレポーター情報
+    struct BossTeleportData {
+        Vector3 center{}; // テレポーター判定の中心
+        Vector3 size{}; // テレポーター判定の大きさ
+        std::string targetLevel; // 踏んだときに読み込むレベルJSON
+    };
+    std::vector<BossTeleportData> bossTeleports_;
 
     // 敵AI用のNavMeshデータ
     LevelNavMeshData navMeshData_;

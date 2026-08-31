@@ -2,41 +2,6 @@
     "name": "scene",
     "objects": [
         {
-            "type": "MESH",
-            "name": "Floor",
-            "transform": {
-                "translation": [
-                    0.0,
-                    0.0,
-                    -1.0
-                ],
-                "rotation": [
-                    0.0,
-                    -0.0,
-                    0.0
-                ],
-                "scaling": [
-                    50.0,
-                    50.0,
-                    1.0
-                ]
-            },
-            "file_name": "cube.obj",
-            "collider": {
-                "type": "BOX",
-                "center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                "size": [
-                    2.0,
-                    2.0,
-                    2.0
-                ]
-            }
-        },
-        {
             "type": "LIGHT",
             "name": "Light",
             "transform": {
@@ -98,7 +63,8 @@
                     1.0
                 ]
             },
-            "file_name": "player/player.obj"
+            "file_name": "player/player.obj",
+            "object_kind": "player"
         },
         {
             "type": "MESH",
@@ -121,6 +87,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -156,6 +123,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -191,6 +159,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -226,6 +195,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -261,6 +231,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -295,7 +266,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -359,7 +331,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -424,6 +397,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -459,6 +433,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -492,7 +467,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -513,7 +489,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -534,7 +511,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -555,7 +533,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -578,6 +557,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -613,6 +593,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -648,6 +629,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -682,7 +664,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -703,7 +686,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -724,7 +708,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -746,7 +731,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -767,7 +753,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -788,7 +775,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -811,6 +799,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -846,6 +835,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -881,6 +871,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -916,6 +907,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -951,6 +943,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -985,7 +978,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1006,7 +1000,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1027,7 +1022,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1048,7 +1044,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1069,7 +1066,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1091,7 +1089,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1112,7 +1111,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1133,7 +1133,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1154,7 +1155,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "EMPTY",
@@ -1175,7 +1177,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1198,6 +1201,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -1232,7 +1236,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1253,7 +1258,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1275,7 +1281,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1296,7 +1303,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1318,7 +1326,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1339,7 +1348,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1361,7 +1371,8 @@
                     1.0
                 ]
             },
-            "file_name": "enemy/enemy.obj"
+            "file_name": "enemy/enemy.obj",
+            "object_kind": "enemy"
         },
         {
             "type": "EMPTY",
@@ -1382,7 +1393,8 @@
                     1.0,
                     1.0
                 ]
-            }
+            },
+            "object_kind": "enemy_waypoint"
         },
         {
             "type": "MESH",
@@ -1405,6 +1417,7 @@
                 ]
             },
             "file_name": "cube.obj",
+            "object_kind": "wall",
             "collider": {
                 "type": "BOX",
                 "center": [
@@ -1421,12 +1434,84 @@
         },
         {
             "type": "MESH",
-            "name": "wall_16",
+            "name": "BossTeleport_00",
+            "transform": {
+                "translation": [
+                    20.0,
+                    20.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.5,
+                    1.5,
+                    0.20000000298023224
+                ]
+            },
+            "file_name": "cube.obj",
+            "object_kind": "boss_teleport",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    8.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Floor.001",
             "transform": {
                 "translation": [
                     0.0,
                     0.0,
+                    -1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    50.0,
+                    50.0,
                     1.0
+                ]
+            },
+            "file_name": "cube.obj",
+            "object_kind": "floor",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "size": [
+                    2.0,
+                    2.0,
+                    2.0
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "立方体",
+            "transform": {
+                "translation": [
+                    0.0,
+                    0.0,
+                    0.0
                 ],
                 "rotation": [
                     0.0,
@@ -1438,8 +1523,30 @@
                     1.0,
                     1.0
                 ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Floor",
+            "transform": {
+                "translation": [
+                    0.0,
+                    0.0,
+                    -1.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    50.0,
+                    50.0,
+                    1.0
+                ]
             },
             "file_name": "cube.obj",
+            "object_kind": "floor",
             "collider": {
                 "type": "BOX",
                 "center": [

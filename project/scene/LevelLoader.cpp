@@ -76,6 +76,16 @@ static LevelObjectData ParseObject(const json& objectJson) {
         objectData.fileName = objectJson["file_name"].get<std::string>(); // モデル名を読む
     }
 
+    // Blender側で設定したゲーム用の種類を読む
+    if (objectJson.contains("object_kind")) {
+        objectData.objectKind = objectJson["object_kind"].get<std::string>();
+    }
+
+    // テレポーターが持つ移動先レベルJSONを読む
+    if (objectJson.contains("target_level")) {
+        objectData.targetLevel = objectJson["target_level"].get<std::string>();
+    }
+
     const json& transform = objectJson["transform"];
 
     // Blender座標系からゲーム座標系へ変換して位置を入れる

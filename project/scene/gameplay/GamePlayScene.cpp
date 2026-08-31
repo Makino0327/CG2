@@ -80,6 +80,26 @@ namespace {
         return allObjects;
     }
 
+    // 球と箱の当たり判定を調べる
+    bool IsSphereHitBox(const SphereCollider& sphere, const Vector3& boxCenter, const Vector3& boxSize)
+    {
+        const Vector3 halfSize = {
+            boxSize.x * 0.5f,
+            boxSize.y * 0.5f,
+            boxSize.z * 0.5f
+        };
+
+        const float closestX = std::clamp(sphere.center.x, boxCenter.x - halfSize.x, boxCenter.x + halfSize.x);
+        const float closestY = std::clamp(sphere.center.y, boxCenter.y - halfSize.y, boxCenter.y + halfSize.y);
+        const float closestZ = std::clamp(sphere.center.z, boxCenter.z - halfSize.z, boxCenter.z + halfSize.z);
+
+        const float dx = sphere.center.x - closestX;
+        const float dy = sphere.center.y - closestY;
+        const float dz = sphere.center.z - closestZ;
+
+        return dx * dx + dy * dy + dz * dz <= sphere.radius * sphere.radius;
+    }
+
 
     bool TryConvertWorldToScreenUV(
         const Vector3& worldPosition,
@@ -168,13 +188,43 @@ void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
 
     for (const LevelObjectData& objectData : allObjects) {
         // Use the Player object as the spawn position source.
-        if (objectData.name == "Player") {
+        if (objectData.objectKind == "player" || objectData.name == "Player") {
             if (player_) {
                 player_->SetSpawnPosition(objectData.translation);
             }
             return;
         }
     }
+}
+
+bool GamePlayScene::CheckBossTeleport()
+{
+    if (!player_) {
+        return false;
+    }
+
+    const SphereCollider playerCollider = player_->GetCollider();
+
+    for (const BossTeleportData& teleport : bossTeleports_) {
+        if (teleport.targetLevel.empty()) {
+            continue;
+        }
+
+        if (!IsSphereHitBox(playerCollider, teleport.center, teleport.size)) {
+            continue;
+        }
+
+        // テレポーターを踏んだら、指定されたJSONを監視対象にしてレベルを読み直す
+        levelFilePath_ = teleport.targetLevel;
+        levelHotReload_.Initialize(levelFilePath_);
+        ReloadLevel(false);
+
+        reloadNoticeText_ = "Teleported to " + levelFilePath_;
+        reloadNoticeFrameCount_ = 180;
+        return true;
+    }
+
+    return false;
 }
 
 void GamePlayScene::ReloadLevel(bool isManualReload)
@@ -197,6 +247,7 @@ void GamePlayScene::ReloadLevel(bool isManualReload)
 
     // Recreate enemies from the current level data.
     SpawnEnemies();
+    SpawnBosses();
 
     // Sync the current file timestamp after a successful reload.
     levelHotReload_.SyncCurrentWriteTime();
@@ -238,6 +289,7 @@ void GamePlayScene::Initialize()
     // Gキーで投げるグレネードモデルを読み込む
     ModelManager::GetInstance()->LoadModel("grenade/grenade.obj");
     ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
+    ModelManager::GetInstance()->LoadModel("boss/boss.obj");
     ModelManager::GetInstance()->LoadModel("block/block.obj");
 
     auto texMan = TextureManager::GetInstance();
@@ -325,6 +377,36 @@ void GamePlayScene::Initialize()
     ammoUiPrevAmmo_ = -1;
     ammoUiPrevMaxAmmo_ = -1;
     ammoUiPrevMode_ = Player::AttackMode::Knife;
+
+    // ボスHPバーの背景を作る
+    bossHpBackgroundSprite_ = std::make_unique<Sprite>();
+    bossHpBackgroundSprite_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/white2x2.png");
+    bossHpBackgroundSprite_->SetAnchorPoint({ 0.5f, 0.0f });
+    bossHpBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.0f });
+    bossHpBackgroundSprite_->Update();
+
+    // ボスHPバーの残量を作る
+    bossHpFillSprite_ = std::make_unique<Sprite>();
+    bossHpFillSprite_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/white2x2.png");
+    bossHpFillSprite_->SetAnchorPoint({ 0.0f, 0.0f });
+    bossHpFillSprite_->SetColor({ 0.95f, 0.05f, 0.03f, 0.0f });
+    bossHpFillSprite_->Update();
+
+    // ボスHPバーの外枠を作る
+    bossHpFrameSprite_ = std::make_unique<Sprite>();
+    bossHpFrameSprite_->Initialize(
+        context_.spriteCommon,
+        directionalLightResource_.Get(),
+        "Resources/white2x2.png");
+    bossHpFrameSprite_->SetAnchorPoint({ 0.5f, 0.0f });
+    bossHpFrameSprite_->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
+    bossHpFrameSprite_->Update();
 
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
@@ -444,6 +526,7 @@ void GamePlayScene::Update()
         if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
             player_->Respawn();
             SpawnEnemies();
+            SpawnBosses();
 
             if (context_.offscreenRenderer) {
                 context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
@@ -475,6 +558,10 @@ void GamePlayScene::Update()
 
         for (auto& enemy : enemies_) {
             enemy->UpdateRenderOnly();
+        }
+
+        for (auto& boss : bosses_) {
+            boss->Update();
         }
 
         for (auto& floorObject : floorObjects_) {
@@ -565,6 +652,21 @@ void GamePlayScene::Update()
         ResolveEnemyOverlap();
     }
 
+    for (auto& boss : bosses_) {
+        // ボスのHP状態と撃破演出を更新する
+        boss->Update();
+    }
+
+    bosses_.erase(
+        std::remove_if(
+            bosses_.begin(),
+            bosses_.end(),
+            [](const std::unique_ptr<Boss>& boss) {
+                // 撃破演出が終わったボスを消す
+                return boss->IsReadyToRemove();
+            }),
+        bosses_.end());
+
     // ミニマップへ渡す生存中の敵位置を集める
     std::vector<Vector3> minimapEnemyPositions;
 
@@ -589,12 +691,15 @@ void GamePlayScene::Update()
     // 残弾数に合わせて左下の弾UIを更新する
     UpdateAmmoUiSprites();
 
+    // ボスのHPに合わせて画面上部のHPバーを更新する
+    UpdateBossHpUiSprites();
+
     // 全敵の視界判定後に近接攻撃を処理する
     UpdateMeleeAttack();
 
     CheckCollisions();
 
-    if (enemies_.empty()) {
+    if (enemies_.empty() && bosses_.empty()) {
         sceneManager_->SetNextScene(std::make_unique<ClearScene>());
         return;
     }
@@ -660,6 +765,10 @@ void GamePlayScene::Draw()
 
     for (auto& enemy : enemies_) {
         enemy->Draw();
+    }
+
+    for (auto& boss : bosses_) {
+        boss->Draw();
     }
 
     for (auto& floorObject : floorObjects_) {
@@ -742,6 +851,9 @@ void GamePlayScene::Draw()
     if (minimap_) {
         minimap_->Draw();
     }
+
+    // 画面上部にボスHPバーを描画する
+    DrawBossHpUiSprites();
 
     // 左下に残弾UIを描画する
     DrawAmmoUiSprites();
@@ -970,6 +1082,100 @@ void GamePlayScene::DrawAmmoUiSprites()
         }
     }
 }
+
+void GamePlayScene::UpdateBossHpUiSprites()
+{
+    constexpr float kBarWidth = 520.0f;
+    constexpr float kBarHeight = 24.0f;
+    constexpr float kFramePadding = 4.0f;
+    const Vector2 barPosition = {
+        static_cast<float>(WinApp::kClientWidth) * 0.5f,
+        28.0f
+    };
+
+    Boss* activeBoss = nullptr;
+    for (const auto& boss : bosses_) {
+        if (!boss || boss->IsReadyToRemove()) {
+            continue;
+        }
+        activeBoss = boss.get();
+        break;
+    }
+
+    if (!activeBoss) {
+        // ボスがいない時はHPバーを透明にする
+        if (bossHpBackgroundSprite_) {
+            bossHpBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.0f });
+            bossHpBackgroundSprite_->Update();
+        }
+        if (bossHpFillSprite_) {
+            bossHpFillSprite_->SetColor({ 0.95f, 0.05f, 0.03f, 0.0f });
+            bossHpFillSprite_->Update();
+        }
+        if (bossHpFrameSprite_) {
+            bossHpFrameSprite_->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
+            bossHpFrameSprite_->Update();
+        }
+        return;
+    }
+
+    const float hpRate = std::clamp(
+        static_cast<float>(activeBoss->GetHp()) /
+            static_cast<float>(activeBoss->GetMaxHp()),
+        0.0f,
+        1.0f);
+
+    if (bossHpFrameSprite_) {
+        // 白い外枠を少し大きく敷く
+        bossHpFrameSprite_->SetPosition({
+            barPosition.x,
+            barPosition.y - kFramePadding
+        });
+        bossHpFrameSprite_->SetSize({
+            kBarWidth + kFramePadding * 2.0f,
+            kBarHeight + kFramePadding * 2.0f
+        });
+        bossHpFrameSprite_->SetColor({ 1.0f, 1.0f, 1.0f, 0.85f });
+        bossHpFrameSprite_->Update();
+    }
+
+    if (bossHpBackgroundSprite_) {
+        // HPが減った後も最大HP幅が分かるように黒背景を置く
+        bossHpBackgroundSprite_->SetPosition(barPosition);
+        bossHpBackgroundSprite_->SetSize({ kBarWidth, kBarHeight });
+        bossHpBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.75f });
+        bossHpBackgroundSprite_->Update();
+    }
+
+    if (bossHpFillSprite_) {
+        // 左端を固定して、HP割合分だけ赤バーを縮める
+        bossHpFillSprite_->SetPosition({
+            barPosition.x - kBarWidth * 0.5f,
+            barPosition.y
+        });
+        bossHpFillSprite_->SetSize({ kBarWidth * hpRate, kBarHeight });
+        bossHpFillSprite_->SetColor({ 0.95f, 0.05f, 0.03f, 0.95f });
+        bossHpFillSprite_->Update();
+    }
+}
+
+void GamePlayScene::DrawBossHpUiSprites()
+{
+    if (bosses_.empty()) {
+        return;
+    }
+
+    // 奥から外枠、背景、残量の順で描画する
+    if (bossHpFrameSprite_) {
+        bossHpFrameSprite_->Draw();
+    }
+    if (bossHpBackgroundSprite_) {
+        bossHpBackgroundSprite_->Draw();
+    }
+    if (bossHpFillSprite_) {
+        bossHpFillSprite_->Draw();
+    }
+}
 void GamePlayScene::EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction)
 {
     if (!particleSystem_) {
@@ -1186,6 +1392,9 @@ void GamePlayScene::Finalize()
 {
     sprites_.clear();
     ammoSprites_.clear();
+    bossHpBackgroundSprite_.reset();
+    bossHpFillSprite_.reset();
+    bossHpFrameSprite_.reset();
     meleeMarker_.reset();
     meleeTarget_ = nullptr;
     meleeVictim_ = nullptr;
@@ -1208,6 +1417,7 @@ void GamePlayScene::Finalize()
     debugCamera_.reset();
     player_.reset();
     enemies_.clear();
+    bosses_.clear();
 
     // ミニマップが所有するSpriteを解放する
     minimap_.reset();
@@ -1290,6 +1500,11 @@ void GamePlayScene::CheckCollisions()
         return;
     }
 
+    // テレポートでレベルを作り直したフレームは、古い敵や弾との判定を続けない
+    if (CheckBossTeleport()) {
+        return;
+    }
+
     for (auto& enemy : enemies_) {
         if (enemy->IsDead()) {
             continue;
@@ -1325,6 +1540,23 @@ void GamePlayScene::CheckCollisions()
 
                 bullet->OnHit();
                 enemy->OnHit(hitPosition, hitDirection);
+                break;
+            }
+        }
+
+        if (bullet->IsDead()) {
+            continue;
+        }
+
+        for (auto& boss : bosses_) {
+            if (boss->IsDead()) {
+                continue;
+            }
+
+            if (Collision::IsHit(bullet->GetCollider(), boss->GetCollider())) {
+                // ボスに弾が当たったら弾を消して、ボスHPを1減らす
+                bullet->OnHit();
+                boss->OnHit();
                 break;
             }
         }
@@ -1477,6 +1709,7 @@ void GamePlayScene::CreateMapObjects()
     wallObjects_.clear();
     floorColliders_.clear();
     wallColliders_.clear();
+    bossTeleports_.clear();
 
     LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
     navMeshData_ = levelData.navMesh;
@@ -1493,7 +1726,7 @@ void GamePlayScene::CreateMapObjects()
             continue;
         }
         // PlayerモデルはPlayerクラスが管理するため、マップ側では作らない
-        if (objectData.name == "Player") {
+        if (objectData.objectKind == "player" || objectData.name == "Player") {
             continue;
         }
 
@@ -1511,6 +1744,41 @@ void GamePlayScene::CreateMapObjects()
         mapObject->SetRotate(objectData.rotation);
         mapObject->SetTranslate(objectData.translation);
         mapObject->Update();
+
+        if (objectData.objectKind == "boss_teleport" || objectData.name.rfind("BossTeleport", 0) == 0) {
+            BossTeleportData teleport{};
+
+            if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
+                teleport.center.x =
+                    objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
+                teleport.center.y =
+                    objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
+                teleport.center.z =
+                    objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
+
+                teleport.size.x = objectData.collider.size.x * objectData.scaling.x;
+                teleport.size.y = objectData.collider.size.y * objectData.scaling.y;
+                teleport.size.z = objectData.collider.size.z * objectData.scaling.z;
+            } else {
+                // コライダーが無い場合は、BlenderのCube基準で見た目と同じくらいの範囲を使う
+                teleport.center = objectData.translation;
+                teleport.size = {
+                    objectData.scaling.x * 2.0f,
+                    objectData.scaling.y * 2.0f,
+                    objectData.scaling.z * 2.0f
+                };
+            }
+
+            // JSONに移動先が無い場合でも、ボステレポーターは標準のボスステージへ飛ばす
+            teleport.targetLevel = objectData.targetLevel.empty()
+                ? "Resources/level/bossStage.json"
+                : objectData.targetLevel;
+            bossTeleports_.push_back(teleport);
+
+            // テレポーターは床や壁の移動コライダーに混ぜず、見た目だけ描画する
+            floorObjects_.push_back(std::move(mapObject));
+            continue;
+        }
 
         if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
             LevelColliderData worldCollider = objectData.collider;
@@ -1580,6 +1848,11 @@ void GamePlayScene::SpawnEnemies()
 
         // Enemyオブジェクトは敵の出現位置として扱う
         if (name.rfind("Enemy_", 0) == 0 || name.rfind("enemy_", 0) == 0) {
+            if (objectData.fileName == "boss/boss.obj") {
+                // ボスモデルはBossクラスで生成するため、通常敵には入れない
+                continue;
+            }
+
             // 後で敵を作るために出現位置を保存する
             enemySpawnMap[name] = objectData.translation;
         }
@@ -1623,5 +1896,33 @@ void GamePlayScene::SpawnEnemies()
         enemy->SetWaypoints(waypoints);
 
         enemies_.push_back(std::move(enemy));
+    }
+}
+
+void GamePlayScene::SpawnBosses()
+{
+    // レベルデータからボスを作り直す
+    bosses_.clear();
+
+    // 現在のBlenderレベルJSONを読み込む
+    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
+
+    // ボスオブジェクトを探す前にレベル階層を平坦化する
+    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+
+    for (const LevelObjectData& objectData : allObjects) {
+        if (objectData.fileName != "boss/boss.obj") {
+            continue;
+        }
+
+        auto boss = std::make_unique<Boss>();
+        boss->Initialize(
+            context_.object3dCommon,
+            context_.camera,
+            objectData.translation,
+            objectData.rotation,
+            objectData.scaling);
+
+        bosses_.push_back(std::move(boss));
     }
 }
