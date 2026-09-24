@@ -87,6 +87,53 @@ namespace {
         return weightA >= margin && weightB >= margin && weightC >= margin;
     }
 
+    // 線分が3Dの箱に触れるか調べる。視線用なので敵の体の半径は加えない
+    bool IntersectSightSegmentAabb(
+        const Vector3& start,
+        const Vector3& end,
+        const Vector3& boxCenter,
+        const Vector3& boxSize) {
+        // 線分の始点を0、終点を1として、箱の中を通る区間を絞り込む
+        float tMin = 0.0f;
+        float tMax = 1.0f;
+        const float startValues[] = { start.x, start.y, start.z };
+        const float endValues[] = { end.x, end.y, end.z };
+        const float centerValues[] = { boxCenter.x, boxCenter.y, boxCenter.z };
+        const float sizeValues[] = { boxSize.x, boxSize.y, boxSize.z };
+
+        // X・Y・Zのすべてで、線分が箱の範囲に入る共通区間を探す
+        for (int axis = 0; axis < 3; ++axis) {
+            const float halfSize = std::fabs(sizeValues[axis]) * 0.5f;
+            const float minValue = centerValues[axis] - halfSize;
+            const float maxValue = centerValues[axis] + halfSize;
+            const float direction = endValues[axis] - startValues[axis];
+
+            // この軸に沿って動かない線分は、箱の範囲外なら交差しない
+            if (std::fabs(direction) < 0.0001f) {
+                if (startValues[axis] < minValue || startValues[axis] > maxValue) {
+                    return false;
+                }
+                continue;
+            }
+
+            // 箱に入る位置と出る位置を求め、負方向の線分でも小さい順に並べる
+            float enterT = (minValue - startValues[axis]) / direction;
+            float exitT = (maxValue - startValues[axis]) / direction;
+            if (enterT > exitT) {
+                std::swap(enterT, exitT);
+            }
+
+            if (enterT > tMin) { tMin = enterT; }
+            if (exitT < tMax) { tMax = exitT; }
+            if (tMin > tMax) {
+                return false;
+            }
+        }
+
+        // 共通区間が残っていれば、プレイヤーまでの視線が箱に遮られている
+        return true;
+    }
+
     // 直線がXZ平面上のAABBへ入る位置を求める
     bool IntersectSegmentAabbXZ(
         const Vector3& start,
@@ -156,10 +203,17 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
 
     // 再生成時はプレイヤー発見状態も解除する
     hasDetectedPlayer_ = false;
+    isChasing_ = false;
+    isTargetInSight_ = false;
+    lastSeenPosition_ = position;
     isReturningToPatrol_ = false;
-    lostSightGraceTimer_ = 0;
+    lostSightSearchTimer_ = 0;
     lostSightLookTimer_ = 0;
     lostSightLookStartYaw_ = 0.0f;
+    hearingTimer_ = 0;
+    navMeshPath_.clear();
+    navMeshPathRefreshTimer_ = 0;
+    navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
 
     // 死亡演出の状態も初期化する
     deathEffectTimer_ = 0.0f;
@@ -196,90 +250,81 @@ void Enemy::Update()
 
     // 前フレームの状態を保存する
     prevPosition_ = position_;
-    wasChasing_ = isChasing_;
+    const bool wasTargetInSight = isTargetInSight_;
 
     // 次に使う位置を現在の描画位置から取得する
     Vector3 nextPosition = object->GetTranslate();
 
-    // プレイヤーまでのXZ方向ベクトルを求める
-    Vector3 toPlayer = {
-        targetPosition_.x - position_.x,
-        0.0f,
-        targetPosition_.z - position_.z
-    };
-
-    // プレイヤーまでのXZ距離を求める
-    float distanceToPlayer = std::sqrt(
-        toPlayer.x * toPlayer.x +
-        toPlayer.z * toPlayer.z
-    );
+    // 壁に遮られている場合は、このフレームの位置を記憶しない
     isTargetInSight_ = CheckTargetInSight();
 
-    // 視界に入ったら追跡を開始する
-    if (!isChasing_ && isTargetInSight_) {
-        // 追跡開始フラグを立てる
+    if (isTargetInSight_) {
+        // 発見・再発見時は、捜索や巡回へ戻るための経路を破棄する
+        if (!isChasing_ || !wasTargetInSight) {
+            navMeshPath_.clear();
+            navMeshPathRefreshTimer_ = 0;
+            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        }
+
+        // 見えている間だけ記憶を更新し、どの状態からでも追跡へ戻る
+        lastSeenPosition_ = targetPosition_;
         isChasing_ = true;
         isReturningToPatrol_ = false;
-        lostSightGraceTimer_ = 0;
+        lostSightSearchTimer_ = 0;
         lostSightLookTimer_ = 0;
+        hearingTimer_ = 0;
 
         // 一度発見したことを記録する
         // このフラグは巡回へ戻っても解除しない
         hasDetectedPlayer_ = true;
-    }
+    } else if (isChasing_) {
+        // 見失ったら現在位置は追わず、記憶した位置への経路を作り直す
+        if (wasTargetInSight) {
+            navMeshPath_.clear();
+            navMeshPathRefreshTimer_ = 0;
+            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        }
+        lostSightSearchTimer_++;
 
-    // 視界から少し外れただけでは見失わず、少し猶予を持たせる
-    if (isChasing_) {
-        if (isTargetInSight_ && distanceToPlayer <= chaseKeepRange_) {
-            lostSightGraceTimer_ = 0;
-        } else {
-            lostSightGraceTimer_++;
+        // 記憶した場所へ到着したら捜索する。到達できない場合も時間で切り替える
+        const float distanceSq = GetDistanceSqXZ(position_, lastSeenPosition_);
+        if (distanceSq <= lastSeenReachDistance_ * lastSeenReachDistance_ ||
+            lostSightSearchTimer_ >= lostSightSearchMaxFrames_) {
+            isChasing_ = false;
+            lostSightSearchTimer_ = 0;
+            lostSightLookTimer_ = lostSightLookDuration_;
+            lostSightLookStartYaw_ = rotation_.y;
+            hearingTimer_ = 0;
+            navMeshPath_.clear();
+            navMeshPathRefreshTimer_ = 0;
+            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
         }
     }
 
-    // 見失ったり遠くへ離れすぎたりしたら、すぐ巡回へ戻らず2秒だけ周囲を見る
-    if (isChasing_ && lostSightGraceTimer_ >= 300) {
-        // 追跡終了フラグを下ろす
-        isChasing_ = false;
-        lostSightGraceTimer_ = 0;
-        lostSightLookTimer_ = 120;
-        lostSightLookStartYaw_ = rotation_.y;
-        navMeshPath_.clear();
-        navMeshPathRefreshTimer_ = 0;
-        navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-    }
-
-    // 追跡終了時は、見失い確認が終わっている場合だけ巡回へ戻す
-    if (wasChasing_ && !isChasing_ && lostSightLookTimer_ <= 0) {
-        // 巡回ルートへ復帰する
-        waypointMover_.ResumePatrol();
-        isReturningToPatrol_ = true;
-        navMeshPath_.clear();
-        navMeshPathRefreshTimer_ = 0;
-        navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-    }
-
-    if (isChasing_ && distanceToPlayer > 0.001f) {
-        // 追跡中は音への警戒を打ち切って追跡を優先する
+    if (isChasing_) {
+        // 追跡中と記憶した場所への移動中は、音への警戒を打ち切る
         hearingTimer_ = 0;
 
-        // 壁で直線追跡できない場合は、壁の角へ回り込む方向を使う
-        Vector3 direction = CalculateNavMeshChaseDirection(targetPosition_);
+        // 見えていれば最新位置、見失っていれば最後に見た位置へ壁を回り込んで進む
+        Vector3 direction = CalculateNavMeshChaseDirection(lastSeenPosition_);
+        const float distanceToLastSeen = std::sqrt(GetDistanceSqXZ(position_, lastSeenPosition_));
+        const float step = (distanceToLastSeen < moveSpeed_) ? distanceToLastSeen : moveSpeed_;
 
         // 回り込める方向がある場合だけ移動する
         if (direction.x != 0.0f || direction.z != 0.0f) {
-            nextPosition.x += direction.x * moveSpeed_;
-            nextPosition.z += direction.z * moveSpeed_;
+            nextPosition.x += direction.x * step;
+            nextPosition.z += direction.z * step;
 
             // 実際に進む方向へ少しずつ向く
             const float targetYaw = std::atan2(direction.x, direction.z);
             rotation_.y = ApproachAngle(rotation_.y, targetYaw, 0.05f, 0.04f);
         }
     } else if (lostSightLookTimer_ > 0) {
-        // 見失った直後はその場に止まり、左右を見渡す
+        // 記憶した場所へ到着したら、その場に止まって左右を見渡す
         lostSightLookTimer_--;
 
-        const float lookProgress = 1.0f - static_cast<float>(lostSightLookTimer_) / 120.0f;
+        const float lookProgress = 1.0f - static_cast<float>(lostSightLookTimer_) /
+            static_cast<float>(lostSightLookDuration_);
         const float lookOffset = std::sin(lookProgress * 6.28318530f) * 1.0f;
         rotation_.y = lostSightLookStartYaw_ + lookOffset;
 
@@ -1361,11 +1406,18 @@ Vector3 Enemy::CalculateChaseDirection(const Vector3& chaseTarget) const
 
 bool Enemy::CheckTargetInSight() const
 {
-    // 敵からターゲットへのベクトルを求める
+    // 敵の目の位置を、視野角と壁による遮断の両方で使う
+    const Vector3 sightOrigin = {
+        position_.x,
+        position_.y + sightHeight_,
+        position_.z
+    };
+
+    // 敵の目からプレイヤーの中心へのベクトルを求める
     Vector3 toTarget = {
-        targetPosition_.x - position_.x,
-        targetPosition_.y - (position_.y + sightHeight_),
-        targetPosition_.z - position_.z
+        targetPosition_.x - sightOrigin.x,
+        targetPosition_.y - sightOrigin.y,
+        targetPosition_.z - sightOrigin.z
     };
 
     const float distance3D = std::sqrt(
@@ -1413,7 +1465,28 @@ bool Enemy::CheckTargetInSight() const
 
     // 垂直方向の視野角も判定する
     const float verticalAngle = std::atan2(std::fabs(toTarget.y), distanceXZ);
-    return verticalAngle <= sightVerticalHalfAngleRad_;
+    if (verticalAngle > sightVerticalHalfAngleRad_) {
+        return false;
+    }
+
+    // 視野内にいる場合だけ、目からプレイヤーまでの線分と壁の交差を調べる
+    if (wallColliders_) {
+        for (const LevelColliderData& collider : *wallColliders_) {
+            // 有効なBOX型の壁だけが視線を遮る
+            if (!collider.hasCollider || collider.type != "BOX") {
+                continue;
+            }
+
+            // 壁の高さも含めて判定し、低い壁の上を通る視線は遮らない
+            if (IntersectSightSegmentAabb(
+                sightOrigin, targetPosition_, collider.center, collider.size)) {
+                return false;
+            }
+        }
+    }
+
+    // 距離・視野角を満たし、途中に壁がなければプレイヤーが見えている
+    return true;
 }
 
 void Enemy::AppendVisionDebugLines(DebugLine3D& debugLine) const

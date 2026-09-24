@@ -74,17 +74,30 @@ DirectX::ScratchImage TextureManager::LoadTexture(const std::string& filePath)
     // ===========================
     DirectX::ScratchImage mipImages{};
 
-    if (DirectX::IsCompressed(image.GetMetadata().format)) {
+    const DirectX::TexMetadata& srcMeta = image.GetMetadata();
+
+    // 圧縮フォーマット / 1x1 テクスチャ / 既にミップを持つ DDS は MipMap 生成しない
+    // (1x1 などは GenerateMipMaps が E_INVALIDARG を返して失敗するため)
+    const bool skipMip =
+        DirectX::IsCompressed(srcMeta.format) ||
+        (srcMeta.width <= 1 && srcMeta.height <= 1) ||
+        srcMeta.mipLevels > 1;
+
+    if (skipMip) {
         mipImages = std::move(image);
     } else {
         hr = DirectX::GenerateMipMaps(
             image.GetImages(),
             image.GetImageCount(),
-            image.GetMetadata(),
+            srcMeta,
             DirectX::TEX_FILTER_SRGB,
             0,
             mipImages);
-        assert(SUCCEEDED(hr));
+        if (FAILED(hr)) {
+            // 生成に失敗しても落とさず、元画像(ミップなし)で続行する
+            Logger::Log("GenerateMipMaps failed, use original image: " + filePath);
+            mipImages = std::move(image);
+        }
     }
 
 

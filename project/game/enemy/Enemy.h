@@ -231,30 +231,36 @@ private:
     float sightVerticalHalfAngleRad_ = 0.785398163f;
     float sightHeight_ = 1.0f;
 
-    // 追跡を維持する最大距離
-    float chaseKeepRange_ = 20.0f;
-
-    // 追跡中かどうか
+    // プレイヤー、または最後に見た位置へ向かっているか
     bool isChasing_ = false;
     bool isTargetInSight_ = false;
+
+    // 視認できたフレームだけ更新する、最後に見たプレイヤーの位置
+    Vector3 lastSeenPosition_ = { 0.0f, 0.0f, 0.0f };
 
     // 一度でもプレイヤーを発見したか
     // 追跡をやめて巡回へ戻っても解除しない
     bool hasDetectedPlayer_ = false;
 
-    // 前フレームで追跡していたか
-    bool wasChasing_ = false;
-
     // 追跡終了後にNavMeshで巡回地点へ戻っているか
     bool isReturningToPatrol_ = false;
 
-    // 視界から外れてもすぐ見失わないための猶予フレーム
-    int lostSightGraceTimer_ = 0;
+    // 見失ってから、最後に見た位置へ向かっている経過フレーム
+    int lostSightSearchTimer_ = 0;
+
+    // 到達できない場所を追い続けないための移動上限時間（60FPSで10秒）
+    int lostSightSearchMaxFrames_ = 600;
+
+    // 最後に見た位置へ到着したとみなすXZ平面上の距離
+    float lastSeenReachDistance_ = 0.4f;
 
     // 見失ったあと、その場で周囲を見る残りフレーム
     int lostSightLookTimer_ = 0;
 
-    // 見失った瞬間の向き
+    // 到着後に周囲を探す時間（60FPSで2秒）
+    int lostSightLookDuration_ = 120;
+
+    // 周囲を探し始めた瞬間の向き
     float lostSightLookStartYaw_ = 0.0f;
 
     // 聞こえた音の位置
