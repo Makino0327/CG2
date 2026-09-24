@@ -10,10 +10,13 @@
 #include <d3d12.h>
 #include "../BaseScene.h"
 #include "../../engine/math/Math.h"
+#include "../LevelLoader.h"
 
 class Object3d;
 class Sprite;
 class ParticleSystem;
+class Enemy;
+class PlayerBullet;
 
 class TitleScene : public BaseScene {
 public:
@@ -26,28 +29,8 @@ public:
     void Finalize() override;
 
 private:
-    // タイトル専用の敵。通常ゲームのAIやHPには影響させない
-    struct DemoZombie {
-        std::unique_ptr<Object3d> object;
-        Vector3 position{};
-        Vector3 knockback{};
-        float speed = 0.05f;
-        float yaw = 0.0f;
-        int hp = 0;
-        int deathTimer = 0;
-        bool active = false;
-    };
-    // 弾は使い回し、タイトルを放置しても個数が増え続けないようにする
-    struct DemoBullet {
-        std::unique_ptr<Object3d> object;
-        Vector3 position{};
-        Vector3 velocity{};
-        Vector4 color{};
-        int life = 0;
-        int damage = 1;
-    };
-    // 発射間隔と散らばり方で、3種類の銃を表現する
-    enum class DemoWeapon { Handgun, AssaultRifle, Shotgun };
+    // 発射間隔と散らばり方で、2種類の銃を表現する
+    enum class DemoWeapon { AssaultRifle, Shotgun };
 
     std::unique_ptr<Object3d> CreateObject(const char* model, const Vector3& position,
         const Vector3& scale, const Vector4& color);
@@ -56,9 +39,17 @@ private:
     void CreateMenu();
     void UpdateMenu();
     void UpdateDemo();
-    void SpawnZombie(float radius);
+    // 本編と同じEnemyクラスを画面外周に出現させる
+    void SpawnEnemy(float radius);
+    // 本編のPlayerと同じ発射処理(弾速・散弾・発射炎)で撃つ
     void FireWeapon(const Vector3& direction);
-    void HitZombie(DemoZombie& zombie, const DemoBullet& bullet);
+    void FireBullet(const Vector3& direction, float spreadAngle);
+    void FireShotgun(const Vector3& direction);
+    void EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun);
+    void StartShockwave(const Vector3& firePosition);
+    // 本編のCheckCollisionsと同じ命中処理
+    void CheckBulletHits();
+    void ResolveEnemyOverlap();
 
     bool initialized_ = false;
     bool isStarting_ = false;
@@ -67,29 +58,31 @@ private:
     int frame_ = 0;
     int spawnTimer_ = 0;
     int fireTimer_ = 0;
+    int assaultContinuousShotCount_ = 0;
     int weaponTimer_ = 0;
     float playerYaw_ = 0.0f;
-    float recoil_ = 0.0f;
     // 共有モデルのテクスチャを、本編へ移る前に元へ戻すため保存する
     uint32_t originalCubeTextureIndex_ = 0;
-    DemoWeapon weapon_ = DemoWeapon::Handgun;
+    DemoWeapon weapon_ = DemoWeapon::AssaultRifle;
     std::mt19937 randomEngine_{ std::random_device{}() };
 
     // プレイヤーは位置固定の描画専用。ダメージ処理を持たないため絶対に死亡しない
     std::unique_ptr<Object3d> playerObject_;
-    std::unique_ptr<Object3d> gunObject_;
     std::vector<std::unique_ptr<Object3d>> scenery_;
-    std::array<DemoZombie, 24> zombies_;
-    std::array<DemoBullet, 72> bullets_;
-    std::unique_ptr<ParticleSystem> sparks_;
-    std::unique_ptr<ParticleSystem> blood_;
+    // 本編と同じ敵・弾クラスを使い、撃破演出や血しぶきも共通にする
+    std::vector<std::unique_ptr<Enemy>> enemies_;
+    std::vector<std::unique_ptr<PlayerBullet>> bullets_;
+    // 破片が床で跳ねて止まるよう、タイトル床の当たり判定を用意する
+    std::vector<LevelColliderData> floorColliders_;
+    // 本編と同じ構成のパーティクル(弾の軌跡・発射炎 / 血しぶき)
+    std::unique_ptr<ParticleSystem> particleSystem_;
+    std::unique_ptr<ParticleSystem> bloodParticleSystem_;
 
     // 枠と文字は通常のSpriteで描き、Releaseビルドでもメニューを表示する
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
     std::array<Sprite*, 2> buttonBorders_{};
     std::array<Sprite*, 2> buttonBackgrounds_{};
     Sprite* weaponLabel_ = nullptr;
-    Sprite* weaponProgress_ = nullptr;
     Sprite* fadeSprite_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

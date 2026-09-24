@@ -11,6 +11,8 @@
 #include "../../engine/input/Input.h"
 #include "../../engine/base/offscreen/OffscreenRenderer.h"
 #include "../../game/camera/Camera.h"
+#include "../../game/enemy/Enemy.h"
+#include "../../game/player/PlayerBullet.h"
 #include "../SceneManager.h"
 #include "../gameplay/GamePlayScene.h"
 
@@ -24,17 +26,49 @@ namespace {
     constexpr float kButtonHeight = 54.0f;
     constexpr float kButtonY[] = { 548.0f, 614.0f };
 
-    // 弾の移動区間との最短距離を求め、高速な弾のすり抜けを防ぐ
-    float SegmentDistanceSq(const Vector3& start, const Vector3& end, const Vector3& point) {
-        const float dx = end.x - start.x;
-        const float dz = end.z - start.z;
-        const float lengthSq = dx * dx + dz * dz;
-        const float t = lengthSq > 0.0001f
-            ? std::clamp(((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSq, 0.0f, 1.0f)
-            : 0.0f;
-        const float x = point.x - (start.x + dx * t);
-        const float z = point.z - (start.z + dz * t);
-        return x * x + z * z;
+    // 敵の数は少し増やしつつ、1体ずつの撃破演出は見せる
+    constexpr int kMaxEnemies = 9;
+    constexpr int kInitialEnemies = 5;
+    constexpr int kSpawnInterval = 65;
+    // 出現位置は画面に映る床の範囲より外側にして、歩いて入ってくるようにする
+    constexpr float kEnemySpawnRadiusMin = 34.0f;
+    constexpr float kEnemySpawnRadiusMax = 42.0f;
+    // 本編の床の上面(0.0) + 敵コライダー半径(1.0)
+    constexpr float kEnemyHeight = 1.0f;
+    // プレイヤーが敵の方へ向き直る速さ(1フレームで残り角度の何割回るか)と最大回転量
+    constexpr float kTurnRate = 0.18f;
+    constexpr float kMaxTurnSpeed = 0.20f;
+    // この角度まで向き直ったら撃つ
+    constexpr float kFireAngleTolerance = 0.15f;
+
+    // 角度を -PI ～ PI に収める
+    float WrapAngle(float angle) {
+        while (angle > 3.14159265f) { angle -= 6.28318530f; }
+        while (angle < -3.14159265f) { angle += 6.28318530f; }
+        return angle;
+    }
+    constexpr float kEnemyStopDistance = 2.3f;
+
+    // 本編Playerと同じ射撃パラメータ
+    constexpr float kBulletSpeed = 1.4f;
+    constexpr float kBulletSpawnHeight = 0.7f;
+    constexpr float kBulletMuzzleDistance = 1.6f;
+    constexpr int kAssaultFireInterval = 6;
+    constexpr float kAssaultSpreadIncrease = 0.008f;
+    constexpr float kAssaultMaxSpreadAngle = 0.08f;
+    constexpr int kShotgunPelletCount = 5;
+    constexpr float kShotgunSpreadAngle = 0.34f;
+    constexpr float kShotgunRandomSpreadAngle = 0.08f;
+
+    // 本編と同じ、ワールド座標から衝撃波用の画面UVへの変換
+    bool TryConvertWorldToScreenUV(const Vector3& p, const Matrix4x4& m, Vector2& outUV) {
+        const float clipX = p.x*m.m[0][0]+p.y*m.m[1][0]+p.z*m.m[2][0]+m.m[3][0];
+        const float clipY = p.x*m.m[0][1]+p.y*m.m[1][1]+p.z*m.m[2][1]+m.m[3][1];
+        const float clipW = p.x*m.m[0][3]+p.y*m.m[1][3]+p.z*m.m[2][3]+m.m[3][3];
+        if (clipW <= 0.0f) { return false; }
+        outUV.x = (clipX/clipW+1.0f)*0.5f;
+        outUV.y = (1.0f-clipY/clipW)*0.5f;
+        return outUV.x >= 0.0f && outUV.x <= 1.0f && outUV.y >= 0.0f && outUV.y <= 1.0f;
     }
 }
 
@@ -90,8 +124,9 @@ void TitleScene::Initialize() {
     frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = transitionTimer_ = 0;
     selectedButton_ = 0;
     isStarting_ = false;
-    weapon_ = DemoWeapon::Handgun;
-    playerYaw_ = recoil_ = 0.0f;
+    weapon_ = DemoWeapon::AssaultRifle;
+    playerYaw_ = 0.0f;
+    assaultContinuousShotCount_ = 0;
 
     // 真上に近い固定カメラで、中央のプレイヤーと周囲の群れを見せる
     context_.camera->SetTranslate({ 0.0f, 68.0f, -6.2f });
@@ -104,11 +139,14 @@ void TitleScene::Initialize() {
         for (int effect = 0; effect <= static_cast<int>(PostEffectType::DepthOutline); ++effect) {
             context_.offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
         }
+        // 本編と同じ銃の衝撃波サイズにする
+        context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
 
     // 本編と同じモデルを使い、見た目の雰囲気をつなげる
     auto models = ModelManager::GetInstance();
-    for (const char* model : { "cube.obj", "player/player.obj", "enemy/enemy.obj", "bullet/bullet.obj" }) {
+    // plane.obj はパーティクルの板ポリに使うので必ず読み込む(無いとエフェクトが描画されない)
+    for (const char* model : { "cube.obj", "plane.obj", "player/player.obj", "enemy/enemy.obj", "bullet/bullet.obj" }) {
         models->LoadModel(model);
     }
     originalCubeTextureIndex_ = models->FindModel("cube.obj")->GetModelData().material.textureIndex;
@@ -119,35 +157,27 @@ void TitleScene::Initialize() {
     light->direction = { 0, -1, 0 };
     light->intensity = 1.0f;
 
-    // 暗い床と継ぎ目を作り、弾・血・プレイヤーが埋もれない背景にする
-    scenery_.push_back(CreateObject("cube.obj", { 0,-0.3f,0 }, { 45,0.25f,45 }, { 0.10f,0.13f,0.15f,1 }));
-    scenery_.back()->SetTexture("Resources/white1x1.png");
-    for (int i = -6; i <= 6; ++i) {
-        const float offset = static_cast<float>(i) * 5.0f;
-        scenery_.push_back(CreateObject("cube.obj", { offset,0,0 }, { 0.025f,0.015f,35 }, { 0.18f,0.22f,0.23f,1 }));
-        scenery_.back()->SetTexture("Resources/white1x1.png");
-        scenery_.push_back(CreateObject("cube.obj", { 0,0,offset }, { 35,0.015f,0.025f }, { 0.18f,0.22f,0.23f,1 }));
-        scenery_.back()->SetTexture("Resources/white1x1.png");
-    }
-    playerObject_ = CreateObject("player/player.obj", kPlayerPosition, { 1,1,1 }, { 0.65f,0.95f,1,1 });
-    gunObject_ = CreateObject("cube.obj", { 0,1.4f,1.3f }, { 0.18f,0.16f,0.7f }, { 0.9f,0.8f,0.45f,1 });
-    gunObject_->SetTexture("Resources/white1x1.png");
+    // 本編(testScene.json の Floor)と同じ床: cube.obj を (0,-1,0) に 50x1x50 で置く。上面は y=0
+    scenery_.push_back(CreateObject("cube.obj", { 0.0f,-1.0f,0.0f }, { 50.0f,1.0f,50.0f }, { 1,1,1,1 }));
+    scenery_.back()->GetMaterial()->lightingType = static_cast<int>(LightingType::HalfLambert);
+    // プレイヤーも本編と同じ色・ライティングにする
+    playerObject_ = CreateObject("player/player.obj", kPlayerPosition, { 1,1,1 }, { 1,1,1,1 });
+    playerObject_->GetMaterial()->lightingType = static_cast<int>(LightingType::HalfLambert);
 
-    // 敵と弾の描画リソースは最初に確保し、デモ中は再利用する
-    for (auto& zombie : zombies_) {
-        zombie.object = CreateObject("enemy/enemy.obj", {}, { 0.8f,1,0.8f }, { 0.6f,0.8f,0.4f,1 });
-        zombie.active = false;
-    }
-    for (auto& bullet : bullets_) {
-        bullet.object = CreateObject("bullet/bullet.obj", {}, { 0.12f,0.12f,0.55f }, { 1,0.8f,0.3f,1 });
-        bullet.life = 0;
-    }
-    sparks_ = std::make_unique<ParticleSystem>();
-    sparks_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
-    blood_ = std::make_unique<ParticleSystem>();
-    blood_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
-    blood_->SetBlendMode(ParticleBlendMode::Alpha);
-    for (int i = 0; i < 12; ++i) { SpawnZombie(10.0f + static_cast<float>(i % 4) * 2.0f); }
+    // 本編の Floor と同じ床コライダー。敵の接地と破片の着地に使う
+    floorColliders_.clear();
+    floorColliders_.push_back({ "BOX", { 0.0f,-1.0f,0.0f }, { 100.0f,2.0f,100.0f }, true });
+
+    // 本編と同じ構成のパーティクル。弾の軌跡・発射炎は加算、血しぶきは通常アルファ
+    particleSystem_ = std::make_unique<ParticleSystem>();
+    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
+    bloodParticleSystem_ = std::make_unique<ParticleSystem>();
+    bloodParticleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
+    bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
+    enemies_.clear();
+    bullets_.clear();
+    for (int i = 0; i < kInitialEnemies; ++i) { SpawnEnemy(kEnemySpawnRadiusMin + static_cast<float>(i) * 2.0f); }
+    spawnTimer_ = kSpawnInterval;
     CreateMenu();
     UpdateMenu();
 }
@@ -165,10 +195,8 @@ void TitleScene::CreateMenu() {
         buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0.03f,0.05f,0.06f,0.96f });
         CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
     }
-    CreateUiLabel(2, { 280,680 }, { 720,30 });
     CreateUiRect({ 1010,631 }, { 230,48 }, { 0.015f,0.03f,0.04f,0.92f });
     weaponLabel_ = CreateUiLabel(3, { 1015,637 }, { 220,30 });
-    weaponProgress_ = CreateUiRect({ 1010,677 }, { 230,3 }, { 1,0.72f,0.25f,1 });
     // フェードは一番最後に描画して、開始時に画面全体を覆う
     fadeSprite_ = CreateUiRect({ 0,0 }, { 1280,720 }, { 0,0,0,0 });
 }
@@ -206,71 +234,177 @@ void TitleScene::UpdateMenu() {
         buttonBorders_[i]->SetColor(selected ? Vector4{ 1,0.72f,0.25f,pulse } : Vector4{ 0.4f,0.52f,0.55f,0.7f });
         buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 0.12f,0.14f,0.13f,0.96f } : Vector4{ 0.025f,0.04f,0.05f,0.96f });
     }
-    weaponLabel_->SetTextureLeftTop({ 256,static_cast<float>((3+static_cast<int>(weapon_))*64) });
-    weaponProgress_->SetSize({ 230.0f * (1.0f-static_cast<float>(weaponTimer_)/kWeaponDuration),3 });
+    weaponLabel_->SetTextureLeftTop({ 256,static_cast<float>((4+static_cast<int>(weapon_))*64) });
     fadeSprite_->SetColor({ 0,0,0,isStarting_ ? std::clamp(static_cast<float>(transitionTimer_)/30.0f,0.0f,1.0f) : 0.0f });
     for (auto& sprite : uiSprites_) { sprite->Update(); }
 }
 
-void TitleScene::SpawnZombie(float radius) {
-    // 画面の周囲から補充し、必ず中央へ向かわせる
-    for (auto& zombie : zombies_) {
-        if (zombie.active) { continue; }
-        const float angle = std::uniform_real_distribution<float>(-kPi,kPi)(randomEngine_);
-        zombie.position = { std::sin(angle)*radius,1,std::cos(angle)*radius*0.75f };
-        zombie.speed = std::uniform_real_distribution<float>(0.045f,0.075f)(randomEngine_);
-        zombie.yaw = std::atan2(-zombie.position.x,-zombie.position.z);
-        zombie.hp = 3;
-        zombie.deathTimer = 0;
-        zombie.active = true;
-        zombie.object->SetTranslate(zombie.position);
-        zombie.object->SetRotate({ 0,zombie.yaw,0 });
-        zombie.object->SetScale({ 0.8f,1,0.8f });
-        zombie.object->SetColor({ 0.6f,0.8f,0.4f,1 });
-        zombie.object->Update();
-        return;
-    }
+void TitleScene::SpawnEnemy(float radius) {
+    // 画面に出す敵の数を絞り、1体ずつの撃破演出を見やすくする
+    if (static_cast<int>(enemies_.size()) >= kMaxEnemies) { return; }
+    const float angle = std::uniform_real_distribution<float>(-kPi,kPi)(randomEngine_);
+    const Vector3 position{ std::sin(angle)*radius,kEnemyHeight,std::cos(angle)*radius*0.75f };
+
+    // 本編と同じEnemyを使う。中央への巡回点を与え、視界に入ったら本編AIで追跡させる
+    auto enemy = std::make_unique<Enemy>();
+    enemy->Initialize(context_.object3dCommon, context_.camera, position);
+    enemy->SetFloorColliders(&floorColliders_);
+    enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
+    enemy->SetTargetPosition(kPlayerPosition);
+    enemy->SetWaypoints({ Vector3{ 0.0f,kEnemyHeight,0.0f } });
+    enemies_.push_back(std::move(enemy));
 }
 
 void TitleScene::FireWeapon(const Vector3& direction) {
-    // 単発・連射・散弾の差を、発射間隔、弾数、色で見せる
-    const int pellets = weapon_ == DemoWeapon::Shotgun ? 7 : 1;
-    const float baseYaw = std::atan2(direction.x,direction.z);
-    for (int pellet = 0; pellet < pellets; ++pellet) {
-        for (auto& bullet : bullets_) {
-            if (bullet.life > 0) { continue; }
-            const float spread = weapon_ == DemoWeapon::Shotgun ? static_cast<float>(pellet-3)*0.10f : 0.0f;
-            const float yaw = baseYaw+spread;
-            bullet.velocity = { std::sin(yaw)*0.85f,0,std::cos(yaw)*0.85f };
-            bullet.position = { direction.x*1.6f,1.3f,direction.z*1.6f };
-            bullet.life = weapon_ == DemoWeapon::Shotgun ? 17 : 35;
-            bullet.damage = weapon_ == DemoWeapon::AssaultRifle ? 1 : 3;
-            bullet.color = weapon_ == DemoWeapon::Shotgun ? Vector4{ 1,0.45f,0.13f,1 } : Vector4{ 1,0.9f,0.4f,1 };
-            bullet.object->SetTranslate(bullet.position);
-            bullet.object->SetRotate({ 0,yaw,0 });
-            bullet.object->SetColor(bullet.color);
-            bullet.object->Update();
+    // 本編と同じ発射処理を武器ごとに呼び分ける
+    if (weapon_ == DemoWeapon::Shotgun) {
+        FireShotgun(direction);
+        fireTimer_ = 46;
+    } else {
+        // 本編と同じく、連射するほど少しずつ弾をばらけさせる
+        const float spread = std::min(kAssaultMaxSpreadAngle,
+            static_cast<float>(assaultContinuousShotCount_)*kAssaultSpreadIncrease);
+        FireBullet(direction, spread);
+        ++assaultContinuousShotCount_;
+        fireTimer_ = kAssaultFireInterval;
+    }
+}
+
+void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
+    // Player::FireBulletと同じ位置・弾速・ばらけ方で1発撃つ
+    Vector3 direction = baseDirection;
+    if (spreadAngle > 0.0f) {
+        const float angle = std::uniform_real_distribution<float>(-spreadAngle,spreadAngle)(randomEngine_);
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        direction = Normalize(Vector3{ direction.x*c-direction.z*s,direction.y,direction.x*s+direction.z*c });
+    }
+    Vector3 firePosition{ kPlayerPosition.x,kPlayerPosition.y+kBulletSpawnHeight,kPlayerPosition.z };
+    firePosition.x += direction.x*kBulletMuzzleDistance;
+    firePosition.z += direction.z*kBulletMuzzleDistance;
+
+    auto bullet = std::make_unique<PlayerBullet>();
+    bullet->Initialize(context_.object3dCommon, firePosition,
+        { direction.x*kBulletSpeed,direction.y*kBulletSpeed,direction.z*kBulletSpeed },
+        nullptr, particleSystem_.get());
+    bullets_.push_back(std::move(bullet));
+
+    StartShockwave(firePosition);
+    EmitMuzzleFlash(firePosition, direction, false);
+}
+
+void TitleScene::FireShotgun(const Vector3& baseDirection) {
+    // Player::FireShotgunと同じ5発の扇状散弾
+    const Vector3 firePosition{ kPlayerPosition.x,kPlayerPosition.y+kBulletSpawnHeight,kPlayerPosition.z };
+    const float centerIndex = static_cast<float>(kShotgunPelletCount-1)*0.5f;
+    const float angleStep = kShotgunSpreadAngle/static_cast<float>(kShotgunPelletCount-1);
+    std::uniform_real_distribution<float> randomAngle(-kShotgunRandomSpreadAngle,kShotgunRandomSpreadAngle);
+    std::uniform_real_distribution<float> randomSide(-0.18f,0.18f);
+    std::uniform_real_distribution<float> randomSpeed(0.85f,1.08f);
+
+    for (int index = 0; index < kShotgunPelletCount; ++index) {
+        const float angle = (static_cast<float>(index)-centerIndex)*angleStep+randomAngle(randomEngine_);
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        const Vector3 dir = Normalize(Vector3{
+            baseDirection.x*c-baseDirection.z*s,baseDirection.y,baseDirection.x*s+baseDirection.z*c });
+        const Vector3 side{ -dir.z,0.0f,dir.x };
+        const float sideOffset = randomSide(randomEngine_);
+        const Vector3 pelletPosition{
+            firePosition.x+dir.x*kBulletMuzzleDistance+side.x*sideOffset,
+            firePosition.y,
+            firePosition.z+dir.z*kBulletMuzzleDistance+side.z*sideOffset };
+        const float speed = kBulletSpeed*randomSpeed(randomEngine_);
+
+        auto bullet = std::make_unique<PlayerBullet>();
+        bullet->Initialize(context_.object3dCommon, pelletPosition,
+            { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get());
+        bullets_.push_back(std::move(bullet));
+    }
+    // ショットガン全体で1つの衝撃波だけ出す
+    StartShockwave(firePosition);
+    EmitMuzzleFlash(firePosition, baseDirection, true);
+}
+
+void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun) {
+    // 本編のPlayerと同じ発射炎
+    if (!particleSystem_) { return; }
+    if (isShotgun) {
+        particleSystem_->Emit(firePosition, { 1.8f,1.8f,1.8f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f }, 0.14f);
+        particleSystem_->Emit(firePosition, { 0.75f,0.75f,0.75f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f }, 0.08f);
+        return;
+    }
+    particleSystem_->Emit(firePosition, { 1.2f,1.2f,1.2f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f }, 0.16f);
+    particleSystem_->Emit(firePosition, { 0.68f,0.68f,0.68f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f }, 0.11f);
+    particleSystem_->Emit(firePosition, { 0.30f,0.30f,0.30f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f }, 0.075f);
+    const Vector3 side{ -direction.z,0.0f,direction.x };
+    particleSystem_->Emit({ firePosition.x+side.x*0.30f,firePosition.y,firePosition.z+side.z*0.30f },
+        { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f);
+    particleSystem_->Emit({ firePosition.x-side.x*0.30f,firePosition.y,firePosition.z-side.z*0.30f },
+        { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f);
+}
+
+void TitleScene::StartShockwave(const Vector3& firePosition) {
+    // 本編と同じく、発射位置を画面UVへ変換して画面歪みを出す
+    if (!context_.offscreenRenderer || !context_.camera) { return; }
+    Vector2 uv{};
+    if (!TryConvertWorldToScreenUV(firePosition, context_.camera->GetViewProjectionMatrix(), uv)) { return; }
+    context_.offscreenRenderer->SetShockwaveDuration(0.16f);
+    context_.offscreenRenderer->StartShockwave(uv);
+}
+
+void TitleScene::CheckBulletHits() {
+    // GamePlayScene::CheckCollisionsと同じ命中位置・方向でEnemy::OnHitを呼ぶ
+    for (const auto& bullet : bullets_) {
+        if (bullet->IsDead()) { continue; }
+        for (auto& enemy : enemies_) {
+            if (enemy->IsDead()) { continue; }
+            const SphereCollider enemyCollider = enemy->GetCollider();
+            const SphereCollider bulletCollider = bullet->GetCollider();
+            const float dx = enemyCollider.center.x-bulletCollider.center.x;
+            const float dy = enemyCollider.center.y-bulletCollider.center.y;
+            const float dz = enemyCollider.center.z-bulletCollider.center.z;
+            const float radius = enemyCollider.radius+bulletCollider.radius;
+            if (dx*dx+dy*dy+dz*dz > radius*radius) { continue; }
+
+            const Vector3 hitDirection = Normalize(bullet->GetVelocity());
+            const Vector3 hitPosition{
+                enemyCollider.center.x-hitDirection.x*enemyCollider.radius,
+                bulletCollider.center.y,
+                enemyCollider.center.z-hitDirection.z*enemyCollider.radius };
+            bullet->OnHit();
+            enemy->OnHit(hitPosition, hitDirection);
             break;
         }
     }
-    const Vector3 muzzle{ direction.x*1.9f,1.4f,direction.z*1.9f };
-    sparks_->Emit(muzzle, { 0.65f,0.65f,0.65f }, { 0,0,0 }, { 1,0.8f,0.3f,1 },0.09f);
-    fireTimer_ = weapon_ == DemoWeapon::Handgun ? 24 : (weapon_ == DemoWeapon::AssaultRifle ? 6 : 46);
-    recoil_ = weapon_ == DemoWeapon::Shotgun ? 0.45f : 0.22f;
+    // 死亡直後には消さず、破片演出が終わってから削除する
+    enemies_.erase(std::remove_if(enemies_.begin(), enemies_.end(),
+        [](const std::unique_ptr<Enemy>& enemy) { return enemy->IsReadyToRemove(); }), enemies_.end());
+    bullets_.erase(std::remove_if(bullets_.begin(), bullets_.end(),
+        [](const std::unique_ptr<PlayerBullet>& bullet) { return bullet->IsDead(); }), bullets_.end());
 }
 
-void TitleScene::HitZombie(DemoZombie& zombie, const DemoBullet& bullet) {
-    // 命中の血しぶきと、倒れながら縮む撃破演出を出す
-    zombie.hp -= bullet.damage;
-    for (int i = 0; i < 7; ++i) {
-        const float angle = std::uniform_real_distribution<float>(-kPi,kPi)(randomEngine_);
-        blood_->Emit(zombie.position,{ 0.2f,0.2f,0.2f },
-            { std::sin(angle)*2.0f,0.4f,std::cos(angle)*2.0f },{ 0.6f,0.025f,0.015f,0.9f },0.45f);
-    }
-    zombie.object->SetColor({ 1,0.22f,0.12f,1 });
-    if (zombie.hp <= 0) {
-        zombie.deathTimer = 32;
-        zombie.knockback = { bullet.velocity.x*0.20f,0,bullet.velocity.z*0.20f };
+void TitleScene::ResolveEnemyOverlap() {
+    // 本編と同じく、敵同士が重ならないよう押し出す
+    for (size_t i = 0; i < enemies_.size(); ++i) {
+        if (enemies_[i]->IsDead()) { continue; }
+        for (size_t j = i+1; j < enemies_.size(); ++j) {
+            if (enemies_[j]->IsDead()) { continue; }
+            Vector3 a = enemies_[i]->GetWorldPosition();
+            Vector3 b = enemies_[j]->GetWorldPosition();
+            float dx = b.x-a.x;
+            float dz = b.z-a.z;
+            float distanceSq = dx*dx+dz*dz;
+            if (distanceSq <= 0.0001f) { dx = 1.0f; dz = 0.0f; distanceSq = 1.0f; }
+            const float distance = std::sqrt(distanceSq);
+            const float radiusSum = enemies_[i]->GetBodyRadius()+enemies_[j]->GetBodyRadius();
+            if (distance >= radiusSum) { continue; }
+            const float push = (radiusSum-distance)*0.5f;
+            a.x -= dx/distance*push; a.z -= dz/distance*push;
+            b.x += dx/distance*push; b.z += dz/distance*push;
+            enemies_[i]->SetPosition(a);
+            enemies_[j]->SetPosition(b);
+        }
     }
 }
 
@@ -278,80 +412,73 @@ void TitleScene::UpdateDemo() {
     // 武器は6秒ごとに循環し、切り替え後はすぐ撃てるようにする
     if (++weaponTimer_ >= kWeaponDuration) {
         weaponTimer_ = 0;
-        weapon_ = static_cast<DemoWeapon>((static_cast<int>(weapon_)+1)%3);
+        weapon_ = static_cast<DemoWeapon>((static_cast<int>(weapon_)+1)%2);
         fireTimer_ = 0;
+        assaultContinuousShotCount_ = 0;
     }
-    if (--spawnTimer_ <= 0) { SpawnZombie(23.0f); spawnTimer_ = 22; }
-    DemoZombie* nearest = nullptr;
-    float nearestDistance = 10000.0f;
-    for (auto& zombie : zombies_) {
-        if (!zombie.active) { continue; }
-        if (zombie.hp <= 0) {
-            // 演出が終わった枠は次のゾンビの出現に再利用する
-            if (--zombie.deathTimer <= 0) { zombie.active = false; continue; }
-            zombie.position.x += zombie.knockback.x;
-            zombie.position.z += zombie.knockback.z;
-            const float scale = static_cast<float>(zombie.deathTimer)/32.0f;
-            zombie.object->SetScale({ 0.8f*scale,scale,0.8f*scale });
-            zombie.object->SetRotate({ (1.0f-scale)*1.5f,zombie.yaw,0 });
-        } else {
-            float distance = std::sqrt(zombie.position.x*zombie.position.x+zombie.position.z*zombie.position.z);
-            // プレイヤーは移動も被弾もしない。近づいた敵は手前に留める
-            if (distance > 2.3f) {
-                const float step = std::min(zombie.speed,distance-2.3f);
-                zombie.position.x -= zombie.position.x/distance*step;
-                zombie.position.z -= zombie.position.z/distance*step;
-                distance -= step;
-            }
-            zombie.object->SetColor({ 0.6f,0.8f,0.4f,1 });
-            if (distance < nearestDistance) { nearestDistance = distance; nearest = &zombie; }
+    if (--spawnTimer_ <= 0) {
+        const float radius = std::uniform_real_distribution<float>(kEnemySpawnRadiusMin, kEnemySpawnRadiusMax)(randomEngine_);
+        SpawnEnemy(radius);
+        spawnTimer_ = kSpawnInterval;
+    }
+
+    // 敵は本編のEnemy::Updateで動かす(巡回→発見→追跡、死亡時は破片演出)
+    for (auto& enemy : enemies_) {
+        enemy->SetTargetPosition(kPlayerPosition);
+        enemy->Update();
+        if (enemy->IsDead()) { continue; }
+        // プレイヤーは被弾しないデモなので、近づいた敵は手前に留める
+        Vector3 position = enemy->GetWorldPosition();
+        const float distance = std::sqrt(position.x*position.x+position.z*position.z);
+        if (distance < kEnemyStopDistance && distance > 0.0001f) {
+            position.x = position.x/distance*kEnemyStopDistance;
+            position.z = position.z/distance*kEnemyStopDistance;
+            enemy->SetPosition(position);
+            enemy->UpdateRenderOnly();
         }
-        zombie.object->SetTranslate(zombie.position);
-        zombie.object->Update();
+    }
+    ResolveEnemyOverlap();
+    for (auto& enemy : enemies_) { if (!enemy->IsDead()) { enemy->UpdateRenderOnly(); } }
+
+    // 一番近い生存中の敵を狙う
+    const Enemy* nearest = nullptr;
+    float nearestDistance = 10000.0f;
+    for (const auto& enemy : enemies_) {
+        if (enemy->IsDead()) { continue; }
+        const Vector3 p = enemy->GetWorldPosition();
+        const float distance = std::sqrt(p.x*p.x+p.z*p.z);
+        if (distance < nearestDistance) { nearestDistance = distance; nearest = enemy.get(); }
     }
     if (fireTimer_ > 0) { --fireTimer_; }
-    if (nearest) {
-        const Vector3 direction{ nearest->position.x/nearestDistance,0,nearest->position.z/nearestDistance };
-        playerYaw_ = std::atan2(direction.x,direction.z);
+    if (nearest && nearestDistance > 0.0001f) {
+        const Vector3 p = nearest->GetWorldPosition();
+        const Vector3 direction{ p.x/nearestDistance,0.0f,p.z/nearestDistance };
+        // 敵の方向へ一瞬で向かず、最短回りで少しずつ向き直る
+        const float targetYaw = std::atan2(direction.x,direction.z);
+        const float diff = WrapAngle(targetYaw-playerYaw_);
+        const float step = std::clamp(diff*kTurnRate,-kMaxTurnSpeed,kMaxTurnSpeed);
+        playerYaw_ = WrapAngle(playerYaw_+step);
+        // 十分に向き直ってから、今向いている方向へ撃つ
         const float fireRange = weapon_ == DemoWeapon::Shotgun ? 10.0f : 14.0f;
-        if (fireTimer_ <= 0 && nearestDistance <= fireRange) { FireWeapon(direction); }
+        if (fireTimer_ <= 0 && nearestDistance <= fireRange && std::fabs(diff) <= kFireAngleTolerance) {
+            FireWeapon({ std::sin(playerYaw_),0.0f,std::cos(playerYaw_) });
+        }
+    } else {
+        assaultContinuousShotCount_ = 0;
     }
-    // プレイヤーの位置は毎フレーム固定し、向きと銃の反動だけを変える
-    recoil_ *= 0.78f;
+
+    // プレイヤーの位置は毎フレーム固定し、向きだけを変える
     playerObject_->SetTranslate(kPlayerPosition);
     playerObject_->SetRotate({ 0,playerYaw_,0 });
     playerObject_->Update();
-    const float barrelLength = weapon_ == DemoWeapon::Handgun ? 0.45f : 0.85f;
-    gunObject_->SetScale({ weapon_ == DemoWeapon::Shotgun ? 0.26f : 0.16f,0.16f,barrelLength });
-    gunObject_->SetRotate({ 0,playerYaw_,0 });
-    gunObject_->SetTranslate({ std::sin(playerYaw_)*(1.2f-recoil_),1.5f,std::cos(playerYaw_)*(1.2f-recoil_) });
-    gunObject_->Update();
 
-    for (auto& bullet : bullets_) {
-        if (bullet.life <= 0) { continue; }
-        const Vector3 previous = bullet.position;
-        bullet.position.x += bullet.velocity.x;
-        bullet.position.z += bullet.velocity.z;
-        --bullet.life;
-        // 移動区間で最も手前の敵だけに命中させる
-        DemoZombie* hit = nullptr;
-        float hitDistance = 10000.0f;
-        for (auto& zombie : zombies_) {
-            if (!zombie.active || zombie.hp <= 0) { continue; }
-            if (SegmentDistanceSq(previous,bullet.position,zombie.position) <= 1.0f) {
-                const float x = zombie.position.x-previous.x;
-                const float z = zombie.position.z-previous.z;
-                const float distanceSq = x*x+z*z;
-                if (distanceSq < hitDistance) { hitDistance = distanceSq; hit = &zombie; }
-            }
-        }
-        if (hit) { HitZombie(*hit,bullet); bullet.life = 0; }
-        sparks_->Emit(bullet.position,{ 0.12f,0.12f,0.12f },{ 0,0,0 },bullet.color,0.08f);
-        bullet.object->SetTranslate(bullet.position);
-        bullet.object->Update();
-    }
-    sparks_->Update(1.0f/60.0f);
-    blood_->Update(1.0f/60.0f);
+    // 弾は本編のPlayerBullet::Updateで進め、軌跡パーティクルも本編と同じにする
+    for (auto& bullet : bullets_) { bullet->Update(); }
+    CheckBulletHits();
+
+    const float dt = 1.0f/60.0f;
+    particleSystem_->Update(dt);
+    bloodParticleSystem_->Update(dt);
 }
 
 void TitleScene::Update() {
@@ -369,12 +496,12 @@ void TitleScene::Draw() {
     // 背景の戦闘を描いたあとに枠とメニューを重ねる
     context_.object3dCommon->CommonDrawSetting();
     for (auto& object : scenery_) { object->Draw(); }
-    for (auto& zombie : zombies_) { if (zombie.active) { zombie.object->Draw(); } }
+    // 敵は生存中は本体、撃破後は破片を描画する(本編と同じ)
+    for (auto& enemy : enemies_) { enemy->Draw(); }
     playerObject_->Draw();
-    gunObject_->Draw();
-    for (auto& bullet : bullets_) { if (bullet.life > 0) { bullet.object->Draw(); } }
-    blood_->Draw();
-    sparks_->Draw();
+    // 本編と同じく血しぶきを先に、発光する弾の軌跡を後に描く
+    bloodParticleSystem_->Draw();
+    particleSystem_->Draw();
     context_.spriteCommon->CommonDrawSetting();
     for (auto& sprite : uiSprites_) { sprite->Draw(); }
 }
@@ -387,14 +514,14 @@ void TitleScene::Finalize() {
     uiSprites_.clear();
     buttonBorders_.fill(nullptr);
     buttonBackgrounds_.fill(nullptr);
-    weaponLabel_ = weaponProgress_ = fadeSprite_ = nullptr;
-    for (auto& bullet : bullets_) { bullet.object.reset(); bullet.life = 0; }
-    for (auto& zombie : zombies_) { zombie.object.reset(); zombie.active = false; }
+    weaponLabel_ = fadeSprite_ = nullptr;
+    bullets_.clear();
+    enemies_.clear();
+    floorColliders_.clear();
     playerObject_.reset();
-    gunObject_.reset();
     scenery_.clear();
-    sparks_.reset();
-    blood_.reset();
+    particleSystem_.reset();
+    bloodParticleSystem_.reset();
     directionalLightResource_.Reset();
     initialized_ = false;
 }
