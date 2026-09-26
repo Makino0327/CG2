@@ -82,6 +82,8 @@ private:
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
     std::array<Sprite*, 2> buttonBorders_{};
     std::array<Sprite*, 2> buttonBackgrounds_{};
+    // 選択中は白黒を反転させるため、ボタンの文字も保持する
+    std::array<Sprite*, 2> buttonLabels_{};
     Sprite* fadeSprite_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

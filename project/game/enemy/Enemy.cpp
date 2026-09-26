@@ -212,6 +212,8 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     lostSightLookTimer_ = 0;
     lostSightLookStartYaw_ = 0.0f;
     hearingTimer_ = 0;
+    isInvestigatingSound_ = false;
+    soundSearchTimer_ = 0;
     isInvestigatingGenerator_ = false;
     hasReachedGenerator_ = false;
     generatorApproachRetryTimer_ = 0;
@@ -283,6 +285,7 @@ void Enemy::Update()
         lostSightSearchTimer_ = 0;
         lostSightLookTimer_ = 0;
         hearingTimer_ = 0;
+        isInvestigatingSound_ = false;
 
         // 一度発見したことを記録する
         // このフラグは巡回へ戻っても解除しない
@@ -403,13 +406,36 @@ void Enemy::Update()
             }
         }
 
-        // 警戒が終わったら巡回へ戻る
+        // 振り向き終わったら、音のした位置まで調べに行く
         if (hearingTimer_ == 0) {
-            waypointMover_.ResumePatrol();
-            isReturningToPatrol_ = true;
+            isInvestigatingSound_ = true;
+            soundSearchTimer_ = 0;
             navMeshPath_.clear();
             navMeshPathRefreshTimer_ = 0;
             navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        }
+    } else if (isInvestigatingSound_) {
+        // 銃声のした位置へ壁を回り込みながら近づく
+        soundSearchTimer_++;
+        const float distance = std::sqrt(GetDistanceSqXZ(position_, heardSoundPosition_));
+
+        if (distance <= soundReachDistance_ || soundSearchTimer_ >= soundSearchMaxFrames_) {
+            // 到着したら(または到達できなければ)、その場で左右を見渡してから巡回へ戻る
+            isInvestigatingSound_ = false;
+            soundSearchTimer_ = 0;
+            lostSightLookTimer_ = lostSightLookDuration_;
+            lostSightLookStartYaw_ = rotation_.y;
+            navMeshPath_.clear();
+            navMeshPathRefreshTimer_ = 0;
+            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        } else {
+            const Vector3 direction = CalculateNavMeshChaseDirection(heardSoundPosition_);
+            const float step = (std::min)(distance, moveSpeed_);
+            if (direction.x != 0.0f || direction.z != 0.0f) {
+                nextPosition.x += direction.x * step;
+                nextPosition.z += direction.z * step;
+                rotation_.y = ApproachAngle(rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
+            }
         }
     } else {
         if (isReturningToPatrol_ && waypointMover_.HasWaypoints()) {
@@ -513,10 +539,18 @@ void Enemy::OnHearSound(const Vector3& soundPosition)
         return;
     }
 
-    // 音の位置を記録して、しばらく音の方向を警戒する(60fpsで約3秒)
+    // 音の位置を記録する。調べに向かっている途中なら、目的地だけ新しい銃声の位置へ更新する
     heardSoundPosition_ = soundPosition;
-    hearingTimer_ = 180;
-    // 銃声には従来の警戒行動で反応し、その後に発電機の音を再評価する
+    if (isInvestigatingSound_) {
+        soundSearchTimer_ = 0;
+    } else {
+        // まずその場で音の方向へ振り向き、その後に音の位置まで移動する
+        hearingTimer_ = hearingTurnFrames_;
+    }
+    // 見回し中や巡回へ戻る途中でも、新しい銃声を優先する
+    lostSightLookTimer_ = 0;
+    isReturningToPatrol_ = false;
+    // 銃声を優先し、調べ終わった後に発電機の音を再評価する
     isInvestigatingGenerator_ = false;
     hasReachedGenerator_ = false;
 }
@@ -525,7 +559,7 @@ void Enemy::OnHearGenerator(const Vector3& center, const Vector3& size,
     const std::vector<Vector3>& reservedPositions)
 {
     // 視認・追跡・銃声への警戒を優先し、同じ音で到着状態を上書きしない
-    if (isDead_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 ||
+    if (isDead_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 || isInvestigatingSound_ ||
         isInvestigatingGenerator_ || generatorApproachRetryTimer_ > 0) {
         return;
     }

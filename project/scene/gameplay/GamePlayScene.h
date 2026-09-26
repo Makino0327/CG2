@@ -94,6 +94,10 @@ private:
     void DrawGeneratorUi();
     // 発電機の稼働音、敵の誘導、全台起動後のドアを更新する
     void UpdateGeneratorWorld(double deltaSeconds);
+    // ドアが開いてテレポーターを踏めるようになったか
+    bool IsBossTeleportUsable() const;
+    // 踏めるテレポーターの周りに回転するパーティクルを出し、ミニマップにも表示する
+    void UpdateTeleporterEffects();
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -125,6 +129,8 @@ private:
     Vector3 playerTranslate_ = { 2.0f, 0.5f, 0.0f };
     Vector3 playerRotate_ = { 0.0f, 0.0f, 0.0f };
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
+    // プレイヤーが死亡してからの経過フレーム(一定時間でゲームオーバー画面へ移る)
+    int playerDeadFrames_ = 0;
 
     /// 敵
     // 現在出現している敵
@@ -269,6 +275,8 @@ private:
         std::string targetLevel; // 踏んだときに読み込むレベルJSON
     };
     std::vector<BossTeleportData> bossTeleports_;
+    // テレポーター周りの回転パーティクルの経過時間(秒)
+    float teleporterEffectTime_ = 0.0f;
 
     // 敵AI用のNavMeshデータ
     LevelNavMeshData navMeshData_;

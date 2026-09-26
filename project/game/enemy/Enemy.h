@@ -56,7 +56,7 @@ public:
     // 死亡演出が終わり、敵を配列から削除してよいか返す
     bool IsReadyToRemove() const { return isReadyToRemove_; }
 
-    // 銃声などの音を聞いたときに音のした位置へ振り向かせる
+    // 銃声などの音を聞いたときに音のした方向へ振り向き、その位置まで調べに行かせる
     void OnHearSound(const Vector3& soundPosition);
 
     // 発電機の音を聞き、本体の周囲にある歩ける位置へ向かう
@@ -282,6 +282,17 @@ private:
 
     // 音の方向へ振り向くときの旋回速度(ラジアン/フレーム)
     float hearingTurnSpeed_ = 0.12f;
+
+    // 振り向いた後、音のした位置まで移動して調べているか
+    bool isInvestigatingSound_ = false;
+    // 音のした位置へ向かっている経過フレーム
+    int soundSearchTimer_ = 0;
+    // 振り向いてから歩き出すまでのフレーム
+    int hearingTurnFrames_ = 20;
+    // 到達できない音の位置を追い続けないための上限（60FPSで10秒）
+    int soundSearchMaxFrames_ = 600;
+    // 音のした位置へ到着したとみなす距離
+    float soundReachDistance_ = 1.2f;
 
     // 発電機の周囲へ移動し、到着後はその場で停止する
     bool isInvestigatingGenerator_ = false;

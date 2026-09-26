@@ -709,6 +709,20 @@ void OffscreenRenderer::StartShockwave(const Vector2& centerUV, float maxRadius)
     shockwaveData_->aspectRatio = static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight);
     shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 }
+
+void OffscreenRenderer::StopShockwave()
+{
+    isShockwavePlaying_ = false;
+    enabledPostEffects_[static_cast<size_t>(PostEffectType::Shockwave)] = false;
+    if (postEffectType_ == PostEffectType::Shockwave) {
+        postEffectType_ = PostEffectType::Copy;
+    }
+    if (shockwaveData_) {
+        // 歪みと白い波が残らないように強さと進行度をリセットする
+        shockwaveData_->strength = 0.0f;
+        shockwaveData_->progress = 1.0f;
+    }
+}
 void OffscreenRenderer::SetDissolveElapsedTime(float seconds)
 {
     float duration = std::max(dissolveDuration_, 0.1f);

@@ -14,7 +14,7 @@ class SpriteCommon;
 
 // ステージから受け取る設置物の位置と形状。表示色はミニマップ側で決める
 struct MinimapObjectData {
-    enum class Kind { Generator, Door };
+    enum class Kind { Generator, Door, Teleporter };
     Kind kind = Kind::Generator;
     Vector3 position = { 0.0f, 0.0f, 0.0f };
     Vector2 size = { 0.0f, 0.0f };
@@ -56,6 +56,9 @@ public:
     // 開いたドアの赤い表示を薄くして、通行できる状態を示す
     void SetDoorsOpen(bool open);
 
+    // テレポーターを踏めるようになったら、青いマーカーを表示する
+    void SetTeleportersActive(bool active) { teleportersActive_ = active; }
+
 private:
     // ゲーム内のX/Z座標をミニマップ上の画面座標へ変換する
     Vector2 ConvertWorldToScreen(float worldX, float worldZ) const;
@@ -95,6 +98,8 @@ private:
     };
     std::vector<ObjectMarker> objectMarkers_;
     bool doorsOpen_ = false;
+    // テレポーターのマーカーを表示するか
+    bool teleportersActive_ = false;
 
     // 現在のプレイヤー位置
     std::unique_ptr<Sprite> playerMarker_;

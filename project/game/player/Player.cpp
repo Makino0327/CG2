@@ -884,6 +884,10 @@ bool Player::FireShotgun(Camera* camera)
         bullets_.push_back(std::move(bullet));
     }
 
+    // 衝撃波と発射炎はピストル・アサルトライフルと同じく銃口の位置から出す
+    firePosition.x += baseDirection.x * bulletMuzzleDistance_;
+    firePosition.z += baseDirection.z * bulletMuzzleDistance_;
+
     // ショットガン全体で1つの衝撃波だけ出す
     pendingBulletShockwavePositions_.push_back(firePosition);
 

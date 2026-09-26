@@ -79,6 +79,7 @@
     <ClCompile Include="game\collision\Collision.cpp" />
     <ClCompile Include="scene\clear\ClearScene.cpp" />
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
+    <ClCompile Include="scene\result\ResultScene.cpp" />
     <ClCompile Include="scene\LevelLoader.cpp" />
     <ClCompile Include="game\common\WaypointMover.cpp" />
     <ClCompile Include="engine\utils\LevelHotReload.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="game\collision\Collision.h" />
     <ClInclude Include="scene\clear\ClearScene.h" />
     <ClInclude Include="scene\gameover\GameOverScene.h" />
+    <ClInclude Include="scene\result\ResultScene.h" />
     <ClInclude Include="scene\LevelLoader.h" />
     <ClInclude Include="game\common\WaypointMover.h" />
     <ClInclude Include="engine\utils\LevelHotReload.h" />

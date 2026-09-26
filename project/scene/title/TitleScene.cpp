@@ -186,14 +186,15 @@ void TitleScene::Initialize() {
 
 void TitleScene::CreateMenu() {
     // タイトル名は未定なので、上部には文字を入れず空の枠だけを置く
-    CreateUiRect({ 300,42 }, { 680,126 }, { 0.55f,0.72f,0.73f,0.8f });
-    CreateUiRect({ 302,44 }, { 676,122 }, { 0.018f,0.03f,0.04f,0.93f });
+    // UIは白と黒だけで構成する
+    CreateUiRect({ 300,42 }, { 680,126 }, { 1,1,1,1 });
+    CreateUiRect({ 302,44 }, { 676,122 }, { 0,0,0,0.93f });
 
-    // 下部の2ボタンは背景に埋もれない濃色パネルにする
+    // 下部の2ボタンは白枠の黒パネルにする
     for (int i = 0; i < 2; ++i) {
         buttonBorders_[i] = CreateUiRect({ kButtonX,kButtonY[i] }, { kButtonWidth,kButtonHeight }, { 1,1,1,1 });
-        buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0.03f,0.05f,0.06f,0.96f });
-        CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
+        buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0,0,0,0.96f });
+        buttonLabels_[i] = CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
     }
     // フェードは一番最後に描画して、開始時に画面全体を覆う
     fadeSprite_ = CreateUiRect({ 0,0 }, { 1280,720 }, { 0,0,0,0 });
@@ -220,17 +221,20 @@ void TitleScene::UpdateMenu() {
             if (selectedButton_ == 0) {
                 isStarting_ = true;
                 transitionTimer_ = 0;
+                // ポストエフェクトはフェードにもかかるので、暗転前に衝撃波を止める
+                if (context_.offscreenRenderer) { context_.offscreenRenderer->StopShockwave(); }
             } else {
                 // 強制終了せず、通常の終了メッセージで後片付けを行う
                 PostQuitMessage(0);
             }
         }
     }
-    const float pulse = 0.8f + 0.2f * std::sin(static_cast<float>(frame_) * 0.05f);
+    // 選択中は白地に黒文字、非選択は黒地に白文字で白黒を反転させる
     for (int i = 0; i < 2; ++i) {
         const bool selected = i == selectedButton_;
-        buttonBorders_[i]->SetColor(selected ? Vector4{ 1,0.72f,0.25f,pulse } : Vector4{ 0.4f,0.52f,0.55f,0.7f });
-        buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 0.12f,0.14f,0.13f,0.96f } : Vector4{ 0.025f,0.04f,0.05f,0.96f });
+        buttonBorders_[i]->SetColor({ 1,1,1,1 });
+        buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 1,1,1,1 } : Vector4{ 0,0,0,0.96f });
+        buttonLabels_[i]->SetColor(selected ? Vector4{ 0,0,0,1 } : Vector4{ 1,1,1,1 });
     }
     // 暗転の最終フレームでは、不透明度を必ず1まで更新する
     fadeSprite_->SetColor({ 0,0,0,isStarting_ ? std::clamp(static_cast<float>(transitionTimer_)/static_cast<float>(kFadeDuration),0.0f,1.0f) : 0.0f });
@@ -319,9 +323,14 @@ void TitleScene::FireShotgun(const Vector3& baseDirection) {
             { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get());
         bullets_.push_back(std::move(bullet));
     }
+    // 衝撃波と発射炎は他の銃と同じく銃口の位置から出す
+    const Vector3 muzzlePosition{
+        firePosition.x+baseDirection.x*kBulletMuzzleDistance,
+        firePosition.y,
+        firePosition.z+baseDirection.z*kBulletMuzzleDistance };
     // ショットガン全体で1つの衝撃波だけ出す
-    StartShockwave(firePosition);
-    EmitMuzzleFlash(firePosition, baseDirection, true);
+    StartShockwave(muzzlePosition);
+    EmitMuzzleFlash(muzzlePosition, baseDirection, true);
 }
 
 void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun) {
@@ -344,7 +353,8 @@ void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& dir
 
 void TitleScene::StartShockwave(const Vector3& firePosition) {
     // 本編と同じく、発射位置を画面UVへ変換して画面歪みを出す
-    if (!context_.offscreenRenderer || !context_.camera) { return; }
+    // 暗転中は衝撃波を出さない(フェードの上に白い波が残るため)
+    if (!context_.offscreenRenderer || !context_.camera || isStarting_) { return; }
     Vector2 uv{};
     if (!TryConvertWorldToScreenUV(firePosition, context_.camera->GetViewProjectionMatrix(), uv)) { return; }
     context_.offscreenRenderer->SetShockwaveDuration(0.16f);
@@ -513,6 +523,7 @@ void TitleScene::Finalize() {
     uiSprites_.clear();
     buttonBorders_.fill(nullptr);
     buttonBackgrounds_.fill(nullptr);
+    buttonLabels_.fill(nullptr);
     // フェード用スプライトへの参照を解除する
     fadeSprite_ = nullptr;
     bullets_.clear();

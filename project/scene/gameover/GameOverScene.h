@@ -1,44 +1,9 @@
 #pragma once
-#include <vector>
-#include <memory>
-#include <wrl.h>
-#include <d3d12.h>
+#include "../result/ResultScene.h"
 
-#include "../../engine/math/Math.h"
-#include "../BaseScene.h"
-
-class Sprite;
-class Object3d;
-class ParticleSystem;
-
-class GameOverScene : public BaseScene
+// プレイヤー死亡時のゲームオーバー画面。床の背景に GAME OVER と「リスタート」「タイトルへ戻る」を出す
+class GameOverScene : public ResultScene
 {
 public:
-    // ゲームオーバーシーンを初期化する
-    void Initialize() override;
-
-    // ゲームオーバーシーンを更新する
-    void Update() override;
-
-    // ゲームオーバーシーンを描画する
-    void Draw() override;
-
-    // ゲームオーバーシーンを終了する
-    void Finalize() override;
-
-private:
-    // 初期化済みかを管理する
-    bool initialized_ = false;
-
-    // 表示用スプライト
-    std::vector<std::unique_ptr<Sprite>> sprites_;
-
-    // 表示用3Dオブジェクト
-    std::unique_ptr<Object3d> objA_;
-
-    // パーティクル
-    std::unique_ptr<ParticleSystem> particleSystem_;
-
-    // ライト用リソース
-    Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
+    GameOverScene();
 };

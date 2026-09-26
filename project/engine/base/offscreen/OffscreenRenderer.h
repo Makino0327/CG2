@@ -43,6 +43,8 @@ public:
     void StartShockwave(const Vector2& centerUV);
     // 今回だけ最大サイズを指定して衝撃波を出す
     void StartShockwave(const Vector2& centerUV, float maxRadius);
+    // 再生中の衝撃波をすぐに止める
+    void StopShockwave();
 
     // ゲームシーンから衝撃波の最大サイズを変更する
     void SetShockwaveMaxRadius(float radius) { shockwaveMaxRadius_ = radius; }

@@ -30,6 +30,8 @@ namespace
     // 設置物の表示色と最小サイズをコード側で統一する
     constexpr Vector4 kGeneratorMarkerColor = { 1.0f, 0.9f, 0.0f, 1.0f };
     constexpr Vector4 kDoorMarkerColor = { 1.0f, 0.1f, 0.1f, 1.0f };
+    constexpr Vector4 kTeleporterMarkerColor = { 0.15f, 0.55f, 1.0f, 1.0f };
+    constexpr float kTeleporterMarkerDiameter = 14.0f;
     constexpr float kGeneratorMarkerDiameter = 12.0f;
     constexpr float kDoorMarkerMinWidth = 8.0f;
     constexpr float kDoorMarkerMinThickness = 4.0f;
@@ -49,6 +51,7 @@ void Minimap::Initialize(
     mapSprites_.clear();
     objectMarkers_.clear();
     doorsOpen_ = false;
+    teleportersActive_ = false;
     enemyMarkers_.clear();
     visibleEnemyCount_ = 0;
     initialized_ = false;
@@ -346,6 +349,10 @@ void Minimap::Draw()
 
     // 設置物を壁や音の範囲円より手前へ描画し、位置を強調する
     for (const auto& marker : objectMarkers_) {
+        // テレポーターは踏めるようになるまで表示しない
+        if (marker.data.kind == MinimapObjectData::Kind::Teleporter && !teleportersActive_) {
+            continue;
+        }
         marker.outline->Draw();
         marker.sprite->Draw();
     }
@@ -487,6 +494,7 @@ void Minimap::SetObjectMarkers(const std::vector<MinimapObjectData>& objects)
     // 再読み込みやステージ移動時に以前のマーカーを残さない
     objectMarkers_.clear();
     doorsOpen_ = false;
+    teleportersActive_ = false;
     if (!initialized_) {
         return;
     }
@@ -495,7 +503,8 @@ void Minimap::SetObjectMarkers(const std::vector<MinimapObjectData>& objects)
         ObjectMarker marker;
         marker.data = object;
         const bool isGenerator = object.kind == MinimapObjectData::Kind::Generator;
-        const char* texture = isGenerator ? "Resources/circle2.png" : "Resources/white2x2.png";
+        const bool isTeleporter = object.kind == MinimapObjectData::Kind::Teleporter;
+        const char* texture = (isGenerator || isTeleporter) ? "Resources/circle2.png" : "Resources/white2x2.png";
 
         // 発電機は黄色の丸、ドアは赤い四角にし、黒い縁取りで背景と区別する
         marker.outline = std::make_unique<Sprite>();
@@ -506,7 +515,9 @@ void Minimap::SetObjectMarkers(const std::vector<MinimapObjectData>& objects)
         marker.sprite = std::make_unique<Sprite>();
         marker.sprite->Initialize(spriteCommon_, directionalLightResource_, texture);
         marker.sprite->SetAnchorPoint({ 0.5f, 0.5f });
-        marker.sprite->SetColor(isGenerator ? kGeneratorMarkerColor : kDoorMarkerColor);
+        // テレポーターは青い丸で表示する
+        marker.sprite->SetColor(isTeleporter ? kTeleporterMarkerColor
+            : (isGenerator ? kGeneratorMarkerColor : kDoorMarkerColor));
         objectMarkers_.push_back(std::move(marker));
     }
     UpdateObjectMarkers();
@@ -536,16 +547,19 @@ void Minimap::UpdateObjectMarkers()
 {
     for (auto& marker : objectMarkers_) {
         const bool isGenerator = marker.data.kind == MinimapObjectData::Kind::Generator;
+        const bool isTeleporter = marker.data.kind == MinimapObjectData::Kind::Teleporter;
         const Vector2 position = ConvertWorldToScreen(marker.data.position.x, marker.data.position.z);
 
-        // 発電機は見やすい一定径にし、ドアは実際の幅と厚さを最小サイズ付きで表示する
-        const Vector2 size = isGenerator
+        // 発電機とテレポーターは見やすい一定径にし、ドアは実際の幅と厚さを最小サイズ付きで表示する
+        const Vector2 size = isTeleporter
+            ? Vector2{ kTeleporterMarkerDiameter, kTeleporterMarkerDiameter }
+            : isGenerator
             ? Vector2{ kGeneratorMarkerDiameter, kGeneratorMarkerDiameter }
             : Vector2{
                 std::max(marker.data.size.x * minimapScale_, kDoorMarkerMinWidth),
                 std::max(marker.data.size.y * minimapScale_, kDoorMarkerMinThickness)
             };
-        const float rotation = isGenerator ? 0.0f : marker.data.rotation;
+        const float rotation = (isGenerator || isTeleporter) ? 0.0f : marker.data.rotation;
         marker.sprite->SetPosition(position);
         marker.sprite->SetSize(size);
         marker.sprite->SetRotation(rotation);

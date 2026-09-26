@@ -248,7 +248,15 @@ bool GamePlayScene::CheckBossTeleport()
             continue;
         }
 
-        // テレポーターを踏んだら、指定されたJSONを監視対象にしてレベルを読み直す
+        // テレポーターを踏んだらステージクリアにする
+        // (ボスステージへの移動処理は残しておき、今はクリア画面へ進める)
+        constexpr bool kTeleportGoesToClear = true;
+        if (kTeleportGoesToClear) {
+            sceneManager_->SetNextScene(std::make_unique<ClearScene>());
+            return true;
+        }
+
+        // 指定されたJSONを監視対象にしてレベルを読み直す
         levelFilePath_ = teleport.targetLevel;
         levelHotReload_.Initialize(levelFilePath_);
         ReloadLevel(false);
@@ -520,6 +528,8 @@ void GamePlayScene::Initialize()
 
     if (context_.offscreenRenderer) {
         context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        // タイトルの衝撃波を本編へ持ち越さない
+        context_.offscreenRenderer->StopShockwave();
         // ゲームシーン側で通常の衝撃波サイズを調整する
         context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
@@ -570,16 +580,15 @@ void GamePlayScene::Update()
         ReloadLevel(false);
     }
 
-    if (player_ && context_.input) {
-        if (player_->IsDead() && context_.input->TriggerKey(DIK_R)) {
-            player_->Respawn();
-            SpawnEnemies();
-            SpawnBosses();
-
-            if (context_.offscreenRenderer) {
-                context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-            }
+    // 死亡したら白黒の演出を少し見せてから、ゲームオーバー画面へ移る
+    constexpr int kGameOverDelayFrames = 90;
+    if (player_ && player_->IsDead()) {
+        if (++playerDeadFrames_ >= kGameOverDelayFrames) {
+            sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
+            return;
         }
+    } else {
+        playerDeadFrames_ = 0;
     }
 
     if (skybox_) { skybox_->Update(); }
@@ -757,11 +766,7 @@ void GamePlayScene::Update()
     // 移動とダメージ判定の後に、近くの発電機へのE入力を処理する
     UpdateGeneratorInteraction(generatorDeltaSeconds);
     UpdateGeneratorWorld(generatorDeltaSeconds);
-
-    if (enemies_.empty() && bosses_.empty()) {
-        sceneManager_->SetNextScene(std::make_unique<ClearScene>());
-        return;
-    }
+    UpdateTeleporterEffects();
 
     if (player_ && context_.offscreenRenderer) {
         const bool isAimingGun =
@@ -1086,6 +1091,59 @@ void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
             if (enemy->GetGeneratorDestination(destination)) {
                 reservedGeneratorPositions.push_back(destination);
             }
+        }
+    }
+}
+
+bool GamePlayScene::IsBossTeleportUsable() const
+{
+    // ドアも発電機も無いステージでは最初から踏める。ある場合は全ドアが開き切ってから
+    if (doors_.empty() && generators_.empty()) {
+        return true;
+    }
+    return generatorDoorLink_.IsOpen();
+}
+
+void GamePlayScene::UpdateTeleporterEffects()
+{
+    const bool isUsable = !bossTeleports_.empty() && IsBossTeleportUsable();
+    if (minimap_) {
+        minimap_->SetTeleportersActive(isUsable);
+    }
+    if (!isUsable || !particleSystem_) {
+        teleporterEffectTime_ = 0.0f;
+        return;
+    }
+
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    constexpr float kTwoPi = 6.28318530f;
+    // 螺旋の本数・回転速度・上昇速度
+    constexpr int kSpiralArmCount = 3;
+    constexpr float kSpinSpeed = 4.0f;
+    constexpr float kRiseSpeed = 1.6f;
+    constexpr float kLifeTime = 1.1f;
+    teleporterEffectTime_ += kDeltaTime;
+
+    for (const BossTeleportData& teleport : bossTeleports_) {
+        // テレポーターの外周を回る半径と、足元の高さ
+        const float radius = std::max(teleport.size.x, teleport.size.z) * 0.5f + 0.3f;
+        const float baseY = teleport.center.y - teleport.size.y * 0.5f + 0.1f;
+
+        for (int arm = 0; arm < kSpiralArmCount; ++arm) {
+            // 発生位置を毎フレーム回転させ、上へ昇るくるくるした螺旋を作る
+            const float angle = teleporterEffectTime_ * kSpinSpeed +
+                kTwoPi * static_cast<float>(arm) / static_cast<float>(kSpiralArmCount);
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
+            const Vector3 position{ teleport.center.x + c * radius, baseY, teleport.center.z + s * radius };
+            // 回転方向(接線)へ少し流しながら上昇させる
+            const Vector3 velocity{ -s * radius * 1.2f, kRiseSpeed, c * radius * 1.2f };
+
+            particleSystem_->Emit(position, { 0.45f, 0.45f, 0.45f }, velocity,
+                { 0.2f, 0.6f, 1.0f, 0.85f }, kLifeTime);
+            // 中心に白い光を重ねて青い粒を目立たせる
+            particleSystem_->Emit(position, { 0.2f, 0.2f, 0.2f }, velocity,
+                { 0.85f, 0.95f, 1.0f, 1.0f }, kLifeTime * 0.8f);
         }
     }
 }
@@ -2079,6 +2137,13 @@ void GamePlayScene::CreateMapObjects()
                 ? "Resources/level/bossStage.json"
                 : objectData.targetLevel;
             bossTeleports_.push_back(teleport);
+
+            // ミニマップにも登録する。表示は踏めるようになってから青い丸で行う
+            MinimapObjectData marker;
+            marker.kind = MinimapObjectData::Kind::Teleporter;
+            marker.position = teleport.center;
+            marker.size = { teleport.size.x, teleport.size.z };
+            minimapObjects.push_back(marker);
 
             // テレポーターは床や壁の移動コライダーに混ぜず、見た目だけ描画する
             floorObjects_.push_back(std::move(mapObject));
