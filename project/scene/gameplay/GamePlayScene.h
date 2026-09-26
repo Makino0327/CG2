@@ -92,6 +92,9 @@ private:
     void InitializeGeneratorUi();
     void UpdateGeneratorInteraction(double deltaSeconds);
     void DrawGeneratorUi();
+    // 左上の目的・起動数と、右下の操作説明を表示する
+    void InitializeGuideUi();
+    void DrawGuideUi();
     // 発電機の稼働音、敵の誘導、全台起動後のドアを更新する
     void UpdateGeneratorWorld(double deltaSeconds);
     // ドアが開いてテレポーターを踏めるようになったか
@@ -267,6 +270,12 @@ private:
     std::unique_ptr<Sprite> generatorGaugeFrame_;
     std::unique_ptr<Sprite> generatorGaugeBackground_;
     std::unique_ptr<Sprite> generatorGaugeFill_;
+
+    // 目的の文章と数字を別々に持ち、配置された発電機の台数に追従する
+    std::unique_ptr<Sprite> objectivePanel_;
+    std::unique_ptr<Sprite> objectiveLabel_;
+    std::vector<std::unique_ptr<Sprite>> objectiveCountSprites_;
+    std::unique_ptr<Sprite> controlsGuide_;
 
     // ボスステージへ移動するテレポーター情報
     struct BossTeleportData {

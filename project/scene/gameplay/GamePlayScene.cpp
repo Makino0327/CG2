@@ -362,6 +362,8 @@ void GamePlayScene::Initialize()
 
     // 発電機用の操作案内と起動メーターを準備する
     InitializeGeneratorUi();
+    // 通常のSpriteで案内を作り、Releaseでも同じ説明を表示する
+    InitializeGuideUi();
     generatorMotorSound_ = MakeGeneratorMotorSound();
 
     // 近接攻撃可能な敵の頭上へ表示するマークを作る
@@ -924,6 +926,95 @@ void GamePlayScene::Draw()
 
     // 発電機の操作案内を通常のゲーム画面に重ねる
     DrawGeneratorUi();
+    // 戦闘の中心や下中央の起動メーターを避け、画面の端へ案内を置く
+    DrawGuideUi();
+}
+
+void GamePlayScene::InitializeGuideUi()
+{
+    // 数字画像は描画前に読み込む。描画中の初回読み込みはコマンドリストをリセットし、
+    // 描画先や深度バッファの設定を失うため、数字Spriteの作成時にはキャッシュを使う
+    TextureManager::GetInstance()->LoadTexture("Resources/hud/count_glyphs.png");
+
+    // 日本語は事前生成した透過画像を使い、実行環境のフォントに依存させない
+    auto createSprite = [this](const char* texture) {
+        auto sprite = std::make_unique<Sprite>();
+        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texture);
+        sprite->SetAnchorPoint({ 0.0f, 0.0f });
+        return sprite;
+    };
+    objectivePanel_ = createSprite("Resources/white2x2.png");
+    objectivePanel_->SetPosition({ 20.0f, 88.0f });
+    objectivePanel_->SetColor({ 0.02f, 0.025f, 0.03f, 0.78f });
+    objectiveLabel_ = createSprite("Resources/hud/objective_labels.png");
+    objectiveLabel_->SetPosition({ 36.0f, 94.0f });
+    objectiveLabel_->SetTextureSize({ 640.0f, 128.0f });
+    objectiveLabel_->SetSize({ 320.0f, 64.0f });
+    objectiveCountSprites_.clear();
+
+    // 右上のミニマップ・左下の残弾・下中央の起動メーターと重ならない位置にする
+    controlsGuide_ = createSprite("Resources/hud/controls_guide.png");
+    controlsGuide_->SetPosition({ static_cast<float>(WinApp::kClientWidth) - 344.0f,
+        static_cast<float>(WinApp::kClientHeight) - 252.0f });
+    controlsGuide_->SetSize({ 324.0f, 232.0f });
+    controlsGuide_->Update();
+}
+
+void GamePlayScene::DrawGuideUi()
+{
+    // 死亡演出中とデバッグカメラ中は、操作できない案内を隠す
+    if (!player_ || player_->IsDead() || (context_.isDebugMode && *context_.isDebugMode)) {
+        return;
+    }
+    context_.spriteCommon->CommonDrawSetting();
+    controlsGuide_->Draw();
+
+    // 起動途中は数に含めず、メーターが満タンになった発電機だけを数える
+    const size_t activeCount = static_cast<size_t>(std::count_if(generators_.begin(), generators_.end(),
+        [](const GeneratorData& generator) {
+            return generator.activation.GetState() == GeneratorActivation::State::Active;
+        }));
+    const bool allActive = !generators_.empty() && activeCount == generators_.size();
+    const bool showPortal = allActive ||
+        (generators_.empty() && !bossTeleports_.empty() && IsBossTeleportUsable());
+    // 発電機も使用可能なポータルもないステージでは、存在しない目的を表示しない
+    if (generators_.empty() && !showPortal) {
+        return;
+    }
+
+    const std::string countText = std::to_string(activeCount) + "/" + std::to_string(generators_.size());
+    objectivePanel_->SetSize({ showPortal ? 320.0f :
+        std::max(416.0f, 348.0f + static_cast<float>(countText.size()) * 16.0f), 76.0f });
+    objectivePanel_->Update();
+    objectivePanel_->Draw();
+    objectiveLabel_->SetTextureLeftTop({ 0.0f, showPortal ? 128.0f : 0.0f });
+    objectiveLabel_->Update();
+    objectiveLabel_->Draw();
+    if (showPortal) {
+        return;
+    }
+
+    // 台数を固定せず、レベル再読み込みや桁数の変更にも対応する
+    if (objectiveCountSprites_.size() != countText.size()) {
+        objectiveCountSprites_.clear();
+        for (size_t index = 0; index < countText.size(); ++index) {
+            auto digit = std::make_unique<Sprite>();
+            digit->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/hud/count_glyphs.png");
+            digit->SetTextureSize({ 32.0f, 64.0f });
+            digit->SetSize({ 16.0f, 32.0f });
+            digit->SetColor({ 1.0f, 0.9f, 0.3f, 1.0f });
+            objectiveCountSprites_.push_back(std::move(digit));
+        }
+    }
+    for (size_t index = 0; index < countText.size(); ++index) {
+        // 画像は数字0〜9とスラッシュの順に横へ並べてある
+        const int glyph = countText[index] == '/' ? 10 : countText[index] - '0';
+        auto& digit = objectiveCountSprites_[index];
+        digit->SetTextureLeftTop({ static_cast<float>(glyph) * 32.0f, 0.0f });
+        digit->SetPosition({ 352.0f + static_cast<float>(index) * 16.0f, 122.0f });
+        digit->Update();
+        digit->Draw();
+    }
 }
 
 void GamePlayScene::InitializeGeneratorUi()
@@ -1730,6 +1821,11 @@ void GamePlayScene::UpdateMeleeAttack()
 
 void GamePlayScene::Finalize()
 {
+    // 案内用Spriteも、参照しているライト用リソースより先に解放する
+    objectivePanel_.reset();
+    objectiveLabel_.reset();
+    objectiveCountSprites_.clear();
+    controlsGuide_.reset();
     // 発電機のUIをライト用リソースより先に解放する
     generatorUiPanel_.reset();
     generatorUiLabel_.reset();

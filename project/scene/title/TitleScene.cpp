@@ -185,10 +185,18 @@ void TitleScene::Initialize() {
 }
 
 void TitleScene::CreateMenu() {
-    // タイトル名は未定なので、上部には文字を入れず空の枠だけを置く
-    // UIは白と黒だけで構成する
+    // メニューと同じ白枠と黒背景で、ゲーム名を読みやすくする
     CreateUiRect({ 300,42 }, { 680,126 }, { 1,1,1,1 });
     CreateUiRect({ 302,44 }, { 676,122 }, { 0,0,0,0.93f });
+
+    // 日本語タイトルと小さな英字表記を、枠の中央へ余白を残して配置する
+    auto titleLogo = std::make_unique<Sprite>();
+    titleLogo->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/title/title_logo.png");
+    titleLogo->SetPosition({ 320,53 });
+    titleLogo->SetSize({ 640,104 });
+    titleLogo->Update();
+    // 共通の配列で管理し、描画・更新・終了時の解放を既存の処理に任せる
+    uiSprites_.push_back(std::move(titleLogo));
 
     // 下部の2ボタンは白枠の黒パネルにする
     for (int i = 0; i < 2; ++i) {
