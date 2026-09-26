@@ -25,6 +25,21 @@ struct SoundData
 // ★前方宣言：コールバッククラスをポインタで扱えるようにする
 class VoiceCallback;
 
+// 所有者が破棄されたら停止するループ音。再生中のPCMデータも自身で保持する
+class LoopingSound {
+public:
+    ~LoopingSound();
+    void SetVolume(float volume);
+    LoopingSound(const LoopingSound&) = delete;
+    LoopingSound& operator=(const LoopingSound&) = delete;
+
+private:
+    friend class SoundManager;
+    LoopingSound() = default;
+    IXAudio2SourceVoice* voice_ = nullptr;
+    std::vector<BYTE> buffer_;
+};
+
 class SoundManager
 {
 public:
@@ -42,6 +57,9 @@ public:
 
     void SoundUnload(SoundData* soundData);
     void SoundPlayWave(const SoundData& soundData);
+
+    // 無音でループ再生を開始し、呼び出し側で距離に応じた音量を設定する
+    std::unique_ptr<LoopingSound> CreateLoopingSound(const SoundData& soundData);
 
 private:
     Microsoft::WRL::ComPtr<IXAudio2> xAudio2_;

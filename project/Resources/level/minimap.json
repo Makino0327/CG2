@@ -21,19 +21,6 @@
     },
     "objects": [
         {
-            "name": "Floor",
-            "kind": "floor",
-            "position": [
-                0.0,
-                0.0
-            ],
-            "size": [
-                100.0,
-                100.0
-            ],
-            "rotation": 0.0
-        },
-        {
             "name": "Player",
             "kind": "player",
             "position": [
@@ -245,14 +232,14 @@
             "name": "wall_10",
             "kind": "wall",
             "position": [
-                21.0,
-                11.0
+                29.0,
+                19.0
             ],
             "size": [
                 18.0,
                 2.0
             ],
-            "rotation": 0.0
+            "rotation": 90.00000250447816
         },
         {
             "name": "wall_11",
@@ -271,27 +258,27 @@
             "name": "wall_12",
             "kind": "wall",
             "position": [
-                29.0,
-                14.0
+                14.0,
+                11.0
             ],
             "size": [
                 2.0,
                 4.0
             ],
-            "rotation": 0.0
+            "rotation": 90.00000250447816
         },
         {
             "name": "wall_13",
             "kind": "wall",
             "position": [
-                29.0,
-                26.0
+                26.0,
+                11.0
             ],
             "size": [
                 2.0,
                 4.0
             ],
-            "rotation": 0.0
+            "rotation": 90.00000250447816
         },
         {
             "name": "Enemy_04",
@@ -316,19 +303,6 @@
             "size": [
                 0.0,
                 0.0
-            ],
-            "rotation": 0.0
-        },
-        {
-            "name": "wall_14",
-            "kind": "wall",
-            "position": [
-                20.0,
-                -20.0
-            ],
-            "size": [
-                2.0,
-                2.0
             ],
             "rotation": 0.0
         },
@@ -388,8 +362,125 @@
             "name": "wall_15",
             "kind": "wall",
             "position": [
-                -1.0,
-                -10.0
+                0.0,
+                -19.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Floor.001",
+            "kind": "floor",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                100.0,
+                100.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Floor",
+            "kind": "floor",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                100.0,
+                100.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "floor_00",
+            "kind": "floor",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Player_Boss",
+            "kind": "player",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "Enemy_Boss_00",
+            "kind": "enemy",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_16",
+            "kind": "wall",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_17",
+            "kind": "wall",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_18",
+            "kind": "wall",
+            "position": [
+                0.0,
+                0.0
+            ],
+            "size": [
+                2.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_19",
+            "kind": "wall",
+            "position": [
+                0.0,
+                0.0
             ],
             "size": [
                 2.0,

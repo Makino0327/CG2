@@ -59,6 +59,17 @@ public:
     // 銃声などの音を聞いたときに音のした位置へ振り向かせる
     void OnHearSound(const Vector3& soundPosition);
 
+    // 発電機の音を聞き、本体の周囲にある歩ける位置へ向かう
+    void OnHearGenerator(const Vector3& center, const Vector3& size,
+        const std::vector<Vector3>& reservedPositions);
+
+    // 他の敵と停止地点を共有しないため、現在の目的地を返す
+    bool GetGeneratorDestination(Vector3& destination) const {
+        if (isDead_ || !isInvestigatingGenerator_) { return false; }
+        destination = generatorApproachPosition_;
+        return true;
+    }
+
     // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
     void SetWaypoints(const std::vector<Vector3>& waypoints);
@@ -271,6 +282,13 @@ private:
 
     // 音の方向へ振り向くときの旋回速度(ラジアン/フレーム)
     float hearingTurnSpeed_ = 0.12f;
+
+    // 発電機の周囲へ移動し、到着後はその場で停止する
+    bool isInvestigatingGenerator_ = false;
+    bool hasReachedGenerator_ = false;
+    Vector3 generatorSoundPosition_{};
+    Vector3 generatorApproachPosition_{};
+    int generatorApproachRetryTimer_ = 0; // 到達可能な場所がない場合の再検索間隔
 
     // 敵OBJを再利用した破片1個分の情報
     struct DeathFragment {

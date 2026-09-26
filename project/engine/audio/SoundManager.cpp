@@ -33,6 +33,42 @@ public:
 
 SoundManager::SoundManager() = default;
 
+LoopingSound::~LoopingSound() {
+    // 再生を止めてから、XAudio2が参照しているPCMバッファを破棄する
+    if (voice_) {
+        voice_->Stop();
+        voice_->DestroyVoice();
+    }
+}
+
+void LoopingSound::SetVolume(float volume) {
+    if (voice_) {
+        voice_->SetVolume(std::clamp(volume, 0.0f, 1.0f));
+    }
+}
+
+std::unique_ptr<LoopingSound> SoundManager::CreateLoopingSound(const SoundData& soundData) {
+    if (!xAudio2_ || soundData.buffer.empty()) {
+        return nullptr;
+    }
+    auto sound = std::unique_ptr<LoopingSound>(new LoopingSound());
+    sound->buffer_ = soundData.buffer;
+    if (FAILED(xAudio2_->CreateSourceVoice(&sound->voice_, &soundData.wfex))) {
+        return nullptr;
+    }
+    // ループ音は別の発電機や他シーンの効果音とは独立して停止できる
+    XAUDIO2_BUFFER buffer{};
+    buffer.pAudioData = sound->buffer_.data();
+    buffer.AudioBytes = static_cast<UINT32>(sound->buffer_.size());
+    buffer.Flags = XAUDIO2_END_OF_STREAM;
+    buffer.LoopCount = XAUDIO2_LOOP_INFINITE;
+    sound->voice_->SetVolume(0.0f);
+    if (FAILED(sound->voice_->SubmitSourceBuffer(&buffer)) || FAILED(sound->voice_->Start())) {
+        return nullptr;
+    }
+    return sound;
+}
+
 SoundManager::~SoundManager() {
     Finalize();
 }

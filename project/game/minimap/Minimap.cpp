@@ -26,6 +26,14 @@ namespace
 
     // 発砲後に音の範囲円を光らせるフレーム数
     constexpr float kGunshotFlashFrames = 40.0f;
+
+    // 設置物の表示色と最小サイズをコード側で統一する
+    constexpr Vector4 kGeneratorMarkerColor = { 1.0f, 0.9f, 0.0f, 1.0f };
+    constexpr Vector4 kDoorMarkerColor = { 1.0f, 0.1f, 0.1f, 1.0f };
+    constexpr float kGeneratorMarkerDiameter = 12.0f;
+    constexpr float kDoorMarkerMinWidth = 8.0f;
+    constexpr float kDoorMarkerMinThickness = 4.0f;
+    constexpr float kObjectMarkerOutline = 2.0f;
 }
 
 Minimap::~Minimap() = default;
@@ -39,9 +47,12 @@ void Minimap::Initialize(
     directionalLightResource_ = directionalLightResource;
 
     mapSprites_.clear();
+    objectMarkers_.clear();
+    doorsOpen_ = false;
     enemyMarkers_.clear();
     visibleEnemyCount_ = 0;
     initialized_ = false;
+    isExpanded_ = false;
 
     std::ifstream file(filePath);
 
@@ -333,6 +344,12 @@ void Minimap::Draw()
         soundRangeSprite_->Draw();
     }
 
+    // 設置物を壁や音の範囲円より手前へ描画し、位置を強調する
+    for (const auto& marker : objectMarkers_) {
+        marker.outline->Draw();
+        marker.sprite->Draw();
+    }
+
     // プレイヤーを描画する
     playerMarker_->Draw();
 
@@ -465,6 +482,83 @@ void Minimap::CreateWallOutline(
         height);
 }
 
+void Minimap::SetObjectMarkers(const std::vector<MinimapObjectData>& objects)
+{
+    // 再読み込みやステージ移動時に以前のマーカーを残さない
+    objectMarkers_.clear();
+    doorsOpen_ = false;
+    if (!initialized_) {
+        return;
+    }
+
+    for (const auto& object : objects) {
+        ObjectMarker marker;
+        marker.data = object;
+        const bool isGenerator = object.kind == MinimapObjectData::Kind::Generator;
+        const char* texture = isGenerator ? "Resources/circle2.png" : "Resources/white2x2.png";
+
+        // 発電機は黄色の丸、ドアは赤い四角にし、黒い縁取りで背景と区別する
+        marker.outline = std::make_unique<Sprite>();
+        marker.outline->Initialize(spriteCommon_, directionalLightResource_, texture);
+        marker.outline->SetAnchorPoint({ 0.5f, 0.5f });
+        marker.outline->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+
+        marker.sprite = std::make_unique<Sprite>();
+        marker.sprite->Initialize(spriteCommon_, directionalLightResource_, texture);
+        marker.sprite->SetAnchorPoint({ 0.5f, 0.5f });
+        marker.sprite->SetColor(isGenerator ? kGeneratorMarkerColor : kDoorMarkerColor);
+        objectMarkers_.push_back(std::move(marker));
+    }
+    UpdateObjectMarkers();
+}
+
+void Minimap::SetDoorsOpen(bool open)
+{
+    if (doorsOpen_ == open) {
+        return;
+    }
+    doorsOpen_ = open;
+    for (auto& marker : objectMarkers_) {
+        if (marker.data.kind != MinimapObjectData::Kind::Door) {
+            continue;
+        }
+        // 赤色は維持し、開き切ったドアだけ透明度を下げる
+        Vector4 color = kDoorMarkerColor;
+        color.w = open ? 0.25f : 1.0f;
+        marker.sprite->SetColor(color);
+        marker.outline->SetColor({ 0.0f, 0.0f, 0.0f, color.w });
+        marker.sprite->Update();
+        marker.outline->Update();
+    }
+}
+
+void Minimap::UpdateObjectMarkers()
+{
+    for (auto& marker : objectMarkers_) {
+        const bool isGenerator = marker.data.kind == MinimapObjectData::Kind::Generator;
+        const Vector2 position = ConvertWorldToScreen(marker.data.position.x, marker.data.position.z);
+
+        // 発電機は見やすい一定径にし、ドアは実際の幅と厚さを最小サイズ付きで表示する
+        const Vector2 size = isGenerator
+            ? Vector2{ kGeneratorMarkerDiameter, kGeneratorMarkerDiameter }
+            : Vector2{
+                std::max(marker.data.size.x * minimapScale_, kDoorMarkerMinWidth),
+                std::max(marker.data.size.y * minimapScale_, kDoorMarkerMinThickness)
+            };
+        const float rotation = isGenerator ? 0.0f : marker.data.rotation;
+        marker.sprite->SetPosition(position);
+        marker.sprite->SetSize(size);
+        marker.sprite->SetRotation(rotation);
+        marker.sprite->Update();
+
+        // 縁取りは拡大表示でも同じ太さを保つ
+        marker.outline->SetPosition(position);
+        marker.outline->SetSize({ size.x + kObjectMarkerOutline * 2.0f, size.y + kObjectMarkerOutline * 2.0f });
+        marker.outline->SetRotation(rotation);
+        marker.outline->Update();
+    }
+}
+
 void Minimap::SetSoundRange(float worldRadius)
 {
     // 銃声が届く範囲の半径を保存する
@@ -592,4 +686,7 @@ void Minimap::ToggleExpanded()
 
         sprite->Update();
     }
+
+    // ワールド座標から再計算し、拡大切り替えを繰り返しても位置をずらさない
+    UpdateObjectMarkers();
 }

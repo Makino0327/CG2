@@ -5,6 +5,7 @@
 #include <memory>
 #include <wrl.h>
 #include <d3d12.h>
+#include <chrono>
 
 #include "../engine/math/Math.h"
 #include "../BaseScene.h"
@@ -24,6 +25,8 @@
 #include "../../engine/utils/LevelHotReload.h"
 
 #include "../../game/minimap/Minimap.h"
+#include "../../game/generator/GeneratorActivation.h"
+#include "../../game/generator/GeneratorDoorLink.h"
 
 #include "../LevelLoader.h"
 
@@ -84,6 +87,13 @@ private:
     void SpawnAmmoFireEffect(const Vector2& center, const Vector2& size);
     // 発射演出の経過を進めてSpriteへ反映する
     void UpdateAmmoFireEffects();
+
+    // 発電機の操作案内と起動メーターを作成・更新・描画する
+    void InitializeGeneratorUi();
+    void UpdateGeneratorInteraction(double deltaSeconds);
+    void DrawGeneratorUi();
+    // 発電機の稼働音、敵の誘導、全台起動後のドアを更新する
+    void UpdateGeneratorWorld(double deltaSeconds);
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -220,6 +230,37 @@ private:
 
     // Blender JSONから読み込んだ壁コライダー
     std::vector<LevelColliderData> wallColliders_;
+
+    // 発電機ごとに当たり判定と起動状態を保存する
+    struct GeneratorData {
+        LevelColliderData collider{};
+        GeneratorActivation activation;
+        std::unique_ptr<LoopingSound> motorSound; // 発電機ごとに所有する稼働音
+    };
+    std::vector<GeneratorData> generators_;
+    int interactingGeneratorIndex_ = -1; // 現在起動中、または完了通知中の発電機
+    int generatorUiIndex_ = -1; // 今フレームに操作案内を表示する発電機
+    double generatorCompleteNoticeSeconds_ = 0.0;
+    std::chrono::steady_clock::time_point generatorPreviousUpdate_{};
+    SoundData generatorMotorSound_; // 外部素材不要の仮モーター音
+
+    // 描画オブジェクトと壁コライダーの対応を保ったまま、ドアを上へ動かす
+    struct DoorData {
+        Object3d* object = nullptr; // 所有権はwallObjects_にある
+        size_t colliderIndex = 0;
+        Vector3 closedPosition{};
+        Vector3 closedColliderCenter{};
+        float liftDistance = 0.0f;
+    };
+    std::vector<DoorData> doors_;
+    GeneratorDoorLink generatorDoorLink_;
+
+    // 日本語ラベルと起動メーターは通常のSpriteで表示する
+    std::unique_ptr<Sprite> generatorUiPanel_;
+    std::unique_ptr<Sprite> generatorUiLabel_;
+    std::unique_ptr<Sprite> generatorGaugeFrame_;
+    std::unique_ptr<Sprite> generatorGaugeBackground_;
+    std::unique_ptr<Sprite> generatorGaugeFill_;
 
     // ボスステージへ移動するテレポーター情報
     struct BossTeleportData {

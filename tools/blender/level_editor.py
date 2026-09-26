@@ -46,6 +46,9 @@ BOSS_MODEL_PATH = r"C:\Users\k024g\デスクトップ\CG2\CG2_00_01\project\Reso
 # 発電機の配置プレビューとゲーム表示で、同じモデルを使う
 GENERATOR_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(ENEMY_MODEL_PATH)), "generator", "generator.obj")
 
+# 配置用のドアとゲーム表示で同じモデルを使う
+DOOR_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(ENEMY_MODEL_PATH)), "door", "door.obj")
+
 # Edit Target で選ばれていないオブジェクトの表示アルファ値
 EDIT_TARGET_DIM_ALPHA = 0.2
 
@@ -134,7 +137,7 @@ def normalize_existing_level_stage_objects(scene):
 
         # 編集対象になりうる既存オブジェクトだけMainStageへ移す
         object_kind = get_object_kind(object)
-        if object_kind not in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator"}:
+        if object_kind not in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator", "door"}:
             continue
 
         if main_collection.objects.get(object.name) is None:
@@ -338,8 +341,8 @@ def is_floor_object(object):
     if object is None:
         return False
 
-    # 発電機の当たり判定を床と誤認しないようにする
-    if is_generator_object(object):
+    # 発電機とドアの当たり判定を床と誤認しないようにする
+    if is_generator_object(object) or is_door_object(object):
         return False
 
     if is_nav_mesh_object(object):
@@ -396,11 +399,21 @@ def is_generator_object(object):
     )
 
 
+def is_door_object(object):
+
+    # 改名や複製をしても種類タグでドアを識別する
+    return object is not None and object.get("object_kind", "") == "door"
+
+
 def get_object_kind(object):
 
     # 選択フィルター用に編集中の種類を返す
     if object is None:
         return "other"
+
+    # ドアを床や壁の名前判定より先に識別する
+    if is_door_object(object):
+        return "door"
 
     # 発電機を床や壁の名前判定より先に識別する
     if is_generator_object(object):
@@ -447,6 +460,8 @@ def refresh_object_kind_tag(object):
         object["object_kind"] = "boss_teleport"
     elif object_kind == "generator":
         object["object_kind"] = "generator"
+    elif object_kind == "door":
+        object["object_kind"] = "door"
 
 def set_object_color_alpha(object, alpha):
 
@@ -491,6 +506,11 @@ def apply_editor_visuals(object):
         object.show_in_front = True
         object.color = (0.95, 0.65, 0.12, 1.0)
 
+    elif object_kind == "door":
+        # ソリッド表示でもドアを見分けられる灰色にする
+        object.show_in_front = True
+        object.color = (0.51, 0.55, 0.59, 1.0)
+
 def sync_nav_mesh_visibility(scene):
 
     # Show NavMesh がOFFならNavMeshを非表示にして選択も外す
@@ -534,7 +554,7 @@ def sync_object_selection_filter(scene):
         refresh_object_kind_tag(object)
         object_kind = get_object_kind(object)
         is_nav_mesh_hidden = object_kind == "navmesh" and not scene.myaddon_show_nav_mesh
-        is_editable_object = object_kind in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator"}
+        is_editable_object = object_kind in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator", "door"}
 
         if is_nav_mesh_hidden:
             object.show_name = False
@@ -1626,6 +1646,58 @@ class MYADDON_OT_add_generator(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class MYADDON_OT_add_door(bpy.types.Operator):
+
+    bl_idname = "myaddon.add_door"
+    bl_label = "Add Door"
+    bl_description = "3Dカーソル位置にドアを追加します（配置用・開閉処理は後で追加）"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        # メッシュ編集中には追加しない
+        return context.mode == 'OBJECT'
+
+    def execute(self, context):
+        # モデルが無い場合はシーンを変更せずに知らせる
+        if not os.path.isfile(DOOR_MODEL_PATH):
+            self.report({'ERROR'}, "ドアモデルが見つかりません: " + DOOR_MODEL_PATH)
+            return {'CANCELLED'}
+
+        door_index = find_next_numbered_name(context.scene, "Door_")
+        object_names_before = {object.name for object in context.scene.objects}
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.wm.obj_import(filepath=DOOR_MODEL_PATH, forward_axis='NEGATIVE_Z', up_axis='Y')
+        imported_objects = get_new_imported_objects(context.scene, object_names_before)
+        door_object = merge_imported_mesh_objects(context, imported_objects)
+        if door_object is None:
+            self.report({'ERROR'}, "ドアモデルの読み込みに失敗しました")
+            return {'CANCELLED'}
+
+        # 読み込み時の軸変換をメッシュへ適用し、配置の回転だけをJSONへ出す
+        door_object.data.transform(door_object.matrix_basis)
+        door_object.matrix_basis = mathutils.Matrix.Identity(4)
+
+        # 底面を3Dカーソルに合わせ、幅4・厚さ0.5・高さ4のBOXを設定する
+        rename_imported_object(door_object, f"Door_{door_index:02d}")
+        door_object.location = context.scene.cursor.location.copy()
+        door_object["file_name"] = "door/door.obj"
+        door_object["object_kind"] = "door"
+        door_object["collider"] = "BOX"
+        door_object["collider_center"] = mathutils.Vector((0.0, 0.0, 2.0))
+        door_object["collider_size"] = mathutils.Vector((4.0, 0.5, 4.0))
+
+        # 編集中のステージへ追加し、ドアだけを選択できる状態へ切り替える
+        move_object_to_level_stage(door_object, context.scene, context.scene.myaddon_edit_level_stage)
+        apply_editor_visuals(door_object)
+        context.scene.myaddon_edit_target = 'DOOR'
+        sync_level_stage_visibility(context.scene)
+        sync_object_selection_filter(context.scene)
+        door_object.select_set(True)
+        context.view_layer.objects.active = door_object
+        return {'FINISHED'}
+
+
 class MYADDON_OT_add_boss_teleport(bpy.types.Operator):
 
     bl_idname = "myaddon.add_boss_teleport"
@@ -1674,7 +1746,7 @@ class MYADDON_OT_add_boss_teleport(bpy.types.Operator):
 def requires_collider(object):
     # collider が必須の種類だけ True を返す
     object_kind = get_object_kind(object)
-    return object_kind in {"wall", "floor", "boss_teleport", "generator"}
+    return object_kind in {"wall", "floor", "boss_teleport", "generator", "door"}
 
 
 def requires_file_name(object):
@@ -1683,7 +1755,7 @@ def requires_file_name(object):
         return True
 
     object_kind = get_object_kind(object)
-    return object_kind in {"wall", "floor", "player", "boss_teleport", "generator"}
+    return object_kind in {"wall", "floor", "player", "boss_teleport", "generator", "door"}
 
 
 def validate_level_scene(scene, target_stage=None):
@@ -1788,8 +1860,8 @@ def validate_level_scene(scene, target_stage=None):
                 if collider_size[0] <= 0.0 or collider_size[1] <= 0.0 or collider_size[2] <= 0.0:
                     issues.append(f"{object.name}: collider_size は 0 より大きくしてください")
 
-        # 壁・床・発電機はスケール 0 だと当たり判定が消えてしまう
-        if object_kind in {"wall", "floor", "generator"}:
+        # 壁・床・発電機・ドアはスケール0だと当たり判定が消えてしまう
+        if object_kind in {"wall", "floor", "generator", "door"}:
             if object.scale.x == 0.0 or object.scale.y == 0.0 or object.scale.z == 0.0:
                 issues.append(f"{object.name}: scale に 0 が含まれています")
 
@@ -2531,6 +2603,8 @@ class VIEW3D_PT_grid_snap(bpy.types.Panel):
         layout.operator(MYADDON_OT_add_wall.bl_idname, text="Add Wall")
         # 発電機も既存の配置ボタンと同じ場所から追加する
         layout.operator(MYADDON_OT_add_generator.bl_idname, text="Add Generator")
+        # ドアもモデルと当たり判定をまとめて追加する
+        layout.operator(MYADDON_OT_add_door.bl_idname, text="Add Door")
         layout.operator(MYADDON_OT_add_boss_teleport.bl_idname, text="Add Boss Teleport")
         layout.operator(MYADDON_OT_add_nav_mesh.bl_idname, text="Add NavMesh")
         layout.operator(MYADDON_OT_generate_nav_mesh.bl_idname, text="Generate NavMesh")
@@ -3173,6 +3247,7 @@ classes = (
     MYADDON_OT_add_floor,
     MYADDON_OT_add_wall,
     MYADDON_OT_add_generator,
+    MYADDON_OT_add_door,
     MYADDON_OT_add_boss_teleport,
     MYADDON_OT_validate_scene,
     MYADDON_OT_export_scene,
@@ -3345,6 +3420,7 @@ def register():
             ("PLAYER", "Player", "Edit player spawn"),
             ("BOSS_TELEPORT", "Boss Teleport", "Edit boss teleports"),
             ("GENERATOR", "Generator", "発電機だけを選択・編集します"),
+            ("DOOR", "Door", "ドアだけを選択・編集します"),
         ],
         default="ALL",
         update=on_edit_target_changed

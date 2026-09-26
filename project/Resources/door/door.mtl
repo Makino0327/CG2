@@ -1,0 +1,6 @@
+# ドアの灰色テクスチャ
+newmtl Door
+Kd 1.0 1.0 1.0
+d 1.0
+illum 1
+map_Kd door.png

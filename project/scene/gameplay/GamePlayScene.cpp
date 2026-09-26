@@ -7,6 +7,8 @@
 #include <cmath>
 #include <random>
 #include <unordered_map>
+#include <cstring>
+#include <cstdint>
 
 #include "../engine/base/directX/DirectXCommon.h"
 #include "../engine/base/winapp/WinApp.h"
@@ -41,6 +43,38 @@
 #endif
 
 namespace {
+
+    // プレイヤーの当たり判定から発電機の表面まで届く操作距離
+    constexpr float kGeneratorInteractionRange = 2.0f;
+    // 起動が完了した後、満タンのメーターを表示しておく秒数
+    constexpr double kGeneratorCompleteNoticeSeconds = 3.0;
+
+    // 発電機の音を聞き取れる距離と、プレイヤーに聞こえる最大音量
+    constexpr float kGeneratorSoundRadius = 25.0f;
+    constexpr float kGeneratorMotorVolume = 0.35f;
+
+    // 1秒の周期がつながる仮モーター音を作る。後から録音した音へ差し替え可能
+    SoundData MakeGeneratorMotorSound()
+    {
+        SoundData sound;
+        sound.wfex.wFormatTag = WAVE_FORMAT_PCM;
+        sound.wfex.nChannels = 1;
+        sound.wfex.nSamplesPerSec = 22050;
+        sound.wfex.wBitsPerSample = 16;
+        sound.wfex.nBlockAlign = 2;
+        sound.wfex.nAvgBytesPerSec = sound.wfex.nSamplesPerSec * sound.wfex.nBlockAlign;
+        sound.buffer.resize(sound.wfex.nAvgBytesPerSec);
+        for (uint32_t index = 0; index < sound.wfex.nSamplesPerSec; ++index) {
+            const double t = static_cast<double>(index) / sound.wfex.nSamplesPerSec;
+            const double phase = t * 6.283185307179586;
+            const double pulse = 0.75 + 0.25 * std::sin(phase * 12.0);
+            const double wave = (std::sin(phase * 60.0) + 0.45 * std::sin(phase * 120.0) +
+                0.2 * std::sin(phase * 240.0)) * pulse;
+            const int16_t sample = static_cast<int16_t>(wave * 7000.0);
+            std::memcpy(sound.buffer.data() + index * sizeof(sample), &sample, sizeof(sample));
+        }
+        return sound;
+    }
 
     // レベルオブジェクトの階層をワールド座標の一覧に変換する
     void FlattenLevelObjectsRecursive(
@@ -318,6 +352,10 @@ void GamePlayScene::Initialize()
     light->direction = Vector3(0.0f, -1.0f, 0.0f);
     light->intensity = 4.0f;
 
+    // 発電機用の操作案内と起動メーターを準備する
+    InitializeGeneratorUi();
+    generatorMotorSound_ = MakeGeneratorMotorSound();
+
     // 近接攻撃可能な敵の頭上へ表示するマークを作る
     meleeMarker_ = std::make_unique<Sprite>();
     meleeMarker_->Initialize(
@@ -493,11 +531,21 @@ void GamePlayScene::Initialize()
     levelHotReload_.Initialize(levelFilePath_);
     // Load the level JSON and rebuild the player spawn, map objects, and enemies.
     ReloadLevel(false);
+
+    // 初期化にかかった時間を発電機の進捗へ加算しない
+    generatorPreviousUpdate_ = std::chrono::steady_clock::now();
 }
 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
+
+    // 発電機の15秒は描画フレーム数に依存させず、実際の経過時間で測る
+    const auto generatorNow = std::chrono::steady_clock::now();
+    const double generatorDeltaSeconds =
+        std::chrono::duration<double>(generatorNow - generatorPreviousUpdate_).count();
+    generatorPreviousUpdate_ = generatorNow;
+    generatorUiIndex_ = -1;
 
     // Count down the reload notice display time each frame.
     if (reloadNoticeFrameCount_ > 0) {
@@ -574,6 +622,13 @@ void GamePlayScene::Update()
 
         if (skybox_) {
             skybox_->Update();
+        }
+
+        // デバッグカメラ中は進行を止めている発電機の音も消す
+        for (auto& generator : generators_) {
+            if (generator.motorSound) {
+                generator.motorSound->SetVolume(0.0f);
+            }
         }
 
         // デバッグカメラ中は近接攻撃マークを表示しない
@@ -698,6 +753,10 @@ void GamePlayScene::Update()
     UpdateMeleeAttack();
 
     CheckCollisions();
+
+    // 移動とダメージ判定の後に、近くの発電機へのE入力を処理する
+    UpdateGeneratorInteraction(generatorDeltaSeconds);
+    UpdateGeneratorWorld(generatorDeltaSeconds);
 
     if (enemies_.empty() && bosses_.empty()) {
         sceneManager_->SetNextScene(std::make_unique<ClearScene>());
@@ -857,6 +916,229 @@ void GamePlayScene::Draw()
 
     // 左下に残弾UIを描画する
     DrawAmmoUiSprites();
+
+    // 発電機の操作案内を通常のゲーム画面に重ねる
+    DrawGeneratorUi();
+}
+
+void GamePlayScene::InitializeGeneratorUi()
+{
+    // 白い画像に色を付けて、パネルとメーターの各部品を作る
+    auto createSprite = [this](const char* texture) {
+        auto sprite = std::make_unique<Sprite>();
+        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texture);
+        sprite->SetAnchorPoint({ 0.0f, 0.0f });
+        return sprite;
+    };
+    generatorUiPanel_ = createSprite("Resources/white2x2.png");
+    generatorUiPanel_->SetColor({ 0.02f, 0.025f, 0.03f, 0.88f });
+    generatorGaugeFrame_ = createSprite("Resources/white2x2.png");
+    generatorGaugeFrame_->SetColor({ 0.75f, 0.75f, 0.65f, 1.0f });
+    generatorGaugeBackground_ = createSprite("Resources/white2x2.png");
+    generatorGaugeBackground_->SetColor({ 0.08f, 0.09f, 0.1f, 1.0f });
+    generatorGaugeFill_ = createSprite("Resources/white2x2.png");
+
+    // 日本語ラベルは画像から切り出し、ImGuiを使わない構成でも表示する
+    generatorUiLabel_ = createSprite("Resources/generator/interaction_labels.png");
+    generatorUiLabel_->SetTextureSize({ 512.0f, 64.0f });
+}
+
+void GamePlayScene::UpdateGeneratorInteraction(double deltaSeconds)
+{
+    // 死亡中は入力と進捗を停止する。デバッグカメラ中は呼び出し元で更新を止める
+    if (!player_ || player_->IsDead()) {
+        return;
+    }
+
+    // Eを一度押した後は、離れても長押しせずに起動が進む
+    if (interactingGeneratorIndex_ >= 0) {
+        auto& generator = generators_[interactingGeneratorIndex_];
+        if (generator.activation.Update(deltaSeconds)) {
+            generatorCompleteNoticeSeconds_ = kGeneratorCompleteNoticeSeconds;
+        } else if (generator.activation.GetState() == GeneratorActivation::State::Active) {
+            generatorCompleteNoticeSeconds_ = std::max(0.0, generatorCompleteNoticeSeconds_ - deltaSeconds);
+        }
+
+        // 起動中のメーターを優先し、同時に別の発電機を操作しない
+        if (generator.activation.GetState() == GeneratorActivation::State::Starting ||
+            generatorCompleteNoticeSeconds_ > 0.0) {
+            generatorUiIndex_ = interactingGeneratorIndex_;
+            return;
+        }
+        interactingGeneratorIndex_ = -1;
+    }
+
+    // 発電機の大きさが変わっても、表面からの距離で近づいたかを判定する
+    const SphereCollider playerCollider = player_->GetCollider();
+    const float interactionRadius = playerCollider.radius + kGeneratorInteractionRange;
+    float nearestDistanceSq = interactionRadius * interactionRadius;
+    int nearestActiveIndex = -1;
+    float nearestActiveDistanceSq = nearestDistanceSq;
+    for (size_t index = 0; index < generators_.size(); ++index) {
+        const auto& generator = generators_[index];
+        const Vector3& center = generator.collider.center;
+        const Vector3& size = generator.collider.size;
+        const float dx = playerCollider.center.x - std::clamp(
+            playerCollider.center.x, center.x - size.x * 0.5f, center.x + size.x * 0.5f);
+        const float dy = playerCollider.center.y - std::clamp(
+            playerCollider.center.y, center.y - size.y * 0.5f, center.y + size.y * 0.5f);
+        const float dz = playerCollider.center.z - std::clamp(
+            playerCollider.center.z, center.z - size.z * 0.5f, center.z + size.z * 0.5f);
+        const float distanceSq = dx * dx + dy * dy + dz * dz;
+
+        // 起動済みの発電機より、操作できる未起動の発電機を優先する
+        if (generator.activation.GetState() == GeneratorActivation::State::Idle) {
+            if (distanceSq <= nearestDistanceSq) {
+                nearestDistanceSq = distanceSq;
+                generatorUiIndex_ = static_cast<int>(index);
+            }
+        } else if (distanceSq <= nearestActiveDistanceSq) {
+            nearestActiveDistanceSq = distanceSq;
+            nearestActiveIndex = static_cast<int>(index);
+        }
+    }
+
+    if (generatorUiIndex_ < 0) {
+        // 起動済みの発電機に近づいたときは完了表示だけを出す
+        generatorUiIndex_ = nearestActiveIndex;
+        return;
+    }
+    if (context_.input && context_.input->TriggerKey(DIK_E) &&
+        generators_[generatorUiIndex_].activation.TryStart()) {
+        interactingGeneratorIndex_ = generatorUiIndex_;
+        generatorCompleteNoticeSeconds_ = 0.0;
+    }
+}
+
+void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
+{
+    size_t activeCount = 0;
+    for (auto& generator : generators_) {
+        const auto state = generator.activation.GetState();
+        if (state == GeneratorActivation::State::Active) {
+            ++activeCount;
+        }
+        if (state == GeneratorActivation::State::Idle) {
+            continue;
+        }
+        // 起動開始から稼働音をループし、プレイヤーとの距離で音量を落とす
+        if (!generator.motorSound && context_.sound) {
+            generator.motorSound = context_.sound->CreateLoopingSound(generatorMotorSound_);
+        }
+        if (generator.motorSound && player_) {
+            const Vector3 listener = player_->GetWorldPosition();
+            const float dx = listener.x - generator.collider.center.x;
+            const float dz = listener.z - generator.collider.center.z;
+            const float attenuation = std::clamp(1.0f - std::hypot(dx, dz) / kGeneratorSoundRadius, 0.0f, 1.0f);
+            generator.motorSound->SetVolume(kGeneratorMotorVolume * attenuation);
+        }
+    }
+
+    // 全台のメーターが満タンになった時だけ、ステージ内のドアを開く
+    generatorDoorLink_.Update(generators_.size(), activeCount, deltaSeconds);
+    const float openProgress = generatorDoorLink_.GetOpenProgress();
+    for (const auto& door : doors_) {
+        Vector3 position = door.closedPosition;
+        position.y += door.liftDistance * openProgress;
+        door.object->SetTranslate(position);
+        door.object->Update();
+        // 配列要素は消さず、開き切ったら当たり判定を無効にする
+        auto& collider = wallColliders_[door.colliderIndex];
+        collider.center = door.closedColliderCenter;
+        collider.center.y += door.liftDistance * openProgress;
+        collider.hasCollider = !generatorDoorLink_.IsOpen();
+    }
+    if (minimap_) {
+        minimap_->SetDoorsOpen(generatorDoorLink_.IsOpen());
+    }
+
+    // 聞こえる中で最も近い発電機を知らせ、音声出力の有無によらず敵が反応する
+    std::vector<Vector3> reservedGeneratorPositions;
+    for (const auto& enemy : enemies_) {
+        Vector3 destination;
+        if (enemy->GetGeneratorDestination(destination)) {
+            reservedGeneratorPositions.push_back(destination);
+        }
+    }
+    for (const auto& enemy : enemies_) {
+        Vector3 destination;
+        if (enemy->IsDead() || enemy->GetGeneratorDestination(destination)) {
+            continue;
+        }
+        const Vector3 position = enemy->GetWorldPosition();
+        const GeneratorData* nearestGenerator = nullptr;
+        float nearestDistanceSq = kGeneratorSoundRadius * kGeneratorSoundRadius;
+        for (const auto& generator : generators_) {
+            if (generator.activation.GetState() == GeneratorActivation::State::Idle) {
+                continue;
+            }
+            const float dx = position.x - generator.collider.center.x;
+            const float dz = position.z - generator.collider.center.z;
+            const float distanceSq = dx * dx + dz * dz;
+            if (distanceSq <= nearestDistanceSq) {
+                nearestDistanceSq = distanceSq;
+                nearestGenerator = &generator;
+            }
+        }
+        if (nearestGenerator) {
+            enemy->OnHearGenerator(nearestGenerator->collider.center, nearestGenerator->collider.size,
+                reservedGeneratorPositions);
+            if (enemy->GetGeneratorDestination(destination)) {
+                reservedGeneratorPositions.push_back(destination);
+            }
+        }
+    }
+}
+
+void GamePlayScene::DrawGeneratorUi()
+{
+    if (generatorUiIndex_ < 0 || !player_ || player_->IsDead() ||
+        (context_.isDebugMode && *context_.isDebugMode)) {
+        return;
+    }
+
+    const auto& activation = generators_[generatorUiIndex_].activation;
+    const bool isIdle = activation.GetState() == GeneratorActivation::State::Idle;
+    const bool isActive = activation.GetState() == GeneratorActivation::State::Active;
+    const float centerX = static_cast<float>(WinApp::kClientWidth) * 0.5f;
+    const float topY = static_cast<float>(WinApp::kClientHeight) - 150.0f;
+
+    // 画面下中央に操作案内を表示し、起動を始めたらその下へメーターを出す
+    context_.spriteCommon->CommonDrawSetting();
+    generatorUiPanel_->SetPosition({ centerX - 200.0f, topY });
+    generatorUiPanel_->SetSize({ 400.0f, isIdle ? 64.0f : 100.0f });
+    generatorUiPanel_->Update();
+    generatorUiPanel_->Draw();
+
+    // ラベル画像の上から、操作案内・起動中・起動完了を切り替える
+    const float labelRow = isIdle ? 0.0f : (isActive ? 2.0f : 1.0f);
+    generatorUiLabel_->SetTextureLeftTop({ 0.0f, labelRow * 64.0f });
+    generatorUiLabel_->SetPosition({ centerX - 180.0f, topY + 10.0f });
+    generatorUiLabel_->SetSize({ 360.0f, 45.0f });
+    generatorUiLabel_->SetColor(isActive
+        ? Vector4{ 0.3f, 1.0f, 0.45f, 1.0f } : Vector4{ 1.0f, 0.9f, 0.2f, 1.0f });
+    generatorUiLabel_->Update();
+    generatorUiLabel_->Draw();
+
+    if (!isIdle) {
+        // メーターは左から右へ伸び、起動完了時は満タンの緑色にする
+        generatorGaugeFrame_->SetPosition({ centerX - 162.0f, topY + 66.0f });
+        generatorGaugeFrame_->SetSize({ 324.0f, 18.0f });
+        generatorGaugeFrame_->Update();
+        generatorGaugeFrame_->Draw();
+        generatorGaugeBackground_->SetPosition({ centerX - 160.0f, topY + 68.0f });
+        generatorGaugeBackground_->SetSize({ 320.0f, 14.0f });
+        generatorGaugeBackground_->Update();
+        generatorGaugeBackground_->Draw();
+        if (activation.GetProgress() > 0.0f) {
+            generatorGaugeFill_->SetPosition({ centerX - 160.0f, topY + 68.0f });
+            generatorGaugeFill_->SetSize({ 320.0f * activation.GetProgress(), 14.0f });
+            generatorGaugeFill_->SetColor(isActive
+                ? Vector4{ 0.2f, 0.9f, 0.35f, 1.0f } : Vector4{ 1.0f, 0.85f, 0.1f, 1.0f });
+            generatorGaugeFill_->Update();
+            generatorGaugeFill_->Draw();
+        }
+    }
 }
 
 void GamePlayScene::UpdateAmmoUiSprites()
@@ -1390,6 +1672,16 @@ void GamePlayScene::UpdateMeleeAttack()
 
 void GamePlayScene::Finalize()
 {
+    // 発電機のUIをライト用リソースより先に解放する
+    generatorUiPanel_.reset();
+    generatorUiLabel_.reset();
+    generatorGaugeFrame_.reset();
+    generatorGaugeBackground_.reset();
+    generatorGaugeFill_.reset();
+    generators_.clear();
+    doors_.clear();
+    interactingGeneratorIndex_ = -1;
+    generatorUiIndex_ = -1;
     sprites_.clear();
     ammoSprites_.clear();
     bossHpBackgroundSprite_.reset();
@@ -1711,11 +2003,24 @@ void GamePlayScene::CreateMapObjects()
     wallColliders_.clear();
     bossTeleports_.clear();
 
+    // ステージ再読み込み時は発電機を未起動状態へ戻し、古い操作対象を解除する
+    generators_.clear();
+    interactingGeneratorIndex_ = -1;
+    generatorUiIndex_ = -1;
+    generatorCompleteNoticeSeconds_ = 0.0;
+
+    // 再読み込み後のドアは閉じた状態から始める
+    doors_.clear();
+    generatorDoorLink_ = GeneratorDoorLink{};
+
     LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
     navMeshData_ = levelData.navMesh;
     // 敵AI用のNavMeshデータを保存する
     // マップ用のモデルとコライダーを作る前に、レベル階層を平坦化する
     std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+
+    // ミニマップ用JSONに依存せず、実際に配置する設置物からマーカーを作る
+    std::vector<MinimapObjectData> minimapObjects;
 
     for (const LevelObjectData& objectData : allObjects) {
         if (objectData.type != "MESH") {
@@ -1794,10 +2099,11 @@ void GamePlayScene::CreateMapObjects()
             worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
             worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
 
-            // 発電機は床ではなく、通り抜けできない設置物として扱う
-            const bool isGenerator = objectData.objectKind == "generator";
-            if (isGenerator) {
-                // 回転・拡縮した発電機を囲むBOXを作り、Blenderでの配置に合わせる
+            // 発電機とドアは、通り抜けできない設置物として壁側へ登録する
+            const bool isPlacedObstacle =
+                objectData.objectKind == "generator" || objectData.objectKind == "door";
+            if (isPlacedObstacle) {
+                // 回転・拡縮した設置物を囲むBOXを作り、Blenderでの配置に合わせる
                 const Matrix4x4 world = MakeAffineMatrix(
                     objectData.scaling, objectData.rotation, objectData.translation);
                 const Vector3& center = objectData.collider.center;
@@ -1815,10 +2121,40 @@ void GamePlayScene::CreateMapObjects()
                 }
                 worldCollider.center = { worldCenter[0], worldCenter[1], worldCenter[2] };
                 worldCollider.size = { worldSize[0], worldSize[1], worldSize[2] };
+
+                // 実際に配置した発電機のBOXと、個別の起動状態を登録する
+                if (objectData.objectKind == "generator") {
+                    GeneratorData generator;
+                    generator.collider = worldCollider;
+                    generators_.push_back(std::move(generator));
+                }
+
+                // モデルの横軸を上から見た方向へ投影し、ドアの向きも合わせる
+                MinimapObjectData marker;
+                marker.kind = objectData.objectKind == "generator"
+                    ? MinimapObjectData::Kind::Generator : MinimapObjectData::Kind::Door;
+                marker.position = worldCollider.center;
+                marker.size = {
+                    std::fabs(size.x) * std::hypot(world.m[0][0], world.m[0][2]),
+                    std::fabs(size.z) * std::hypot(world.m[2][0], world.m[2][2])
+                };
+                // ミニマップではゲームのZ方向が画面の上方向になる
+                marker.rotation = std::atan2(-world.m[0][2], world.m[0][0]);
+                minimapObjects.push_back(marker);
             }
 
-            if (isGenerator || objectData.name.find("Wall") != std::string::npos ||
+            if (isPlacedObstacle || objectData.name.find("Wall") != std::string::npos ||
                 objectData.name.find("wall") != std::string::npos) {
+                // ドアの閉じた位置と壁配列の番号を記憶し、後で両方を動かす
+                if (objectData.objectKind == "door") {
+                    DoorData door;
+                    door.object = mapObject.get();
+                    door.colliderIndex = wallColliders_.size();
+                    door.closedPosition = objectData.translation;
+                    door.closedColliderCenter = worldCollider.center;
+                    door.liftDistance = worldCollider.size.y + 0.5f;
+                    doors_.push_back(door);
+                }
                 wallColliders_.push_back(worldCollider);
                 wallObjects_.push_back(std::move(mapObject));
             } else {
@@ -1828,6 +2164,11 @@ void GamePlayScene::CreateMapObjects()
         } else {
             floorObjects_.push_back(std::move(mapObject));
         }
+    }
+
+    // 初回配置・F5再読み込み・ステージ移動のたびに設置物マーカーを更新する
+    if (minimap_) {
+        minimap_->SetObjectMarkers(minimapObjects);
     }
 }
 

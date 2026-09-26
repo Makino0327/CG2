@@ -12,6 +12,15 @@
 class Sprite;
 class SpriteCommon;
 
+// ステージから受け取る設置物の位置と形状。表示色はミニマップ側で決める
+struct MinimapObjectData {
+    enum class Kind { Generator, Door };
+    Kind kind = Kind::Generator;
+    Vector3 position = { 0.0f, 0.0f, 0.0f };
+    Vector2 size = { 0.0f, 0.0f };
+    float rotation = 0.0f; // 画面上の回転角度（ラジアン）
+};
+
 class Minimap
 {
 public:
@@ -41,12 +50,21 @@ public:
     // 発砲した瞬間に音の範囲円を明るく光らせる
     void NotifyGunshot();
 
+    // 現在のステージの発電機とドアを登録し、古いマーカーを置き換える
+    void SetObjectMarkers(const std::vector<MinimapObjectData>& objects);
+
+    // 開いたドアの赤い表示を薄くして、通行できる状態を示す
+    void SetDoorsOpen(bool open);
+
 private:
     // ゲーム内のX/Z座標をミニマップ上の画面座標へ変換する
     Vector2 ConvertWorldToScreen(float worldX, float worldZ) const;
 
     // 敵マーカーが不足している場合に追加する
     void EnsureEnemyMarkerCount(size_t requiredCount);
+
+    // 通常表示と拡大表示に合わせて設置物マーカーの位置とサイズを更新する
+    void UpdateObjectMarkers();
 
     // 壁を塗りつぶさず、4本の線で輪郭として作成する
     void CreateWallOutline(
@@ -68,6 +86,15 @@ private:
 
     // JSONから作成した床と壁
     std::vector<std::unique_ptr<Sprite>> mapSprites_;
+
+    // 発電機とドアは壁より手前へ、黒い縁取りと色付きマーカーを重ねて描画する
+    struct ObjectMarker {
+        MinimapObjectData data;
+        std::unique_ptr<Sprite> outline;
+        std::unique_ptr<Sprite> sprite;
+    };
+    std::vector<ObjectMarker> objectMarkers_;
+    bool doorsOpen_ = false;
 
     // 現在のプレイヤー位置
     std::unique_ptr<Sprite> playerMarker_;

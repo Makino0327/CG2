@@ -92,6 +92,9 @@
     <ClInclude Include="engine\input\Input.h" />
     <ClInclude Include="engine\utils\Logger.h" />
     <ClInclude Include="game\map\MapChipField.h" />
+    <ClInclude Include="game\generator\GeneratorActivation.h" />
+    <ClInclude Include="game\generator\GeneratorDoorLink.h" />
+    <ClInclude Include="game\generator\GeneratorApproach.h" />
     <ClInclude Include="engine\math\Math.h" />
     <ClInclude Include="engine\3d\model\Model.h" />
     <ClInclude Include="engine\3d\model\ModelCommon.h" />

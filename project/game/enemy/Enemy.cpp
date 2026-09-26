@@ -8,6 +8,7 @@
 
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../../engine/particle/Particle.h"
+#include "../generator/GeneratorApproach.h"
 
 namespace {
     // a から b を引いたベクトルを返す
@@ -211,6 +212,9 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     lostSightLookTimer_ = 0;
     lostSightLookStartYaw_ = 0.0f;
     hearingTimer_ = 0;
+    isInvestigatingGenerator_ = false;
+    hasReachedGenerator_ = false;
+    generatorApproachRetryTimer_ = 0;
     navMeshPath_.clear();
     navMeshPathRefreshTimer_ = 0;
     navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
@@ -250,6 +254,9 @@ void Enemy::Update()
 
     // 前フレームの状態を保存する
     prevPosition_ = position_;
+    if (generatorApproachRetryTimer_ > 0) {
+        --generatorApproachRetryTimer_;
+    }
     const bool wasTargetInSight = isTargetInSight_;
 
     // 次に使う位置を現在の描画位置から取得する
@@ -259,6 +266,9 @@ void Enemy::Update()
     isTargetInSight_ = CheckTargetInSight();
 
     if (isTargetInSight_) {
+        // 音を調べている途中でもプレイヤーを見つけたら追跡を優先する
+        isInvestigatingGenerator_ = false;
+        hasReachedGenerator_ = false;
         // 発見・再発見時は、捜索や巡回へ戻るための経路を破棄する
         if (!isChasing_ || !wasTargetInSight) {
             navMeshPath_.clear();
@@ -318,6 +328,36 @@ void Enemy::Update()
             // 実際に進む方向へ少しずつ向く
             const float targetYaw = std::atan2(direction.x, direction.z);
             rotation_.y = ApproachAngle(rotation_.y, targetYaw, 0.05f, 0.04f);
+        }
+    } else if (isInvestigatingGenerator_) {
+        // 発電機の中心へは入らず、外周の到着地点で停止する
+        const float distance = std::sqrt(GetDistanceSqXZ(position_, generatorApproachPosition_));
+        if (distance <= 0.35f) {
+            hasReachedGenerator_ = true;
+        }
+        if (!hasReachedGenerator_) {
+            Vector3 direction;
+            // 最後の短い距離は直線で合わせ、経路平滑化による行き過ぎを防ぐ
+            if (distance < 1.0f && !IsSegmentBlockedByWall(position_, generatorApproachPosition_, nullptr)) {
+                direction = {
+                    (generatorApproachPosition_.x - position_.x) / distance,
+                    0.0f,
+                    (generatorApproachPosition_.z - position_.z) / distance
+                };
+            } else {
+                direction = CalculateNavMeshChaseDirection(generatorApproachPosition_);
+            }
+            const float step = (std::min)(distance, moveSpeed_);
+            nextPosition.x += direction.x * step;
+            nextPosition.z += direction.z * step;
+            if (direction.x != 0.0f || direction.z != 0.0f) {
+                rotation_.y = ApproachAngle(rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
+            }
+        } else {
+            // 到着後は発電機を向いて待機し、繰り返し聞こえる音では移動を再開しない
+            const float yaw = std::atan2(generatorSoundPosition_.x - position_.x,
+                generatorSoundPosition_.z - position_.z);
+            rotation_.y = ApproachAngle(rotation_.y, yaw, hearingTurnSpeed_, 0.04f);
         }
     } else if (lostSightLookTimer_ > 0) {
         // 記憶した場所へ到着したら、その場に止まって左右を見渡す
@@ -476,6 +516,66 @@ void Enemy::OnHearSound(const Vector3& soundPosition)
     // 音の位置を記録して、しばらく音の方向を警戒する(60fpsで約3秒)
     heardSoundPosition_ = soundPosition;
     hearingTimer_ = 180;
+    // 銃声には従来の警戒行動で反応し、その後に発電機の音を再評価する
+    isInvestigatingGenerator_ = false;
+    hasReachedGenerator_ = false;
+}
+
+void Enemy::OnHearGenerator(const Vector3& center, const Vector3& size,
+    const std::vector<Vector3>& reservedPositions)
+{
+    // 視認・追跡・銃声への警戒を優先し、同じ音で到着状態を上書きしない
+    if (isDead_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 ||
+        isInvestigatingGenerator_ || generatorApproachRetryTimer_ > 0) {
+        return;
+    }
+
+    // 敵の半径に1.25の余白を足した地点を、現在位置から近い順に調べる
+    auto candidates = GetGeneratorApproachPoints(center, size, colliderRadius_ + 1.25f, position_.y);
+    std::sort(candidates.begin(), candidates.end(), [this](const Vector3& a, const Vector3& b) {
+        return GetDistanceSqXZ(position_, a) < GetDistanceSqXZ(position_, b);
+    });
+    const bool hasNavMesh = navMesh_ && !navMesh_->triangles.empty();
+    const int startTriangle = hasNavMesh ? FindNavMeshTriangle(position_) : -1;
+    for (const Vector3& candidate : candidates) {
+        float groundY = 0.0f;
+        // 敵同士が同じ到着地点を目指して押し合わないよう、停止場所の間隔を取る
+        const float spacing = bodyRadius_ * 2.0f + 0.5f;
+        const bool isReserved = std::any_of(reservedPositions.begin(), reservedPositions.end(),
+            [&candidate, spacing](const Vector3& reserved) {
+                return GetDistanceSqXZ(candidate, reserved) < spacing * spacing;
+            });
+        if (isReserved) {
+            continue;
+        }
+        // 壁の中や床のない場所を停止地点にしない
+        if (IsPositionBlockedByWall(candidate) || !GetGroundHeight(candidate.x, candidate.z, groundY)) {
+            continue;
+        }
+        if (hasNavMesh && startTriangle >= 0) {
+            std::vector<int> path;
+            const int goalTriangle = FindNavMeshTriangle(candidate);
+            if (!FindNavMeshPath(startTriangle, goalTriangle, path)) {
+                continue;
+            }
+        } else if (IsSegmentBlockedByWall(position_, candidate, nullptr)) {
+            // 経路情報がない場合は直線で到達できる地点だけを選ぶ
+            continue;
+        }
+
+        generatorSoundPosition_ = center;
+        generatorApproachPosition_ = candidate;
+        isInvestigatingGenerator_ = true;
+        hasReachedGenerator_ = false;
+        lostSightLookTimer_ = 0;
+        isReturningToPatrol_ = false;
+        navMeshPath_.clear();
+        navMeshPathRefreshTimer_ = 0;
+        navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        return;
+    }
+    // ドアが開くなど周辺状況が変わる可能性があるため、後で再検索する
+    generatorApproachRetryTimer_ = 60;
 }
 
 SphereCollider Enemy::GetCollider() const
