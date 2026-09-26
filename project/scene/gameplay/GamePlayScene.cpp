@@ -1794,7 +1794,30 @@ void GamePlayScene::CreateMapObjects()
             worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
             worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
 
-            if (objectData.name.find("Wall") != std::string::npos ||
+            // 発電機は床ではなく、通り抜けできない設置物として扱う
+            const bool isGenerator = objectData.objectKind == "generator";
+            if (isGenerator) {
+                // 回転・拡縮した発電機を囲むBOXを作り、Blenderでの配置に合わせる
+                const Matrix4x4 world = MakeAffineMatrix(
+                    objectData.scaling, objectData.rotation, objectData.translation);
+                const Vector3& center = objectData.collider.center;
+                const Vector3& size = objectData.collider.size;
+                const float localCenter[] = { center.x, center.y, center.z };
+                const float localSize[] = { size.x, size.y, size.z };
+                float worldCenter[3]{};
+                float worldSize[3]{};
+                for (int axis = 0; axis < 3; ++axis) {
+                    worldCenter[axis] = world.m[3][axis];
+                    for (int localAxis = 0; localAxis < 3; ++localAxis) {
+                        worldCenter[axis] += localCenter[localAxis] * world.m[localAxis][axis];
+                        worldSize[axis] += std::fabs(localSize[localAxis] * world.m[localAxis][axis]);
+                    }
+                }
+                worldCollider.center = { worldCenter[0], worldCenter[1], worldCenter[2] };
+                worldCollider.size = { worldSize[0], worldSize[1], worldSize[2] };
+            }
+
+            if (isGenerator || objectData.name.find("Wall") != std::string::npos ||
                 objectData.name.find("wall") != std::string::npos) {
                 wallColliders_.push_back(worldCollider);
                 wallObjects_.push_back(std::move(mapObject));

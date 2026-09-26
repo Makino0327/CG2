@@ -82,7 +82,6 @@ private:
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
     std::array<Sprite*, 2> buttonBorders_{};
     std::array<Sprite*, 2> buttonBackgrounds_{};
-    Sprite* weaponLabel_ = nullptr;
     Sprite* fadeSprite_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

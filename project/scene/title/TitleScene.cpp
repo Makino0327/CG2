@@ -20,6 +20,8 @@ namespace {
     // プレイヤーの位置と、武器を切り替える時間（60FPSで6秒）
     constexpr Vector3 kPlayerPosition{ 0.0f, 1.0f, 0.0f };
     constexpr int kWeaponDuration = 360;
+    // フェードの更新とシーン切り替えで、同じ暗転時間を使う
+    constexpr int kFadeDuration = 30;
     constexpr float kPi = 3.14159265f;
     constexpr float kButtonX = 480.0f;
     constexpr float kButtonWidth = 320.0f;
@@ -186,8 +188,6 @@ void TitleScene::CreateMenu() {
     // タイトル名は未定なので、上部には文字を入れず空の枠だけを置く
     CreateUiRect({ 300,42 }, { 680,126 }, { 0.55f,0.72f,0.73f,0.8f });
     CreateUiRect({ 302,44 }, { 676,122 }, { 0.018f,0.03f,0.04f,0.93f });
-    CreateUiRect({ 300,42 }, { 64,4 }, { 1,0.72f,0.25f,1 });
-    CreateUiRect({ 916,164 }, { 64,4 }, { 1,0.72f,0.25f,1 });
 
     // 下部の2ボタンは背景に埋もれない濃色パネルにする
     for (int i = 0; i < 2; ++i) {
@@ -195,8 +195,6 @@ void TitleScene::CreateMenu() {
         buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0.03f,0.05f,0.06f,0.96f });
         CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
     }
-    CreateUiRect({ 1010,631 }, { 230,48 }, { 0.015f,0.03f,0.04f,0.92f });
-    weaponLabel_ = CreateUiLabel(3, { 1015,637 }, { 220,30 });
     // フェードは一番最後に描画して、開始時に画面全体を覆う
     fadeSprite_ = CreateUiRect({ 0,0 }, { 1280,720 }, { 0,0,0,0 });
 }
@@ -234,8 +232,8 @@ void TitleScene::UpdateMenu() {
         buttonBorders_[i]->SetColor(selected ? Vector4{ 1,0.72f,0.25f,pulse } : Vector4{ 0.4f,0.52f,0.55f,0.7f });
         buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 0.12f,0.14f,0.13f,0.96f } : Vector4{ 0.025f,0.04f,0.05f,0.96f });
     }
-    weaponLabel_->SetTextureLeftTop({ 256,static_cast<float>((4+static_cast<int>(weapon_))*64) });
-    fadeSprite_->SetColor({ 0,0,0,isStarting_ ? std::clamp(static_cast<float>(transitionTimer_)/30.0f,0.0f,1.0f) : 0.0f });
+    // 暗転の最終フレームでは、不透明度を必ず1まで更新する
+    fadeSprite_->SetColor({ 0,0,0,isStarting_ ? std::clamp(static_cast<float>(transitionTimer_)/static_cast<float>(kFadeDuration),0.0f,1.0f) : 0.0f });
     for (auto& sprite : uiSprites_) { sprite->Update(); }
 }
 
@@ -484,12 +482,13 @@ void TitleScene::UpdateDemo() {
 void TitleScene::Update() {
     ++frame_;
     UpdateDemo();
-    // 入力は一度だけ受け付け、短い暗転のあと本編へ進む
-    if (isStarting_ && ++transitionTimer_ >= 30) {
-        sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
-        return;
-    }
+    // 開始後は暗転時間を進め、切り替えを予約する前にフェードを更新する
+    if (isStarting_) { ++transitionTimer_; }
     UpdateMenu();
+    // このフレームで完全な黒を描画し、次のフレームで本編を初期化する
+    if (isStarting_ && transitionTimer_ >= kFadeDuration) {
+        sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+    }
 }
 
 void TitleScene::Draw() {
@@ -514,7 +513,8 @@ void TitleScene::Finalize() {
     uiSprites_.clear();
     buttonBorders_.fill(nullptr);
     buttonBackgrounds_.fill(nullptr);
-    weaponLabel_ = fadeSprite_ = nullptr;
+    // フェード用スプライトへの参照を解除する
+    fadeSprite_ = nullptr;
     bullets_.clear();
     enemies_.clear();
     floorColliders_.clear();

@@ -1560,6 +1560,78 @@
                     2.0
                 ]
             }
+        },
+        {
+            "type": "MESH",
+            "name": "Generator_00",
+            "transform": {
+                "translation": [
+                    30.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "generator/generator.obj",
+            "object_kind": "generator",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    1.399999976158142
+                ],
+                "size": [
+                    3.200000047683716,
+                    2.0,
+                    2.799999952316284
+                ]
+            }
+        },
+        {
+            "type": "MESH",
+            "name": "Generator_01",
+            "transform": {
+                "translation": [
+                    15.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "file_name": "generator/generator.obj",
+            "object_kind": "generator",
+            "collider": {
+                "type": "BOX",
+                "center": [
+                    0.0,
+                    0.0,
+                    1.399999976158142
+                ],
+                "size": [
+                    3.200000047683716,
+                    2.0,
+                    2.799999952316284
+                ]
+            }
         }
     ],
     "nav_mesh": {

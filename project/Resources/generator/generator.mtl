@@ -1,0 +1,3 @@
+newmtl Generator
+Kd 1 1 1
+map_Kd generator_palette.png
