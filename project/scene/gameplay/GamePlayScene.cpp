@@ -619,7 +619,8 @@ void GamePlayScene::Update()
         }
 
         for (auto& boss : bosses_) {
-            boss->Update();
+            // デバッグ中に攻撃の溜めや撃破演出を進めない
+            boss->UpdateRenderOnly();
         }
 
         for (auto& floorObject : floorObjects_) {
@@ -718,8 +719,36 @@ void GamePlayScene::Update()
     }
 
     for (auto& boss : bosses_) {
-        // ボスのHP状態と撃破演出を更新する
-        boss->Update();
+        // 巨大ゾンビが生存中のプレイヤーを追跡して攻撃する
+        boss->Update(player_ ? player_->GetWorldPosition() : Vector3{},
+            player_ && !player_->IsDead());
+
+        // 溜め中は赤い予告円、着地時は外へ広がる土煙色の衝撃を出す
+        if (particleSystem_ && (boss->IsWindingUp() || boss->IsImpactFrame())) {
+            constexpr int kCirclePoints = 40;
+            constexpr float kTwoPi = 6.2831853f;
+            const bool impact = boss->IsImpactFrame();
+            const Vector3& center = boss->GetAttackCenter();
+            for (int i = 0; i < kCirclePoints; ++i) {
+                const float angle = kTwoPi * static_cast<float>(i) / static_cast<float>(kCirclePoints);
+                const float x = std::cos(angle);
+                const float z = std::sin(angle);
+                const Vector3 position{
+                    center.x + x * boss->GetAttackRadius(), center.y,
+                    center.z + z * boss->GetAttackRadius()
+                };
+                const Vector3 velocity = impact ? Vector3{ x * 6.0f, 1.5f, z * 6.0f } : Vector3{};
+                const Vector4 color = impact ? Vector4{ 1.0f, 0.65f, 0.25f, 0.9f }
+                    : Vector4{ 1.0f, 0.08f, 0.03f, 0.8f };
+                const float size = impact ? 0.7f : 0.25f;
+                particleSystem_->Emit(position, { size, size, size }, velocity, color,
+                    impact ? 0.45f : 0.04f);
+            }
+        }
+        if (boss->IsImpactFrame() && followCamera_) {
+            // 攻撃が外れても、重い着地の振動をカメラで伝える
+            followCamera_->StartShake(0.45f, 18);
+        }
     }
 
     // ボスがいない通常ステージではクリアにしないため、削除前の状態を保存する
@@ -2016,6 +2045,14 @@ void GamePlayScene::CheckCollisions()
         }
     }
 
+    // 弾によるボス撃破を先に処理し、生きているボスの着地攻撃だけを当てる
+    for (const auto& boss : bosses_) {
+        if (!isMeleeAttacking_ && !player_->IsDead() && boss->IsAttackHit(player_->GetCollider())) {
+            // 既存の無敵時間を使い、範囲内でも一撃につきHPを1だけ減らす
+            player_->OnHit();
+        }
+    }
+
     enemies_.erase(
         std::remove_if(
             enemies_.begin(),
@@ -2455,6 +2492,9 @@ void GamePlayScene::SpawnBosses()
             objectData.translation,
             objectData.rotation,
             objectData.scaling);
+
+        // 巨体がステージ外へ出ないように、壁の当たり判定を共有する
+        boss->SetWallColliders(&wallColliders_);
 
         bosses_.push_back(std::move(boss));
     }
