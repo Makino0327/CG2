@@ -248,9 +248,8 @@ bool GamePlayScene::CheckBossTeleport()
             continue;
         }
 
-        // テレポーターを踏んだらステージクリアにする
-        // (ボスステージへの移動処理は残しておき、今はクリア画面へ進める)
-        constexpr bool kTeleportGoesToClear = true;
+        // テレポーターを踏んだらボスステージへ移動する
+        constexpr bool kTeleportGoesToClear = false;
         if (kTeleportGoesToClear) {
             sceneManager_->SetNextScene(std::make_unique<ClearScene>());
             return true;
@@ -723,6 +722,9 @@ void GamePlayScene::Update()
         boss->Update();
     }
 
+    // ボスがいない通常ステージではクリアにしないため、削除前の状態を保存する
+    const bool hadBoss = !bosses_.empty();
+
     bosses_.erase(
         std::remove_if(
             bosses_.begin(),
@@ -732,6 +734,12 @@ void GamePlayScene::Update()
                 return boss->IsReadyToRemove();
             }),
         bosses_.end());
+
+    // 全ボスの撃破演出が終わったらクリア画面へ進む。プレイヤー死亡時はゲームオーバーを優先する
+    if (hadBoss && bosses_.empty() && player_ && !player_->IsDead()) {
+        sceneManager_->SetNextScene(std::make_unique<ClearScene>());
+        return;
+    }
 
     // ミニマップへ渡す生存中の敵位置を集める
     std::vector<Vector3> minimapEnemyPositions;
