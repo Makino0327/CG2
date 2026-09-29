@@ -36,6 +36,10 @@ struct LevelNavMeshTriangle {
 struct LevelNavMeshData {
     std::vector<Vector3> vertices; // NavMesh の頂点一覧
     std::vector<LevelNavMeshTriangle> triangles; // NavMesh の三角形一覧
+    std::vector<std::vector<int>> neighbors; // 全敵で共有する三角形同士の接続情報
+
+    // ステージを読み込んだときだけ接続情報を構築し、敵ごとの再計算をなくす。
+    void BuildLinks();
 };
 
 // レベル全体の情報

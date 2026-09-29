@@ -215,11 +215,9 @@ namespace {
     }
 }
 
-void GamePlayScene::ApplyPlayerSpawnFromLevelData(const LevelData& levelData)
+void GamePlayScene::ApplyPlayerSpawnFromLevelData(const std::vector<LevelObjectData>& allObjects)
 {
-    // Flatten the hierarchy so the Player object can be found by name.
-    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
-
+    // 読み込み時に一度だけ平坦化した一覧から、プレイヤーの開始位置を探す。
     for (const LevelObjectData& objectData : allObjects) {
         // Use the Player object as the spawn position source.
         if (objectData.objectKind == "player" || objectData.name == "Player") {
@@ -270,14 +268,18 @@ bool GamePlayScene::CheckBossTeleport()
 
 void GamePlayScene::ReloadLevel(bool isManualReload)
 {
-    // Load the latest level JSON file.
+    // 初回・F5・自動更新・ステージ移動のいずれも、最新のJSONを一度だけ読む。
     LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
+    const std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+    // 地図と接続情報はシーンが所有し、この後に生成する全敵へ参照を渡す。
+    navMeshData_ = std::move(levelData.navMesh);
+    navMeshData_.BuildLinks();
 
-    // Update the player spawn position from the level data.
-    ApplyPlayerSpawnFromLevelData(levelData);
+    // 同じ読み込み結果から、配置と当たり判定をまとめて更新する。
+    ApplyPlayerSpawnFromLevelData(allObjects);
 
     // Rebuild walls, floors, and colliders from the current level data.
-    CreateMapObjects();
+    CreateMapObjects(allObjects);
 
     // Refresh the player collider references and return to the spawn position.
     if (player_) {
@@ -287,8 +289,8 @@ void GamePlayScene::ReloadLevel(bool isManualReload)
     }
 
     // Recreate enemies from the current level data.
-    SpawnEnemies();
-    SpawnBosses();
+    SpawnEnemies(allObjects);
+    SpawnBosses(allObjects);
 
     // Sync the current file timestamp after a successful reload.
     levelHotReload_.SyncCurrentWriteTime();
@@ -455,6 +457,21 @@ void GamePlayScene::Initialize()
     bossHpFrameSprite_->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
     bossHpFrameSprite_->Update();
 
+    // タイトルの暗転から、上下へ開くシャッターで本編を見せる
+    introFrame_ = 0;
+    for (size_t i = 0; i < introDoors_.size(); ++i) {
+        introDoors_[i] = std::make_unique<Sprite>();
+        introDoors_[i]->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+        // 上の扉は下端、下の扉は上端を合わせ目に合わせる
+        introDoors_[i]->SetAnchorPoint({ 0.0f, i == 0 ? 1.0f : 0.0f });
+        introDoors_[i]->SetSize({ static_cast<float>(WinApp::kClientWidth), WinApp::kClientHeight * 0.5f });
+        introDoors_[i]->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+        introDoorEdges_[i] = std::make_unique<Sprite>();
+        introDoorEdges_[i]->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+        introDoorEdges_[i]->SetAnchorPoint({ 0.5f, i == 0 ? 1.0f : 0.0f });
+    }
+    UpdateIntroTransition();
+
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
     skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
     skyboxCommon_->SetDefaultCamera(context_.camera);
@@ -501,20 +518,7 @@ void GamePlayScene::Initialize()
 
     player_ = std::make_unique<Player>();
 
-    // Player初期化前に、BlenderのレベルデータからPlayer配置を読む
-    {
-        LevelData levelData = LevelLoader::LoadFile("Resources/level/testScene.json");
-        std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
-
-        for (const LevelObjectData& objectData : allObjects) {
-            // Blender上のPlayerオブジェクト位置をスポーン位置として使う
-            if (objectData.name == "Player") {
-                player_->SetSpawnPosition(objectData.translation);
-                break;
-            }
-        }
-    }
-
+    // 開始位置は後半のReloadLevelで設定し、Respawnで描画にも反映する。
     player_->Initialize(
         context_.object3dCommon,
         context_.input,
@@ -557,6 +561,7 @@ void GamePlayScene::Update()
         std::chrono::duration<double>(generatorNow - generatorPreviousUpdate_).count();
     generatorPreviousUpdate_ = generatorNow;
     generatorUiIndex_ = -1;
+    UpdateIntroTransition();
 
     // Count down the reload notice display time each frame.
     if (reloadNoticeFrameCount_ > 0) {
@@ -965,6 +970,55 @@ void GamePlayScene::Draw()
     DrawGeneratorUi();
     // 戦闘の中心や下中央の起動メーターを避け、画面の端へ案内を置く
     DrawGuideUi();
+    // 開始演出のシャッターは、HUDも含めた画面全体の一番手前に描く
+    DrawIntroTransition();
+}
+
+namespace {
+    // 合わせ目の緑の線が左右へ伸びる時間と、扉が開き切るまでの時間（60FPS）
+    constexpr int kIntroSeamFrames = 10;
+    constexpr int kIntroOpenFrames = 32;
+}
+
+void GamePlayScene::UpdateIntroTransition()
+{
+    if (introFrame_ > kIntroSeamFrames + kIntroOpenFrames) {
+        return;
+    }
+    // 読み込み直後の長いフレームで飛ばないよう、時間ではなくフレーム数で進める
+    ++introFrame_;
+    const float seam = std::clamp(static_cast<float>(introFrame_) / kIntroSeamFrames, 0.0f, 1.0f);
+    const float open = std::clamp(static_cast<float>(introFrame_ - kIntroSeamFrames) / kIntroOpenFrames, 0.0f, 1.0f);
+    // 線は勢いよく伸びて止まり、扉は重さを感じるように動き出しと止まりをゆっくりにする
+    const float seamEase = 1.0f - (1.0f - seam) * (1.0f - seam) * (1.0f - seam);
+    const float openEase = open < 0.5f
+        ? 4.0f * open * open * open
+        : 1.0f - std::pow(-2.0f * open + 2.0f, 3.0f) * 0.5f;
+    const float centerY = WinApp::kClientHeight * 0.5f;
+    // 線の太さぶん余分に開き、最後に画面へ線が残らないようにする
+    const float gap = openEase * (centerY + 4.0f);
+    // 開き始めは線を明るくし、扉が画面外へ出る頃には消す
+    const float edgeAlpha = 1.0f - std::clamp((open - 0.6f) / 0.4f, 0.0f, 1.0f);
+    for (size_t i = 0; i < introDoors_.size(); ++i) {
+        const float y = i == 0 ? centerY - gap : centerY + gap;
+        introDoors_[i]->SetPosition({ 0.0f, y });
+        introDoors_[i]->Update();
+        introDoorEdges_[i]->SetPosition({ WinApp::kClientWidth * 0.5f, y });
+        introDoorEdges_[i]->SetSize({ WinApp::kClientWidth * seamEase, 2.0f });
+        // 発電機の起動完了と同じ緑で、合わせ目を光らせる
+        introDoorEdges_[i]->SetColor({ 0.3f, 1.0f, 0.45f, edgeAlpha });
+        introDoorEdges_[i]->Update();
+    }
+}
+
+void GamePlayScene::DrawIntroTransition()
+{
+    if (introFrame_ > kIntroSeamFrames + kIntroOpenFrames || !introDoors_[0]) {
+        return;
+    }
+    context_.spriteCommon->CommonDrawSetting();
+    for (auto& door : introDoors_) { door->Draw(); }
+    for (auto& edge : introDoorEdges_) { edge->Draw(); }
 }
 
 void GamePlayScene::InitializeGuideUi()
@@ -2194,7 +2248,7 @@ void GamePlayScene::ResolveEnemyOverlap()
     }
 }
 
-void GamePlayScene::CreateMapObjects()
+void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObjects)
 {
     floorObjects_.clear();
     wallObjects_.clear();
@@ -2212,11 +2266,7 @@ void GamePlayScene::CreateMapObjects()
     doors_.clear();
     generatorDoorLink_ = GeneratorDoorLink{};
 
-    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
-    navMeshData_ = levelData.navMesh;
-    // 敵AI用のNavMeshデータを保存する
-    // マップ用のモデルとコライダーを作る前に、レベル階層を平坦化する
-    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+    // ReloadLevelから受け取った一覧を使い、ここではJSONを読み直さない。
 
     // ミニマップ用JSONに依存せず、実際に配置する設置物からマーカーを作る
     std::vector<MinimapObjectData> minimapObjects;
@@ -2378,7 +2428,7 @@ void GamePlayScene::CreateMapObjects()
     }
 }
 
-void GamePlayScene::SpawnEnemies()
+void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
 {
     // 敵の再生成時は近接攻撃とキル演出の状態を解除する
     meleeTarget_ = nullptr;
@@ -2389,17 +2439,13 @@ void GamePlayScene::SpawnEnemies()
     // レベルデータから敵を作り直す
     enemies_.clear();
 
-    // 現在のBlenderレベルJSONを読み込む
-    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
-
     // 敵オブジェクト名ごとに出現位置を保存する
     std::unordered_map<std::string, Vector3> enemySpawnMap;
 
     // 敵オブジェクト名と番号ごとにウェイポイント位置を保存する
     std::unordered_map<std::string, std::vector<std::pair<int, Vector3>>> enemyWaypointMap;
 
-    // 敵オブジェクトを探す前にレベル階層を平坦化する
-    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+    // マップと同じ読み込み結果から敵と巡回地点を取得する。
 
     for (const LevelObjectData& objectData : allObjects) {
         const std::string& name = objectData.name;
@@ -2469,16 +2515,12 @@ void GamePlayScene::SpawnEnemies()
     }
 }
 
-void GamePlayScene::SpawnBosses()
+void GamePlayScene::SpawnBosses(const std::vector<LevelObjectData>& allObjects)
 {
     // レベルデータからボスを作り直す
     bosses_.clear();
 
-    // 現在のBlenderレベルJSONを読み込む
-    LevelData levelData = LevelLoader::LoadFile(levelFilePath_);
-
-    // ボスオブジェクトを探す前にレベル階層を平坦化する
-    std::vector<LevelObjectData> allObjects = FlattenAllLevelObjects(levelData);
+    // 同じ配置一覧を使い、ボスがいない通常ステージでも余分な解析をしない。
 
     for (const LevelObjectData& objectData : allObjects) {
         if (objectData.fileName != "boss/boss.obj") {

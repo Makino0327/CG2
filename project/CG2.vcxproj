@@ -180,6 +180,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
+    <ClCompile Include="engine\base\offscreen\ScreenShatter.cpp" />
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
     <ClCompile Include="game\player\PlayerBullet.cpp" />
@@ -417,6 +418,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
+    <ClInclude Include="engine\base\offscreen\ScreenShatter.h" />
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
@@ -469,6 +471,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
+    <None Include="Resources\shaders\ScreenShatter.VS.hlsl" />
+    <None Include="Resources\shaders\ScreenShatter.PS.hlsl" />
     <None Include="Resources\shaders\Particle.hlsli" />
     <None Include="Resources\shaders\Object3d.hlsli" />
     <None Include="Resources\shaders\Skybox.hlsli" />

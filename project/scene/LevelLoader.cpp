@@ -1,9 +1,40 @@
 #include "LevelLoader.h"
 #include <cassert>
 #include <fstream>
+#include <cstdint>
+#include <unordered_map>
 #include "../externals/nlohmann/json.hpp" // JSON 読み込み用ライブラリ
 
 using json = nlohmann::json;
+
+void LevelNavMeshData::BuildLinks() {
+    // 再読み込みや空の地図への切り替えで、前の接続情報が残らないようにする。
+    neighbors.clear();
+    neighbors.resize(triangles.size());
+    std::unordered_map<uint64_t, int> edgeOwners;
+    edgeOwners.reserve(triangles.size()*3);
+
+    for (int triangleIndex = 0; triangleIndex < static_cast<int>(triangles.size()); ++triangleIndex) {
+        const LevelNavMeshTriangle& triangle = triangles[triangleIndex];
+        const int indices[] = { triangle.index0, triangle.index1, triangle.index2 };
+        for (int edge = 0; edge < 3; ++edge) {
+            const int a = indices[edge], b = indices[(edge+1)%3];
+            // 不正な頂点を参照する辺は接続しない。
+            if (a < 0 || b < 0 || a >= static_cast<int>(vertices.size()) || b >= static_cast<int>(vertices.size())) {
+                continue;
+            }
+            // 辺の向きに依存しないキーを作り、同じ辺を持つ三角形を結ぶ。
+            const uint64_t low = static_cast<uint32_t>(a < b ? a : b);
+            const uint64_t high = static_cast<uint32_t>(a < b ? b : a);
+            const uint64_t key = (low << 32) | high;
+            const auto [owner, inserted] = edgeOwners.emplace(key, triangleIndex);
+            if (!inserted && owner->second != triangleIndex) {
+                neighbors[triangleIndex].push_back(owner->second);
+                neighbors[owner->second].push_back(triangleIndex);
+            }
+        }
+    }
+}
 
 // 度をラジアンへ変換する
 static float ToRadian(float degree) {

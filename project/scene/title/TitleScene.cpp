@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstring>
+#include "../../engine/audio/SoundManager.h"
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../../engine/3d/model/ModelManager.h"
@@ -20,8 +22,6 @@ namespace {
     // プレイヤーの位置と、武器を切り替える時間（60FPSで6秒）
     constexpr Vector3 kPlayerPosition{ 0.0f, 1.0f, 0.0f };
     constexpr int kWeaponDuration = 360;
-    // フェードの更新とシーン切り替えで、同じ暗転時間を使う
-    constexpr int kFadeDuration = 30;
     constexpr float kPi = 3.14159265f;
     constexpr float kButtonX = 480.0f;
     constexpr float kButtonWidth = 320.0f;
@@ -50,6 +50,49 @@ namespace {
         return angle;
     }
     constexpr float kEnemyStopDistance = 2.3f;
+
+    // 銃声の低い衝撃と、少し遅れて砕けるガラスの高音を合成する。
+    // staticで保持し、タイトル破棄後も再生中のPCMデータが消えないようにする。
+    const SoundData& GetStartGunshotSound() {
+        static const SoundData sound = [] {
+            SoundData result;
+            result.wfex.wFormatTag = WAVE_FORMAT_PCM;
+            result.wfex.nChannels = 1;
+            result.wfex.nSamplesPerSec = 44100;
+            result.wfex.wBitsPerSample = 16;
+            result.wfex.nBlockAlign = 2;
+            result.wfex.nAvgBytesPerSec = 88200;
+            constexpr uint32_t kSamples = 44100;
+            result.buffer.resize(kSamples*sizeof(int16_t));
+            std::mt19937 random(2417);
+            std::uniform_real_distribution<float> noise(-1.0f,1.0f);
+            for (uint32_t i = 0; i < kSamples; ++i) {
+                const float t = static_cast<float>(i)/44100.0f;
+                const float attack = std::min(t/0.0008f,1.0f);
+                // 鋭い破裂音と低い衝撃を重ね、ガラス音より先に一発の銃声を聞かせる。
+                float value = attack*(0.58f*noise(random)*std::exp(-t*65.0f)
+                    + 0.34f*std::sin(2.0f*kPi*(105.0f*t-95.0f*t*t))*std::exp(-t*29.0f));
+                // 弾が届いて溜めを見せた後、画面が割れる瞬間にガラス音を鳴らす。
+                constexpr float kGlassStart = ScreenShatter::kBulletFlightTime+ScreenShatter::kBreakDelay;
+                if (t >= kGlassStart) {
+                    const float glassTime = t-kGlassStart;
+                    value += 0.18f*noise(random)*std::exp(-glassTime*16.0f);
+                    // 時間差のある短い高音で、複数の小さな破片を表現する。
+                    for (int piece = 0; piece < 9; ++piece) {
+                        const float age = glassTime-static_cast<float>(piece)*0.038f;
+                        if (age >= 0.0f) {
+                            const float frequency = 2100.0f+static_cast<float>(piece)*379.0f;
+                            value += 0.038f*std::sin(2.0f*kPi*frequency*age)*std::exp(-age*32.0f);
+                        }
+                    }
+                }
+                const int16_t sample = static_cast<int16_t>(std::clamp(value,-0.95f,0.95f)*32767.0f);
+                std::memcpy(result.buffer.data()+i*sizeof(sample), &sample, sizeof(sample));
+            }
+            return result;
+        }();
+        return sound;
+    }
 
     // 本編Playerと同じ射撃パラメータ
     constexpr float kBulletSpeed = 1.4f;
@@ -123,9 +166,11 @@ void TitleScene::Initialize() {
     if (initialized_) { return; }
     initialized_ = true;
     assert(context_.camera && context_.input && context_.dxCommon);
-    frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = transitionTimer_ = 0;
+    frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = 0;
     selectedButton_ = 0;
     isStarting_ = false;
+    // スタート時に音の生成待ちが入らないよう、タイトル初期化時に用意する。
+    (void)GetStartGunshotSound();
     weapon_ = DemoWeapon::AssaultRifle;
     playerYaw_ = 0.0f;
     assaultContinuousShotCount_ = 0;
@@ -204,8 +249,6 @@ void TitleScene::CreateMenu() {
         buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0,0,0,0.96f });
         buttonLabels_[i] = CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
     }
-    // フェードは一番最後に描画して、開始時に画面全体を覆う
-    fadeSprite_ = CreateUiRect({ 0,0 }, { 1280,720 }, { 0,0,0,0 });
 }
 
 void TitleScene::UpdateMenu() {
@@ -228,9 +271,12 @@ void TitleScene::UpdateMenu() {
         if (clicked || context_.input->TriggerKey(DIK_RETURN) || context_.input->TriggerKey(DIK_SPACE)) {
             if (selectedButton_ == 0) {
                 isStarting_ = true;
-                transitionTimer_ = 0;
-                // ポストエフェクトはフェードにもかかるので、暗転前に衝撃波を止める
-                if (context_.offscreenRenderer) { context_.offscreenRenderer->StopShockwave(); }
+                // 背景の銃の歪みを止め、画面中央への一発でタイトルを割る。
+                if (context_.offscreenRenderer) {
+                    context_.offscreenRenderer->StopShockwave();
+                    context_.offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
+                }
+                if (context_.sound) { context_.sound->SoundPlayWave(GetStartGunshotSound()); }
             } else {
                 // 強制終了せず、通常の終了メッセージで後片付けを行う
                 PostQuitMessage(0);
@@ -244,8 +290,6 @@ void TitleScene::UpdateMenu() {
         buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 1,1,1,1 } : Vector4{ 0,0,0,0.96f });
         buttonLabels_[i]->SetColor(selected ? Vector4{ 0,0,0,1 } : Vector4{ 1,1,1,1 });
     }
-    // 暗転の最終フレームでは、不透明度を必ず1まで更新する
-    fadeSprite_->SetColor({ 0,0,0,isStarting_ ? std::clamp(static_cast<float>(transitionTimer_)/static_cast<float>(kFadeDuration),0.0f,1.0f) : 0.0f });
     for (auto& sprite : uiSprites_) { sprite->Update(); }
 }
 
@@ -498,18 +542,29 @@ void TitleScene::UpdateDemo() {
 }
 
 void TitleScene::Update() {
+    // 破片が飛び終わるまではタイトルに留まり、重い本編の初期化を始めない。
+    if (isStarting_) {
+        if (!context_.offscreenRenderer || !context_.offscreenRenderer->IsScreenShatterPlaying()) {
+            // このフレームで黒画面を表示してから、次の更新で本編を読み込む。
+            sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+        }
+        return;
+    }
+
     ++frame_;
     UpdateDemo();
-    // 開始後は暗転時間を進め、切り替えを予約する前にフェードを更新する
-    if (isStarting_) { ++transitionTimer_; }
     UpdateMenu();
-    // このフレームで完全な黒を描画し、次のフレームで本編を初期化する
-    if (isStarting_ && transitionTimer_ >= kFadeDuration) {
-        sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
-    }
 }
 
 void TitleScene::Draw() {
+    // 演出終了後に黒画面を一度描き、読み込み中も最後の破片が残らないようにする。
+    if (isStarting_ && context_.offscreenRenderer && !context_.offscreenRenderer->IsScreenShatterPlaying()) {
+        const float black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        context_.dxCommon->GetCommandList()->ClearRenderTargetView(
+            context_.offscreenRenderer->GetRenderTexture()->GetRTVHandle(), black, 0, nullptr);
+        return;
+    }
+
     // 背景の戦闘を描いたあとに枠とメニューを重ねる
     context_.object3dCommon->CommonDrawSetting();
     for (auto& object : scenery_) { object->Draw(); }
@@ -532,8 +587,6 @@ void TitleScene::Finalize() {
     buttonBorders_.fill(nullptr);
     buttonBackgrounds_.fill(nullptr);
     buttonLabels_.fill(nullptr);
-    // フェード用スプライトへの参照を解除する
-    fadeSprite_ = nullptr;
     bullets_.clear();
     enemies_.clear();
     floorColliders_.clear();

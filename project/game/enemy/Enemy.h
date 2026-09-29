@@ -101,7 +101,7 @@ public:
         wallColliders_ = wallColliders;
     }
 
-    // 敵AI用のNavMeshを設定する
+    // シーン側で接続情報まで構築したNavMeshを、読み取り専用で共有する。
     void SetNavMesh(const LevelNavMeshData* navMesh);
 
     // デバッグカメラ用に描画だけ更新する
@@ -141,9 +141,6 @@ private:
 
     // NavMesh上の経路から追跡方向を決める
     Vector3 CalculateNavMeshChaseDirection(const Vector3& chaseTarget);
-
-    // NavMeshの三角形同士のつながりを作る
-    void BuildNavMeshLinks();
 
     // 指定位置が乗っているNavMesh三角形を探す
     int FindNavMeshTriangle(const Vector3& position) const;
@@ -222,9 +219,6 @@ private:
 
     // 敵AIが使うNavMesh
     const LevelNavMeshData* navMesh_ = nullptr;
-
-    // NavMesh三角形ごとの隣接三角形一覧
-    std::vector<std::vector<int>> navMeshNeighbors_;
 
     // 現在使っているNavMesh経路
     std::vector<int> navMeshPath_;

@@ -4,6 +4,7 @@
 #include "../srv/SrvManager.h"
 #include "../renderTexture/RenderTexture.h"
 #include <array>
+#include "ScreenShatter.h"
 
 enum class PostEffectType {
     Copy,
@@ -25,6 +26,10 @@ public:
 
     void PreDrawScene();
     void DrawToBackBuffer();
+
+    // シーンを切り替えても、保存したタイトルの破片を最後まで描画する。
+    void StartScreenShatter(const Vector2& impactUV) { screenShatter_->Start(impactUV); }
+    bool IsScreenShatterPlaying() const { return screenShatter_ && screenShatter_->IsPlaying(); }
 
     RenderTexture* GetRenderTexture() const { return renderTexture_.get(); }
     // セッター
@@ -144,6 +149,7 @@ private:
     SrvManager* srvManager_ = nullptr;
 
     std::unique_ptr<RenderTexture> renderTexture_;
+    std::unique_ptr<ScreenShatter> screenShatter_;
     std::unique_ptr<RenderTexture> workRenderTexture_; // 複数のポストエフェクトを順番にかけるための作業用テクスチャ
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;

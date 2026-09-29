@@ -53,7 +53,6 @@ private:
 
     bool initialized_ = false;
     bool isStarting_ = false;
-    int transitionTimer_ = 0;
     int selectedButton_ = 0;
     int frame_ = 0;
     int spawnTimer_ = 0;
@@ -84,6 +83,5 @@ private:
     std::array<Sprite*, 2> buttonBackgrounds_{};
     // 選択中は白黒を反転させるため、ボタンの文字も保持する
     std::array<Sprite*, 2> buttonLabels_{};
-    Sprite* fadeSprite_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

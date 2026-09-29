@@ -5,6 +5,7 @@
 #include <memory>
 #include <wrl.h>
 #include <d3d12.h>
+#include <array>
 #include <chrono>
 
 #include "../engine/math/Math.h"
@@ -49,6 +50,10 @@ public:
     void DrawImGui() override;
 
 private:
+    // 開始時に上下へ開くシャッターの位置を進め、HUDより手前に描く
+    void UpdateIntroTransition();
+    void DrawIntroTransition();
+
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
 
@@ -64,15 +69,15 @@ private:
     // ナイフで切ったような斬撃エフェクトを出す
     void EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction);
     // マップCSVとレベルデータから床と壁のオブジェクトを作る
-    void CreateMapObjects();
+    void CreateMapObjects(const std::vector<LevelObjectData>& allObjects);
     // レベルデータから敵を生成する
-    void SpawnEnemies();
+    void SpawnEnemies(const std::vector<LevelObjectData>& allObjects);
     // レベルデータからボスを生成する
-    void SpawnBosses();
+    void SpawnBosses(const std::vector<LevelObjectData>& allObjects);
     // レベルデータを読み直してゲーム内オブジェクトを再構築する
     void ReloadLevel(bool isManualReload);
     // レベルデータからプレイヤーのスポーン位置を更新する
-    void ApplyPlayerSpawnFromLevelData(const LevelData& levelData);
+    void ApplyPlayerSpawnFromLevelData(const std::vector<LevelObjectData>& allObjects);
     // ボステレポーターを踏んだか確認して、必要なら移動先レベルへ切り替える
     bool CheckBossTeleport();
     // 左下の残弾UI用Spriteを現在の弾数に合わせて更新する
@@ -276,6 +281,11 @@ private:
     std::unique_ptr<Sprite> objectiveLabel_;
     std::vector<std::unique_ptr<Sprite>> objectiveCountSprites_;
     std::unique_ptr<Sprite> controlsGuide_;
+
+    // 本編開始時のシャッター。黒い扉と、合わせ目を光らせる緑の線
+    std::array<std::unique_ptr<Sprite>, 2> introDoors_;
+    std::array<std::unique_ptr<Sprite>, 2> introDoorEdges_;
+    int introFrame_ = 0;
 
     // ボスステージへ移動するテレポーター情報
     struct BossTeleportData {

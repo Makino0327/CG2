@@ -37,6 +37,10 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     CreateRootSignature();
     CreateGraphicsPipelineState();
 
+    // 画面破壊用の画像と描画設定は、一度だけ作って使い回す。
+    screenShatter_ = std::make_unique<ScreenShatter>();
+    screenShatter_->Initialize(dxCommon_, srvManager_);
+
     // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ螳壽焚繝舌ャ繝輔ぃ繧剃ｽ懈・縺吶ｋ
     radialBlurResource_ = dxCommon_->CreateBufferResource(sizeof(RadialBlurData));
     radialBlurResource_->Map(0, nullptr, reinterpret_cast<void**>(&radialBlurData_));
@@ -154,6 +158,9 @@ void OffscreenRenderer::DrawToBackBuffer()
     assert(commandList);
     assert(renderTexture_);
     assert(workRenderTexture_);
+
+    // メニューまで描いたタイトルを、通常のポストエフェクトより先に保存する。
+    screenShatter_->Capture(renderTexture_->GetResource());
 
     ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource();
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTVHandle = dxCommon_->GetCurrentBackBufferRTVHandle();
@@ -313,6 +320,9 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     TransitionResource(renderTexture_->GetResource(), sceneTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
     TransitionResource(workRenderTexture_->GetResource(), workTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    // タイトルの破片を黒背景へ描き、演出中は本編の読み込みを待つ。
+    screenShatter_->Draw();
 
     if (needsDepthTexture) {
         TransitionResource(depthResource, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -623,6 +633,8 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
 }
 void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed)
 {
+    // 画面破壊の時間を進め、タイトル側が終了を判定できるようにする。
+    if (screenShatter_) { screenShatter_->Update(deltaTime); }
     // 繝ｩ繝ｳ繝繝繝弱う繧ｺ縺ｮ譎る俣繧帝ｲ繧√ｋ
     if (randomNoiseData_) {
         randomNoiseData_->time += deltaTime * randomNoiseData_->speed;

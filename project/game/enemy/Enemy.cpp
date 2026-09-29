@@ -4,7 +4,6 @@
 #include <cmath>
 #include <random>
 #include <queue>
-#include <unordered_map>
 
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../../engine/particle/Particle.h"
@@ -56,14 +55,6 @@ namespace {
         const float x = a.x - b.x;
         const float z = a.z - b.z;
         return x * x + z * z;
-    }
-
-    // NavMeshの辺を辞書に入れるためのキーを作る
-    long long MakeNavMeshEdgeKey(int indexA, int indexB) {
-        const int minIndex = (indexA < indexB) ? indexA : indexB;
-        const int maxIndex = (indexA > indexB) ? indexA : indexB;
-        return (static_cast<long long>(minIndex) << 32) |
-            static_cast<unsigned int>(maxIndex);
     }
 
     // 点がXZ平面上の三角形の中にあるか調べる
@@ -1066,45 +1057,11 @@ void Enemy::SetMap(const MapChipField* mapField, float tileSize)
 
 void Enemy::SetNavMesh(const LevelNavMeshData* navMesh)
 {
-    // NavMesh参照を保存して、三角形同士のつながりを作り直す
+    // 接続情報は全敵で共有し、この敵自身の経路だけを初期化する。
     navMesh_ = navMesh;
     navMeshPath_.clear();
     navMeshPathRefreshTimer_ = 0;
     navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-    BuildNavMeshLinks();
-}
-
-void Enemy::BuildNavMeshLinks()
-{
-    // NavMeshがなければ経路探索を使わない
-    navMeshNeighbors_.clear();
-    if (!navMesh_ || navMesh_->triangles.empty()) {
-        return;
-    }
-
-    navMeshNeighbors_.resize(navMesh_->triangles.size());
-    std::unordered_map<long long, int> edgeOwnerMap;
-
-    for (int triangleIndex = 0; triangleIndex < static_cast<int>(navMesh_->triangles.size()); ++triangleIndex) {
-        const LevelNavMeshTriangle& triangle = navMesh_->triangles[triangleIndex];
-        const int indices[3] = { triangle.index0, triangle.index1, triangle.index2 };
-
-        for (int edgeIndex = 0; edgeIndex < 3; ++edgeIndex) {
-            const int indexA = indices[edgeIndex];
-            const int indexB = indices[(edgeIndex + 1) % 3];
-            const long long edgeKey = MakeNavMeshEdgeKey(indexA, indexB);
-
-            auto found = edgeOwnerMap.find(edgeKey);
-            if (found == edgeOwnerMap.end()) {
-                edgeOwnerMap[edgeKey] = triangleIndex;
-                continue;
-            }
-
-            const int neighborIndex = found->second;
-            navMeshNeighbors_[triangleIndex].push_back(neighborIndex);
-            navMeshNeighbors_[neighborIndex].push_back(triangleIndex);
-        }
-    }
 }
 
 int Enemy::FindNavMeshTriangle(const Vector3& position) const
@@ -1160,10 +1117,10 @@ bool Enemy::FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int
     // A*で三角形のつながりをたどる
     outPath.clear();
 
-    if (!navMesh_ || navMeshNeighbors_.empty() ||
+    if (!navMesh_ || navMesh_->neighbors.empty() ||
         startTriangle < 0 || goalTriangle < 0 ||
-        startTriangle >= static_cast<int>(navMeshNeighbors_.size()) ||
-        goalTriangle >= static_cast<int>(navMeshNeighbors_.size())) {
+        startTriangle >= static_cast<int>(navMesh_->neighbors.size()) ||
+        goalTriangle >= static_cast<int>(navMesh_->neighbors.size())) {
         return false;
     }
 
@@ -1183,7 +1140,7 @@ bool Enemy::FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int
         }
     };
 
-    const int triangleCount = static_cast<int>(navMeshNeighbors_.size());
+    const int triangleCount = static_cast<int>(navMesh_->neighbors.size());
     std::vector<float> costFromStart(triangleCount, FLT_MAX);
     std::vector<int> parent(triangleCount, -1);
     std::priority_queue<OpenNode, std::vector<OpenNode>, CompareOpenNode> openQueue;
@@ -1201,7 +1158,7 @@ bool Enemy::FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int
         }
 
         const Vector3 currentCenter = GetNavMeshTriangleCenter(current.triangle);
-        for (int neighbor : navMeshNeighbors_[current.triangle]) {
+        for (int neighbor : navMesh_->neighbors[current.triangle]) {
             const Vector3 neighborCenter = GetNavMeshTriangleCenter(neighbor);
             const float moveCost = GetDistanceSqXZ(currentCenter, neighborCenter);
             const float newCost = costFromStart[current.triangle] + moveCost;
@@ -1237,7 +1194,7 @@ bool Enemy::FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int
 Vector3 Enemy::CalculateNavMeshChaseDirection(const Vector3& chaseTarget)
 {
     // NavMeshがない場合は、今までの壁回避追跡を使う
-    if (!navMesh_ || navMesh_->triangles.empty() || navMeshNeighbors_.empty()) {
+    if (!navMesh_ || navMesh_->triangles.empty() || navMesh_->neighbors.empty()) {
         return CalculateChaseDirection(chaseTarget);
     }
 
