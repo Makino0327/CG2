@@ -14,6 +14,9 @@ public:
     virtual void Update() = 0;
     virtual void Draw() = 0;
 
+    // ポストエフェクトの影響を受けないUIを最後に重ねる。必要なシーンだけ実装する
+    virtual void DrawOverlay() {}
+
     // ★ ImGui用の仮想関数を追加（必要ないシーンは空でOK）
     virtual void DrawImGui() {}
 

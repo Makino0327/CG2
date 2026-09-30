@@ -36,3 +36,11 @@ void SceneManager::Draw()
         scene_->Draw();
     }
 }
+
+void SceneManager::DrawOverlay()
+{
+    // 通常の描画と同じシーンへ、前面UIの描画を渡す
+    if (scene_) {
+        scene_->DrawOverlay();
+    }
+}

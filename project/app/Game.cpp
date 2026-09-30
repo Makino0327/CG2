@@ -181,6 +181,11 @@ void Game::Draw() {
         offscreenRenderer_->DrawToBackBuffer();
     }
 
+    // 波動などで背景を加工した後に、影響を受けないUIを重ねる
+    if (sceneManager_) {
+        sceneManager_->DrawOverlay();
+    }
+
 #ifdef USE_IMGUI
     // ImGuiを実際に描画する
     if (imguiManager_) {

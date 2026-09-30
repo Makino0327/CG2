@@ -26,6 +26,8 @@ public:
     void Initialize() override;
     void Update() override;
     void Draw() override;
+    // タイトル文字とメニューを、背景の波動より後に描画する
+    void DrawOverlay() override;
     void Finalize() override;
 
 private:
@@ -35,9 +37,15 @@ private:
     std::unique_ptr<Object3d> CreateObject(const char* model, const Vector3& position,
         const Vector3& scale, const Vector4& color);
     Sprite* CreateUiRect(const Vector2& position, const Vector2& size, const Vector4& color);
+    // ロゴや霧の画像も、矩形と同じ所有配列で管理する
+    Sprite* CreateUiTexture(const char* path, const Vector2& position, const Vector2& size);
     Sprite* CreateUiLabel(int row, const Vector2& position, const Vector2& size);
     void CreateMenu();
+    // 通常表示と画面破壊用の保存で、同じUIを描く
+    void DrawTitleUi();
     void UpdateMenu();
+    // ロゴの登場、文字の選択、霧の移動と電圧低下による明滅を更新する
+    void UpdateMenuAnimation();
     void UpdateDemo();
     // 本編と同じEnemyクラスを画面外周に出現させる
     void SpawnEnemy(float radius);
@@ -79,9 +87,22 @@ private:
 
     // 枠と文字は通常のSpriteで描き、Releaseビルドでもメニューを表示する
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
-    std::array<Sprite*, 2> buttonBorders_{};
-    std::array<Sprite*, 2> buttonBackgrounds_{};
-    // 選択中は白黒を反転させるため、ボタンの文字も保持する
+    // 透明な入力範囲と文字の表示を分離し、枠のないメニューにする
+    std::array<Sprite*, 2> buttonHitAreas_{};
     std::array<Sprite*, 2> buttonLabels_{};
+    std::array<Sprite*, 2> buttonIndicators_{};
+    std::array<Sprite*, 2> buttonUnderlines_{};
+    std::array<float, 2> buttonSelection_{};
+    std::array<Sprite*, 2> titleMist_{};
+    Sprite* titleLogo_ = nullptr;
+    Sprite* titleShade_ = nullptr;
+    // 元の位置と色を保存し、毎フレームの移動や透明度を累積させない
+    struct MenuVisual {
+        Sprite* sprite = nullptr;
+        Vector2 position{};
+        Vector4 color{};
+        float delay = 0.0f;
+    };
+    std::vector<MenuVisual> menuVisuals_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

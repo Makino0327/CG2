@@ -7,6 +7,8 @@ class SceneManager
 public:
 	void Update();
 	void Draw();
+	// 背景へのエフェクトが終わってから、シーンの前面UIを描画する
+	void DrawOverlay();
 
 	void SetNextScene(std::unique_ptr<BaseScene> nextScene) {
 		nextScene_ = std::move(nextScene);

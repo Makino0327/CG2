@@ -23,10 +23,17 @@ namespace {
     constexpr Vector3 kPlayerPosition{ 0.0f, 1.0f, 0.0f };
     constexpr int kWeaponDuration = 360;
     constexpr float kPi = 3.14159265f;
-    constexpr float kButtonX = 480.0f;
-    constexpr float kButtonWidth = 320.0f;
-    constexpr float kButtonHeight = 54.0f;
-    constexpr float kButtonY[] = { 548.0f, 614.0f };
+    // 横長のロゴの下へ、余白を取って文字だけのメニューを並べる
+    constexpr float kButtonX = 500.0f;
+    constexpr float kButtonWidth = 280.0f;
+    constexpr float kButtonHeight = 44.0f;
+    constexpr float kButtonY[] = { 470.0f, 524.0f };
+
+    // 演出の始まりと終わりを滑らかにする補間曲線
+    float SmoothStep01(float value) {
+        const float t = std::clamp(value,0.0f,1.0f);
+        return t*t*(3.0f-2.0f*t);
+    }
 
     // 敵の数は少し増やしつつ、1体ずつの撃破演出は見せる
     constexpr int kMaxEnemies = 9;
@@ -137,11 +144,17 @@ std::unique_ptr<Object3d> TitleScene::CreateObject(const char* model, const Vect
 
 Sprite* TitleScene::CreateUiRect(const Vector2& position, const Vector2& size, const Vector4& color) {
     // 白いテクスチャへ色を付け、背景と枠線を作る
+    Sprite* sprite = CreateUiTexture("Resources/white1x1.png",position,size);
+    sprite->SetColor(color);
+    return sprite;
+}
+
+Sprite* TitleScene::CreateUiTexture(const char* path, const Vector2& position, const Vector2& size) {
+    // 実行時のフォント読み込みを避け、生成済みの画像をそのまま配置する
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white1x1.png");
+    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), path);
     sprite->SetPosition(position);
     sprite->SetSize(size);
-    sprite->SetColor(color);
     sprite->Update();
     Sprite* result = sprite.get();
     uiSprites_.push_back(std::move(sprite));
@@ -168,6 +181,7 @@ void TitleScene::Initialize() {
     assert(context_.camera && context_.input && context_.dxCommon);
     frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = 0;
     selectedButton_ = 0;
+    buttonSelection_.fill(0.0f);
     isStarting_ = false;
     // スタート時に音の生成待ちが入らないよう、タイトル初期化時に用意する。
     (void)GetStartGunshotSound();
@@ -175,8 +189,9 @@ void TitleScene::Initialize() {
     playerYaw_ = 0.0f;
     assaultContinuousShotCount_ = 0;
 
-    // 真上に近い固定カメラで、中央のプレイヤーと周囲の群れを見せる
-    context_.camera->SetTranslate({ 0.0f, 68.0f, -6.2f });
+    // カメラを中央へ寄せ、プレイヤーと敵の戦闘を大きく見せる
+    // 高さに合わせて奥行きも調整し、中央を見下ろす構図を保つ
+    context_.camera->SetTranslate({ 0.0f, 50.0f, -4.6f });
     context_.camera->SetRotate({ 1.48f, 0.0f, 0.0f });
     context_.camera->Update();
     if (context_.isDebugMode) { *context_.isDebugMode = false; }
@@ -230,24 +245,29 @@ void TitleScene::Initialize() {
 }
 
 void TitleScene::CreateMenu() {
-    // メニューと同じ白枠と黒背景で、ゲーム名を読みやすくする
-    CreateUiRect({ 300,42 }, { 680,126 }, { 1,1,1,1 });
-    CreateUiRect({ 302,44 }, { 676,122 }, { 0,0,0,0.93f });
+    // 背景の四辺を暗く落とし、赤白のロゴと中央の戦闘へ視線を集める
+    titleShade_ = CreateUiTexture("Resources/title/title_shade.png", { 0,0 }, { 1280,720 });
+    titleMist_[0] = CreateUiTexture("Resources/title/title_haze.png", { -120,350 }, { 1520,300 });
+    titleMist_[1] = CreateUiTexture("Resources/title/title_haze.png", { -180,80 }, { 1520,250 });
+    titleMist_[0]->SetColor({ 0.70f,0.78f,0.80f,0.22f });
+    titleMist_[1]->SetColor({ 0.60f,0.67f,0.70f,0.10f });
+    titleLogo_ = CreateUiTexture("Resources/title/title_logo.png", { 190,170 }, { 900,132 });
 
-    // 日本語タイトルと小さな英字表記を、枠の中央へ余白を残して配置する
-    auto titleLogo = std::make_unique<Sprite>();
-    titleLogo->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/title/title_logo.png");
-    titleLogo->SetPosition({ 320,53 });
-    titleLogo->SetSize({ 640,104 });
-    titleLogo->Update();
-    // 共通の配列で管理し、描画・更新・終了時の解放を既存の処理に任せる
-    uiSprites_.push_back(std::move(titleLogo));
-
-    // 下部の2ボタンは白枠の黒パネルにする
+    // 箱や金属枠は描かず、文字・細い下線・小さな赤い印だけで選択を表す
     for (int i = 0; i < 2; ++i) {
-        buttonBorders_[i] = CreateUiRect({ kButtonX,kButtonY[i] }, { kButtonWidth,kButtonHeight }, { 1,1,1,1 });
-        buttonBackgrounds_[i] = CreateUiRect({ kButtonX+2,kButtonY[i]+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0,0,0,0.96f });
-        buttonLabels_[i] = CreateUiLabel(i, { 480,kButtonY[i]+3 }, { 320,48 });
+        const float y = kButtonY[i];
+        buttonHitAreas_[i] = CreateUiRect({ kButtonX,y }, { kButtonWidth,kButtonHeight }, { 0,0,0,0 });
+        buttonLabels_[i] = CreateUiLabel(i, { 520,y+2 }, { 240,36 });
+        buttonIndicators_[i] = CreateUiRect({ 576,y+17 }, { 3,3 }, { 0.61f,0.14f,0.14f,0 });
+        buttonUnderlines_[i] = CreateUiRect({ 602,y+40 }, { 76,1 }, { 0.70f,0.63f,0.61f,0 });
+    }
+
+    // 元の色と座標を保存し、フェードを毎フレーム重ね掛けしないようにする
+    menuVisuals_.clear();
+    for (const auto& sprite : uiSprites_) {
+        float delay = sprite.get() == titleLogo_ ? 8.0f : 0.0f;
+        if (sprite->GetPosition().y >= kButtonY[0]) { delay = 22.0f; }
+        menuVisuals_.push_back({ sprite.get(),sprite->GetPosition(),sprite->GetColor(),delay });
     }
 }
 
@@ -257,10 +277,13 @@ void TitleScene::UpdateMenu() {
     const Vector2 delta = context_.input->GetMouseDelta();
     int hovered = -1;
     for (int i = 0; i < 2; ++i) {
-        if (mouse.x >= kButtonX && mouse.x <= kButtonX+kButtonWidth &&
-            mouse.y >= kButtonY[i] && mouse.y <= kButtonY[i]+kButtonHeight) { hovered = i; }
+        // 文字の周囲に透明な入力範囲を設け、クリックしやすくする
+        const Vector2 position = buttonHitAreas_[i]->GetPosition();
+        if (mouse.x >= position.x && mouse.x <= position.x+kButtonWidth &&
+            mouse.y >= position.y && mouse.y <= position.y+kButtonHeight) { hovered = i; }
     }
-    if (!isStarting_) {
+    // 見えない文字への誤入力を防ぐため、最初の短いフェードだけ待つ
+    if (!isStarting_ && frame_ >= 40) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         if (context_.input->TriggerKey(DIK_UP) || context_.input->TriggerKey(DIK_DOWN) ||
             context_.input->TriggerKey(DIK_W) || context_.input->TriggerKey(DIK_S)) {
@@ -283,12 +306,52 @@ void TitleScene::UpdateMenu() {
             }
         }
     }
-    // 選択中は白地に黒文字、非選択は黒地に白文字で白黒を反転させる
+    UpdateMenuAnimation();
+}
+
+void TitleScene::UpdateMenuAnimation() {
+    // 暗がりからゆっくり浮かび上がる。メニューはロゴの少し後に表示する
+    const float age = static_cast<float>(frame_);
+    for (const auto& visual : menuVisuals_) {
+        const float fade = visual.sprite == titleShade_ ? 1.0f : SmoothStep01((age-visual.delay)/48.0f);
+        visual.sprite->SetPosition(visual.position);
+        Vector4 color = visual.color;
+        color.w *= fade;
+        visual.sprite->SetColor(color);
+    }
+
+    // ロゴをわずかに縮めて静止させ、待機中は電圧低下のような弱い明滅を入れる
+    const float settle = 1.0f-SmoothStep01(age/72.0f);
+    const float scale = 1.0f+settle*0.018f;
+    titleLogo_->SetSize({ 900.0f*scale,132.0f*scale });
+    titleLogo_->SetPosition({ 640.0f-450.0f*scale,236.0f-66.0f*scale });
+    const int powerCycle = frame_%480;
+    const bool voltageDip = powerCycle == 401 || powerCycle == 402 || powerCycle == 409;
+    Vector4 logoColor = titleLogo_->GetColor();
+    logoColor.w *= voltageDip ? 0.84f : 0.97f+0.03f*std::sin(age*0.018f);
+    titleLogo_->SetColor(logoColor);
+
+    // 薄い霧を異なる周期で流し、背景の戦闘が見える濃さを保つ
+    titleMist_[0]->SetPosition({ -120.0f+std::sin(age*0.003f)*70.0f,350.0f+std::sin(age*0.002f)*12.0f });
+    titleMist_[1]->SetPosition({ -180.0f-std::sin(age*0.0022f)*90.0f,80.0f+std::sin(age*0.0018f)*10.0f });
+    for (auto* mist : titleMist_) {
+        Vector4 color = mist->GetColor();
+        color.w *= 0.85f+0.15f*std::sin(age*0.008f);
+        mist->SetColor(color);
+    }
+
+    // 選択文字を滑らかに明るくし、下線だけを中央から短く伸ばす
+    const float menuFade = SmoothStep01((age-22.0f)/48.0f);
     for (int i = 0; i < 2; ++i) {
-        const bool selected = i == selectedButton_;
-        buttonBorders_[i]->SetColor({ 1,1,1,1 });
-        buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 1,1,1,1 } : Vector4{ 0,0,0,0.96f });
-        buttonLabels_[i]->SetColor(selected ? Vector4{ 0,0,0,1 } : Vector4{ 1,1,1,1 });
+        const float target = i == selectedButton_ ? 1.0f : 0.0f;
+        buttonSelection_[i] += (target-buttonSelection_[i])*0.16f;
+        const float selected = buttonSelection_[i];
+        buttonLabels_[i]->SetColor({ 1,1,1,menuFade*(0.42f+0.58f*selected) });
+        buttonIndicators_[i]->SetColor({ 0.61f,0.14f,0.14f,menuFade*selected });
+        const float width = 26.0f+50.0f*selected;
+        buttonUnderlines_[i]->SetPosition({ 640.0f-width*0.5f,kButtonY[i]+40 });
+        buttonUnderlines_[i]->SetSize({ width,1 });
+        buttonUnderlines_[i]->SetColor({ 0.70f,0.63f,0.61f,menuFade*selected*0.65f });
     }
     for (auto& sprite : uiSprites_) { sprite->Update(); }
 }
@@ -565,7 +628,7 @@ void TitleScene::Draw() {
         return;
     }
 
-    // 背景の戦闘を描いたあとに枠とメニューを重ねる
+    // 通常時は背景の戦闘だけを描き、波動をかける対象を分離する
     context_.object3dCommon->CommonDrawSetting();
     for (auto& object : scenery_) { object->Draw(); }
     // 敵は生存中は本体、撃破後は破片を描画する(本編と同じ)
@@ -574,6 +637,29 @@ void TitleScene::Draw() {
     // 本編と同じく血しぶきを先に、発光する弾の軌跡を後に描く
     bloodParticleSystem_->Draw();
     particleSystem_->Draw();
+
+    // 開始時は波動を停止済みなので、文字も一緒に保存して画面を割る
+    // オフスクリーン描画を使わない場合も、ここでUIを表示する
+    if (isStarting_ || !context_.offscreenRenderer) {
+        DrawTitleUi();
+    }
+}
+
+void TitleScene::DrawOverlay() {
+    // 破壊中は保存した画面に文字が含まれるため、上から重ね直さない
+    if (isStarting_ || !context_.offscreenRenderer) { return; }
+
+    // エフェクト後の画面を消さず、スプライト用の深度バッファだけを設定し直す
+    auto* commandList = context_.dxCommon->GetCommandList();
+    const auto rtv = context_.dxCommon->GetCurrentBackBufferRTVHandle();
+    const auto dsv = context_.dxCommon->GetDSVHandle();
+    commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+    DrawTitleUi();
+}
+
+void TitleScene::DrawTitleUi() {
+    // ロゴ・メニュー・霧を同じ順序で重ね、文字を波動で歪ませない
     context_.spriteCommon->CommonDrawSetting();
     for (auto& sprite : uiSprites_) { sprite->Draw(); }
 }
@@ -584,9 +670,16 @@ void TitleScene::Finalize() {
         ModelManager::GetInstance()->FindModel("cube.obj")->SetTextureIndex(originalCubeTextureIndex_);
     }
     uiSprites_.clear();
-    buttonBorders_.fill(nullptr);
-    buttonBackgrounds_.fill(nullptr);
+    menuVisuals_.clear();
+    buttonHitAreas_.fill(nullptr);
     buttonLabels_.fill(nullptr);
+    // 所有権は共通配列にあるため、解放後は演出部品の参照だけをクリアする
+    buttonIndicators_.fill(nullptr);
+    buttonUnderlines_.fill(nullptr);
+    buttonSelection_.fill(0.0f);
+    titleMist_.fill(nullptr);
+    titleLogo_ = nullptr;
+    titleShade_ = nullptr;
     bullets_.clear();
     enemies_.clear();
     floorColliders_.clear();
