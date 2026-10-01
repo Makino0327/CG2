@@ -67,7 +67,8 @@ public:
 	static TextureManager* GetInstance();
 	// 終了
 	void Finalize();
-	// テクスチャデータ
+private:
+	// テクスチャデータ。どこからでも取得できるシングルトンなので、外から直接触らせない
 	std::unordered_map<std::string,TextureData> textureDatas_;
 	std::vector<std::string> textureOrder_; // ★読み込み順を保持（index→filePath変換用）
 

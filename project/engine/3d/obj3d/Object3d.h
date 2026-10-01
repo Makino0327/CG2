@@ -87,7 +87,8 @@ public:
 	void SetColor(const Vector4& color);
 	void SetEnvironmentTexture(const std::string& filePath);
 	void SetEnvironmentCoefficient(float coefficient);
-	Material* GetMaterial() { return materialData_; } // ImGui用に欲しければ
+	// マテリアル全体は渡さず、ライティングの種類だけを変更できるようにする
+	void SetLightingType(LightingType lightingType);
 
 	// このオブジェクトだけにディゾルブを適用するか設定する
 	void SetDissolveEnabled(bool enabled);
@@ -123,7 +124,6 @@ public:
 	void SetSkeletonVisible(bool visible) { isSkeletonVisible_ = visible; } // Skeleton のデバッグ表示切替
 	bool IsSkeletonVisible() const { return isSkeletonVisible_; }           // 表示状態を返す
 
-	SkinCluster& GetSkinCluster() { return skinCluster_; }
 	const SkinCluster& GetSkinCluster() const { return skinCluster_; }
 
 	bool HasSkinCluster() const { return hasSkinCluster_; }

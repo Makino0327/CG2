@@ -118,7 +118,7 @@ void Game::Update() {
 
     // メッセージ処理（元 while 内の先頭）
     if (winApp_ && winApp_->ProcessMessage()) {
-        endRequest_ = true;
+        RequestEnd();
         return;
     }
 

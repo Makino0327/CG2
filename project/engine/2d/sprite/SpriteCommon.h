@@ -21,10 +21,9 @@ private:
 	// グラフィクスパイプラインの作成
 	void CreateGraphicsPipelineState();
 
-public:
-	DirectXCommon* dxCommon_;
-
 private:
+	// 外からは GetDxCommon() で読むだけにする
+	DirectXCommon* dxCommon_ = nullptr;
 	// ルートシグネチャ
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 	// グラフィクスパイプラインステート

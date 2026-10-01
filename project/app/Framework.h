@@ -16,7 +16,9 @@ public:
     virtual bool IsEndRequest() const { return endRequest_; }
 
 protected:
+    // 派生クラスは終了を「要求」するだけにし、フラグを直接書き換えさせない
+    void RequestEnd() { endRequest_ = true; }
+
+private:
     bool endRequest_ = false;
-
-
 };

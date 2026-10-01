@@ -41,7 +41,7 @@ ResultScene::~ResultScene() = default;
 Sprite* ResultScene::CreateUiRect(const Vector2& position, const Vector2& size, const Vector4& color) {
     // 白いテクスチャへ色を付け、背景と枠線を作る
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white1x1.png");
+    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white1x1.png");
     sprite->SetPosition(position);
     sprite->SetSize(size);
     sprite->SetColor(color);
@@ -55,7 +55,7 @@ Sprite* ResultScene::CreateLabel(const Vector2& textureLeftTop, const Vector2& t
     const Vector2& position, const Vector2& size) {
     // 文字画像の指定範囲を切り出す。日本語フォントの実行時読み込みは不要
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), kLabelTexture);
+    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), kLabelTexture);
     sprite->SetTextureLeftTop(textureLeftTop);
     sprite->SetTextureSize(textureSize);
     sprite->SetPosition(position);
@@ -69,25 +69,25 @@ Sprite* ResultScene::CreateLabel(const Vector2& textureLeftTop, const Vector2& t
 void ResultScene::Initialize() {
     if (initialized_) { return; }
     initialized_ = true;
-    assert(context_.camera && context_.input && context_.dxCommon);
+    assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
     frame_ = transitionTimer_ = selectedButton_ = 0;
     isLeaving_ = false;
 
     // タイトルと同じ真上に近い固定カメラ
-    context_.camera->SetTranslate({ 0.0f, 68.0f, -6.2f });
-    context_.camera->SetRotate({ 1.48f, 0.0f, 0.0f });
-    context_.camera->Update();
-    if (context_.isDebugMode) { *context_.isDebugMode = false; }
-    if (context_.offscreenRenderer) {
+    GetContext().camera->SetTranslate({ 0.0f, 68.0f, -6.2f });
+    GetContext().camera->SetRotate({ 1.48f, 0.0f, 0.0f });
+    GetContext().camera->Update();
+    if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
+    if (GetContext().offscreenRenderer) {
         // 本編の死亡時の白黒や構え演出を持ち越さない
-        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         for (int effect = 0; effect <= static_cast<int>(PostEffectType::DepthOutline); ++effect) {
-            context_.offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
+            GetContext().offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
         }
-        context_.offscreenRenderer->StopShockwave();
+        GetContext().offscreenRenderer->StopShockwave();
     }
 
-    directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
+    directionalLightResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
     light->color = { 1, 1, 1, 1 };
@@ -97,13 +97,13 @@ void ResultScene::Initialize() {
     // タイトルと同じ床だけを背景に置く
     ModelManager::GetInstance()->LoadModel("cube.obj");
     floor_ = std::make_unique<Object3d>();
-    floor_->Initialize(context_.object3dCommon);
-    floor_->SetCamera(context_.camera);
+    floor_->Initialize(GetContext().object3dCommon);
+    floor_->SetCamera(GetContext().camera);
     floor_->SetModel("cube.obj");
     floor_->SetTranslate({ 0.0f, -1.0f, 0.0f });
     floor_->SetScale({ 50.0f, 1.0f, 50.0f });
     floor_->SetColor({ 1, 1, 1, 1 });
-    floor_->GetMaterial()->lightingType = static_cast<int>(LightingType::HalfLambert);
+    floor_->SetLightingType(LightingType::HalfLambert);
     floor_->Update();
 
     CreateMenu();
@@ -137,8 +137,8 @@ void ResultScene::CreateMenu() {
 void ResultScene::UpdateMenu() {
     const int buttonCount = static_cast<int>(buttonActions_.size());
     // マウスを動かしたときだけ選択を変え、キーボード操作と競合させない
-    const Vector2 mouse = context_.input->GetMousePosition();
-    const Vector2 delta = context_.input->GetMouseDelta();
+    const Vector2 mouse = GetContext().input->GetMousePosition();
+    const Vector2 delta = GetContext().input->GetMouseDelta();
     int hovered = -1;
     for (int i = 0; i < buttonCount; ++i) {
         const float y = kButtonTopY + kButtonSpacing * static_cast<float>(i);
@@ -147,15 +147,15 @@ void ResultScene::UpdateMenu() {
     }
     if (!isLeaving_ && frame_ >= kInputDelayFrames) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
-        if (context_.input->TriggerKey(DIK_UP) || context_.input->TriggerKey(DIK_W)) {
+        if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
             selectedButton_ = (selectedButton_ + buttonCount - 1) % buttonCount;
         }
-        if (context_.input->TriggerKey(DIK_DOWN) || context_.input->TriggerKey(DIK_S)) {
+        if (GetContext().input->TriggerKey(DIK_DOWN) || GetContext().input->TriggerKey(DIK_S)) {
             selectedButton_ = (selectedButton_ + 1) % buttonCount;
         }
-        const bool clicked = hovered >= 0 && context_.input->TriggerMouseLeft();
+        const bool clicked = hovered >= 0 && GetContext().input->TriggerMouseLeft();
         if (clicked) { selectedButton_ = hovered; }
-        if (clicked || context_.input->TriggerKey(DIK_RETURN) || context_.input->TriggerKey(DIK_SPACE)) {
+        if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
             isLeaving_ = true;
             transitionTimer_ = 0;
         }
@@ -178,17 +178,17 @@ void ResultScene::Update() {
     // 暗転し切ったフレームで移動先のシーンを予約する
     if (isLeaving_ && transitionTimer_ >= kFadeDuration) {
         if (buttonActions_[selectedButton_] == Action::Restart) {
-            sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+            GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
         } else {
-            sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+            GetSceneManager()->SetNextScene(std::make_unique<TitleScene>());
         }
     }
 }
 
 void ResultScene::Draw() {
-    context_.object3dCommon->CommonDrawSetting();
+    GetContext().object3dCommon->CommonDrawSetting();
     floor_->Draw();
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
     for (auto& sprite : uiSprites_) { sprite->Draw(); }
 }
 

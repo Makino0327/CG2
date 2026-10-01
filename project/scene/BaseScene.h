@@ -29,7 +29,12 @@ public:
         context_ = context;
     }
 
-protected: // ★ privateではなくprotectedにして、派生先(TitleScene等)から使えるようにする
+protected:
+    // 派生シーンには読み取り用の関数だけを公開し、メンバ変数自体は書き換えさせない
+    SceneManager* GetSceneManager() const { return sceneManager_; }
+    const SceneContext& GetContext() const { return context_; }
+
+private:
     SceneManager* sceneManager_ = nullptr;
     SceneContext context_;
 };

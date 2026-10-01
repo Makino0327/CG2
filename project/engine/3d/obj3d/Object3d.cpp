@@ -394,6 +394,13 @@ void Object3d::SetEnvironmentTexture(const std::string& filePath)
     TextureManager::GetInstance()->LoadTexture(environmentTextureFilePath_);
 }
 
+void Object3d::SetLightingType(LightingType lightingType)
+{
+    if (materialData_) {
+        materialData_->lightingType = static_cast<int>(lightingType);
+    }
+}
+
 void Object3d::SetEnvironmentCoefficient(float coefficient)
 {
     if (materialData_) {

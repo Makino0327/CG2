@@ -50,7 +50,8 @@ public:
         farClip_ = farClip;
     }
 
-    Transform& GetTransform() { return transform_; }
+    // 書き換えは SetRotate / SetTranslate を通し、ここでは読み取りだけを許す
+    const Transform& GetTransform() const { return transform_; }
 
     // === 行列の getter ===
     const Matrix4x4& GetWorldMatrix() const {

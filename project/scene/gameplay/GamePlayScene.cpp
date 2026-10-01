@@ -249,7 +249,7 @@ bool GamePlayScene::CheckBossTeleport()
         // テレポーターを踏んだらボスステージへ移動する
         constexpr bool kTeleportGoesToClear = false;
         if (kTeleportGoesToClear) {
-            sceneManager_->SetNextScene(std::make_unique<ClearScene>());
+            GetSceneManager()->SetNextScene(std::make_unique<ClearScene>());
             return true;
         }
 
@@ -310,19 +310,19 @@ void GamePlayScene::Initialize()
     if (initialized_) { return; }
     initialized_ = true;
 
-    assert(context_.dxCommon);
-    assert(context_.srvManager);
-    assert(context_.spriteCommon);
-    assert(context_.object3dCommon);
-    assert(context_.modelCommon);
-    assert(context_.particleCommon);
-    assert(context_.camera);
-    assert(context_.input);
-    assert(context_.sound);
-    assert(sceneManager_);
+    assert(GetContext().dxCommon);
+    assert(GetContext().srvManager);
+    assert(GetContext().spriteCommon);
+    assert(GetContext().object3dCommon);
+    assert(GetContext().modelCommon);
+    assert(GetContext().particleCommon);
+    assert(GetContext().camera);
+    assert(GetContext().input);
+    assert(GetContext().sound);
+    assert(GetSceneManager());
 
     object3d_ = std::make_unique<Object3d>();
-    object3d_->Initialize(context_.object3dCommon);
+    object3d_->Initialize(GetContext().object3dCommon);
 
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
@@ -347,7 +347,7 @@ void GamePlayScene::Initialize()
     texMan->LoadTexture("Resources/gradationLine.png");
     texMan->LoadTexture("Resources/white2x2.png");
 
-    materialResource_ = context_.dxCommon->CreateBufferResource(sizeof(Material));
+    materialResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(Material));
     Material* materialData = nullptr;
     materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
     materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -355,7 +355,7 @@ void GamePlayScene::Initialize()
     materialData->environmentCoefficient = 0.0f;
     materialData->uvTransform = MakeIdentity4x4();
 
-    directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
+    directionalLightResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
     light->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -371,14 +371,14 @@ void GamePlayScene::Initialize()
     // 近接攻撃可能な敵の頭上へ表示するマークを作る
     meleeMarker_ = std::make_unique<Sprite>();
     meleeMarker_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/circle2.png");
 
     // ミニマップを初期化する
     minimap_ = std::make_unique<Minimap>();
     minimap_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/level/minimap.json");
 
@@ -392,7 +392,7 @@ void GamePlayScene::Initialize()
     for (int index = 0; index < 30; ++index) {
         auto ammoSprite = std::make_unique<Sprite>();
         ammoSprite->Initialize(
-            context_.spriteCommon,
+            GetContext().spriteCommon,
             directionalLightResource_.Get(),
             "Resources/white2x2.png");
         ammoSprite->SetAnchorPoint({ 0.0f, 0.5f });
@@ -403,7 +403,7 @@ void GamePlayScene::Initialize()
     // 残弾UIの後ろに敷く黒い半透明パネルを作っておく
     ammoBackgroundSprite_ = std::make_unique<Sprite>();
     ammoBackgroundSprite_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/white2x2.png");
     ammoBackgroundSprite_->SetAnchorPoint({ 0.0f, 0.0f });
@@ -414,7 +414,7 @@ void GamePlayScene::Initialize()
     for (int index = 0; index < 8; ++index) {
         auto effectSprite = std::make_unique<Sprite>();
         effectSprite->Initialize(
-            context_.spriteCommon,
+            GetContext().spriteCommon,
             directionalLightResource_.Get(),
             "Resources/white2x2.png");
         effectSprite->SetAnchorPoint({ 0.5f, 0.5f });
@@ -431,7 +431,7 @@ void GamePlayScene::Initialize()
     // ボスHPバーの背景を作る
     bossHpBackgroundSprite_ = std::make_unique<Sprite>();
     bossHpBackgroundSprite_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/white2x2.png");
     bossHpBackgroundSprite_->SetAnchorPoint({ 0.5f, 0.0f });
@@ -441,7 +441,7 @@ void GamePlayScene::Initialize()
     // ボスHPバーの残量を作る
     bossHpFillSprite_ = std::make_unique<Sprite>();
     bossHpFillSprite_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/white2x2.png");
     bossHpFillSprite_->SetAnchorPoint({ 0.0f, 0.0f });
@@ -451,7 +451,7 @@ void GamePlayScene::Initialize()
     // ボスHPバーの外枠を作る
     bossHpFrameSprite_ = std::make_unique<Sprite>();
     bossHpFrameSprite_->Initialize(
-        context_.spriteCommon,
+        GetContext().spriteCommon,
         directionalLightResource_.Get(),
         "Resources/white2x2.png");
     bossHpFrameSprite_->SetAnchorPoint({ 0.5f, 0.0f });
@@ -462,58 +462,58 @@ void GamePlayScene::Initialize()
     introFrame_ = 0;
     for (size_t i = 0; i < introDoors_.size(); ++i) {
         introDoors_[i] = std::make_unique<Sprite>();
-        introDoors_[i]->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+        introDoors_[i]->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
         // 上の扉は下端、下の扉は上端を合わせ目に合わせる
         introDoors_[i]->SetAnchorPoint({ 0.0f, i == 0 ? 1.0f : 0.0f });
         introDoors_[i]->SetSize({ static_cast<float>(WinApp::kClientWidth), WinApp::kClientHeight * 0.5f });
         introDoors_[i]->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         introDoorEdges_[i] = std::make_unique<Sprite>();
-        introDoorEdges_[i]->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+        introDoorEdges_[i]->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
         introDoorEdges_[i]->SetAnchorPoint({ 0.5f, i == 0 ? 1.0f : 0.0f });
     }
     UpdateIntroTransition();
 
     skyboxCommon_ = std::make_unique<SkyboxCommon>();
-    skyboxCommon_->Initialize(context_.dxCommon, context_.srvManager);
-    skyboxCommon_->SetDefaultCamera(context_.camera);
+    skyboxCommon_->Initialize(GetContext().dxCommon, GetContext().srvManager);
+    skyboxCommon_->SetDefaultCamera(GetContext().camera);
 
     skybox_ = std::make_unique<Skybox>();
     skybox_->Initialize(skyboxCommon_.get());
-    skybox_->SetCamera(context_.camera);
+    skybox_->SetCamera(GetContext().camera);
 
     // 敵の視界範囲をデバッグ線で描画するための準備をする
     line3dCommon_ = std::make_unique<Line3DCommon>();
-    line3dCommon_->Initialize(context_.dxCommon, context_.srvManager);
-    enemyVisionDebug_.Initialize(context_.dxCommon, line3dCommon_.get());
+    line3dCommon_->Initialize(GetContext().dxCommon, GetContext().srvManager);
+    enemyVisionDebug_.Initialize(GetContext().dxCommon, line3dCommon_.get());
 
     debugCamera_ = std::make_unique<DebugCamera>();
 
     // 全プレイヤー弾で共有する軌跡用パーティクルを作る
     particleSystem_ = std::make_unique<ParticleSystem>();
     particleSystem_->Initialize(
-        context_.dxCommon,
-        context_.particleCommon,
-        context_.camera,
-        context_.srvManager,
+        GetContext().dxCommon,
+        GetContext().particleCommon,
+        GetContext().camera,
+        GetContext().srvManager,
         ParticleType::CircleBurst);
 
     // 血しぶきは発光しない通常アルファ合成で描画する
     bloodParticleSystem_ = std::make_unique<ParticleSystem>();
     bloodParticleSystem_->Initialize(
-        context_.dxCommon,
-        context_.particleCommon,
-        context_.camera,
-        context_.srvManager,
+        GetContext().dxCommon,
+        GetContext().particleCommon,
+        GetContext().camera,
+        GetContext().srvManager,
         ParticleType::CircleBurst);
     bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
 
     // 爆発後の煙は発光させず、通常アルファ合成で長く残す
     grenadeSmokeParticleSystem_ = std::make_unique<ParticleSystem>();
     grenadeSmokeParticleSystem_->Initialize(
-        context_.dxCommon,
-        context_.particleCommon,
-        context_.camera,
-        context_.srvManager,
+        GetContext().dxCommon,
+        GetContext().particleCommon,
+        GetContext().camera,
+        GetContext().srvManager,
         ParticleType::Smoke);
     grenadeSmokeParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
 
@@ -521,23 +521,23 @@ void GamePlayScene::Initialize()
 
     // 開始位置は後半のReloadLevelで設定し、Respawnで描画にも反映する。
     player_->Initialize(
-        context_.object3dCommon,
-        context_.input,
+        GetContext().object3dCommon,
+        GetContext().input,
         particleSystem_.get());
 
     // グレネード爆発後の煙用パーティクルをPlayerへ渡す
     player_->SetGrenadeSmokeParticleSystem(grenadeSmokeParticleSystem_.get());
 
     followCamera_ = std::make_unique<FollowCamera>();
-    followCamera_->Initialize(context_.camera);
+    followCamera_->Initialize(GetContext().camera);
     followCamera_->SetTarget(player_->GetWorldPosition());
 
-    if (context_.offscreenRenderer) {
-        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+    if (GetContext().offscreenRenderer) {
+        GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         // タイトルの衝撃波を本編へ持ち越さない
-        context_.offscreenRenderer->StopShockwave();
+        GetContext().offscreenRenderer->StopShockwave();
         // ゲームシーン側で通常の衝撃波サイズを調整する
-        context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
+        GetContext().offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
 
     mapField_.LoadFromCsv("Resources/map.csv");
@@ -570,13 +570,13 @@ void GamePlayScene::Update()
     }
 
     // Reload the level JSON manually when F5 is pressed.
-    if (context_.input && context_.input->TriggerKey(DIK_F5)) {
+    if (GetContext().input && GetContext().input->TriggerKey(DIK_F5)) {
         ReloadLevel(true);
     }
 
     // Mキーを押した瞬間にミニマップの大きさを切り替える
-    if (context_.input &&
-        context_.input->TriggerKey(DIK_M)) {
+    if (GetContext().input &&
+        GetContext().input->TriggerKey(DIK_M)) {
         if (minimap_) {
             minimap_->ToggleExpanded();
         }
@@ -591,7 +591,7 @@ void GamePlayScene::Update()
     constexpr int kGameOverDelayFrames = 90;
     if (player_ && player_->IsDead()) {
         if (++playerDeadFrames_ >= kGameOverDelayFrames) {
-            sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
+            GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
             return;
         }
     } else {
@@ -603,17 +603,17 @@ void GamePlayScene::Update()
     if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
     if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
 
-    if (debugCamera_ && context_.isDebugMode) {
+    if (debugCamera_ && GetContext().isDebugMode) {
         debugCamera_->Update(
-            context_.camera,
-            context_.input,
-            context_.offscreenRenderer,
-            *context_.isDebugMode);
+            GetContext().camera,
+            GetContext().input,
+            GetContext().offscreenRenderer,
+            *GetContext().isDebugMode);
     }
 
-    if (context_.isDebugMode && *context_.isDebugMode) {
-        if (context_.camera) {
-            context_.camera->Update();
+    if (GetContext().isDebugMode && *GetContext().isDebugMode) {
+        if (GetContext().camera) {
+            GetContext().camera->Update();
         }
 
         if (player_) {
@@ -654,12 +654,12 @@ void GamePlayScene::Update()
     }
 
     if (player_) {
-        player_->Update(context_.camera);
+        player_->Update(GetContext().camera);
 
         // Player更新中に発生したグレネード爆発を敵へ反映する
         CheckGrenadeExplosions();
     }
-    if (context_.camera) { context_.camera->Update(); }
+    if (GetContext().camera) { GetContext().camera->Update(); }
 
     if (player_ && followCamera_) {
         // グレネード爆発通知を受け取ったフレームからカメラを揺らす
@@ -772,7 +772,7 @@ void GamePlayScene::Update()
 
     // 全ボスの撃破演出が終わったらクリア画面へ進む。プレイヤー死亡時はゲームオーバーを優先する
     if (hadBoss && bosses_.empty() && player_ && !player_->IsDead()) {
-        sceneManager_->SetNextScene(std::make_unique<ClearScene>());
+        GetSceneManager()->SetNextScene(std::make_unique<ClearScene>());
         return;
     }
 
@@ -813,10 +813,10 @@ void GamePlayScene::Update()
     UpdateGeneratorWorld(generatorDeltaSeconds);
     UpdateTeleporterEffects();
 
-    if (player_ && context_.offscreenRenderer) {
+    if (player_ && GetContext().offscreenRenderer) {
         const bool isAimingGun =
-            context_.input &&
-            context_.input->PushMouseRight() &&
+            GetContext().input &&
+            GetContext().input->PushMouseRight() &&
             !player_->IsDead();
 
         const float targetVignetteIntensity = isAimingGun ? 1.0f : 0.0f;
@@ -835,34 +835,34 @@ void GamePlayScene::Update()
                 targetVignetteIntensity);
         }
 
-        context_.offscreenRenderer->SetVignetteIntensity(aimingVignetteIntensity_);
-        context_.offscreenRenderer->SetPostEffectEnabled(
+        GetContext().offscreenRenderer->SetVignetteIntensity(aimingVignetteIntensity_);
+        GetContext().offscreenRenderer->SetPostEffectEnabled(
             PostEffectType::Vignette,
             aimingVignetteIntensity_ > 0.0f);
 
         if (player_->IsDead()) {
             aimingVignetteIntensity_ = 0.0f;
-            context_.offscreenRenderer->SetVignetteIntensity(0.0f);
-            context_.offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
-        } else if (context_.offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
+            GetContext().offscreenRenderer->SetVignetteIntensity(0.0f);
+            GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
+            GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+        } else if (GetContext().offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
             // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
-            context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+            GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
     }
 }
 
 void GamePlayScene::Draw()
 {
-    assert(context_.dxCommon);
-    assert(context_.spriteCommon);
-    assert(context_.object3dCommon);
-    assert(context_.particleCommon);
+    assert(GetContext().dxCommon);
+    assert(GetContext().spriteCommon);
+    assert(GetContext().object3dCommon);
+    assert(GetContext().particleCommon);
 
-    ID3D12GraphicsCommandList* commandList = context_.dxCommon->GetCommandList();
+    ID3D12GraphicsCommandList* commandList = GetContext().dxCommon->GetCommandList();
     assert(commandList);
 
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
 
     if (skybox_) {
         skybox_->Draw();
@@ -904,7 +904,7 @@ void GamePlayScene::Draw()
     }
 
     // 敵の視界範囲をデバッグ線で描画する
-    if (context_.camera && line3dCommon_) {
+    if (GetContext().camera && line3dCommon_) {
         enemyVisionDebug_.Reset();
 
         for (const auto& enemy : enemies_) {
@@ -915,16 +915,16 @@ void GamePlayScene::Draw()
             enemy->AppendVisionDebugLines(enemyVisionDebug_);
         }
 
-        enemyVisionDebug_.SetWVP(MakeIdentity4x4(), context_.camera->GetViewProjectionMatrix());
+        enemyVisionDebug_.SetWVP(MakeIdentity4x4(), GetContext().camera->GetViewProjectionMatrix());
         enemyVisionDebug_.Upload();
         enemyVisionDebug_.Draw();
     }
     // 近接攻撃可能な敵の頭上へマークを表示する
-    if (meleeTarget_ && meleeMarker_ && context_.camera) {
+    if (meleeTarget_ && meleeMarker_ && GetContext().camera) {
         Vector3 markerPosition = meleeTarget_->GetWorldPosition();
         markerPosition.y += 2.0f;
 
-        const Matrix4x4& viewProjection = context_.camera->GetViewProjectionMatrix();
+        const Matrix4x4& viewProjection = GetContext().camera->GetViewProjectionMatrix();
 
         // 敵のワールド座標を画面表示用のクリップ座標へ変換する
         const float clipX =
@@ -1017,7 +1017,7 @@ void GamePlayScene::DrawIntroTransition()
     if (introFrame_ > kIntroSeamFrames + kIntroOpenFrames || !introDoors_[0]) {
         return;
     }
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
     for (auto& door : introDoors_) { door->Draw(); }
     for (auto& edge : introDoorEdges_) { edge->Draw(); }
 }
@@ -1031,7 +1031,7 @@ void GamePlayScene::InitializeGuideUi()
     // 日本語は事前生成した透過画像を使い、実行環境のフォントに依存させない
     auto createSprite = [this](const char* texture) {
         auto sprite = std::make_unique<Sprite>();
-        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texture);
+        sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), texture);
         sprite->SetAnchorPoint({ 0.0f, 0.0f });
         return sprite;
     };
@@ -1055,10 +1055,10 @@ void GamePlayScene::InitializeGuideUi()
 void GamePlayScene::DrawGuideUi()
 {
     // 死亡演出中とデバッグカメラ中は、操作できない案内を隠す
-    if (!player_ || player_->IsDead() || (context_.isDebugMode && *context_.isDebugMode)) {
+    if (!player_ || player_->IsDead() || (GetContext().isDebugMode && *GetContext().isDebugMode)) {
         return;
     }
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
     controlsGuide_->Draw();
 
     // 起動途中は数に含めず、メーターが満タンになった発電機だけを数える
@@ -1091,7 +1091,7 @@ void GamePlayScene::DrawGuideUi()
         objectiveCountSprites_.clear();
         for (size_t index = 0; index < countText.size(); ++index) {
             auto digit = std::make_unique<Sprite>();
-            digit->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/hud/count_glyphs.png");
+            digit->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/hud/count_glyphs.png");
             digit->SetTextureSize({ 32.0f, 64.0f });
             digit->SetSize({ 16.0f, 32.0f });
             digit->SetColor({ 1.0f, 0.9f, 0.3f, 1.0f });
@@ -1114,7 +1114,7 @@ void GamePlayScene::InitializeGeneratorUi()
     // 白い画像に色を付けて、パネルとメーターの各部品を作る
     auto createSprite = [this](const char* texture) {
         auto sprite = std::make_unique<Sprite>();
-        sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), texture);
+        sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), texture);
         sprite->SetAnchorPoint({ 0.0f, 0.0f });
         return sprite;
     };
@@ -1191,7 +1191,7 @@ void GamePlayScene::UpdateGeneratorInteraction(double deltaSeconds)
         generatorUiIndex_ = nearestActiveIndex;
         return;
     }
-    if (context_.input && context_.input->TriggerKey(DIK_E) &&
+    if (GetContext().input && GetContext().input->TriggerKey(DIK_E) &&
         generators_[generatorUiIndex_].activation.TryStart()) {
         interactingGeneratorIndex_ = generatorUiIndex_;
         generatorCompleteNoticeSeconds_ = 0.0;
@@ -1210,8 +1210,8 @@ void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
             continue;
         }
         // 起動開始から稼働音をループし、プレイヤーとの距離で音量を落とす
-        if (!generator.motorSound && context_.sound) {
-            generator.motorSound = context_.sound->CreateLoopingSound(generatorMotorSound_);
+        if (!generator.motorSound && GetContext().sound) {
+            generator.motorSound = GetContext().sound->CreateLoopingSound(generatorMotorSound_);
         }
         if (generator.motorSound && player_) {
             const Vector3 listener = player_->GetWorldPosition();
@@ -1334,7 +1334,7 @@ void GamePlayScene::UpdateTeleporterEffects()
 void GamePlayScene::DrawGeneratorUi()
 {
     if (generatorUiIndex_ < 0 || !player_ || player_->IsDead() ||
-        (context_.isDebugMode && *context_.isDebugMode)) {
+        (GetContext().isDebugMode && *GetContext().isDebugMode)) {
         return;
     }
 
@@ -1345,7 +1345,7 @@ void GamePlayScene::DrawGeneratorUi()
     const float topY = static_cast<float>(WinApp::kClientHeight) - 150.0f;
 
     // 画面下中央に操作案内を表示し、起動を始めたらその下へメーターを出す
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
     generatorUiPanel_->SetPosition({ centerX - 200.0f, topY });
     generatorUiPanel_->SetSize({ 400.0f, isIdle ? 64.0f : 100.0f });
     generatorUiPanel_->Update();
@@ -1737,7 +1737,7 @@ void GamePlayScene::EmitMeleeSlashEffect(const Vector3& center, const Vector3& d
 
 void GamePlayScene::UpdateMeleeAttack()
 {
-    if (!player_ || player_->IsDead() || !context_.input) {
+    if (!player_ || player_->IsDead() || !GetContext().input) {
         return;
     }
 
@@ -1808,7 +1808,7 @@ void GamePlayScene::UpdateMeleeAttack()
         }
     }
 
-    if (!context_.input->TriggerMouseLeft()) {
+    if (!GetContext().input->TriggerMouseLeft()) {
         return;
     }
 
@@ -1846,8 +1846,8 @@ void GamePlayScene::UpdateMeleeAttack()
 
     Vector3 slashDirection = PlayerBullet::CalcDirectionToMouseGround(
         playerPosition,
-        context_.camera,
-        context_.input);
+        GetContext().camera,
+        GetContext().input);
 
     if (slashDirection.x == 0.0f && slashDirection.z == 0.0f) {
         slashDirection = { 0.0f, 0.0f, 1.0f };
@@ -1963,7 +1963,7 @@ void GamePlayScene::Finalize()
 
 void GamePlayScene::StartBulletShockwaves()
 {
-    if (!player_ || !context_.camera || !context_.offscreenRenderer) {
+    if (!player_ || !GetContext().camera || !GetContext().offscreenRenderer) {
         return;
     }
 
@@ -1975,15 +1975,15 @@ void GamePlayScene::StartBulletShockwaves()
         Vector2 shockwaveUV{};
         if (!TryConvertWorldToScreenUV(
             shotPosition,
-            context_.camera->GetViewProjectionMatrix(),
+            GetContext().camera->GetViewProjectionMatrix(),
             shockwaveUV)) {
             continue;
         }
 
         // 画面上の弾の発射位置を中心にポストエフェクトの歪みを始める
         // 銃の衝撃波は短い時間で広げて、前より速く見せる
-        context_.offscreenRenderer->SetShockwaveDuration(0.16f);
-        context_.offscreenRenderer->StartShockwave(shockwaveUV);
+        GetContext().offscreenRenderer->SetShockwaveDuration(0.16f);
+        GetContext().offscreenRenderer->StartShockwave(shockwaveUV);
     }
 }
 
@@ -2001,15 +2001,15 @@ void GamePlayScene::CheckGrenadeExplosions()
 
     for (const Vector3& explosionPosition : explosionPositions) {
         // グレネードの爆発位置を画面UVに変換して、大きめの衝撃波を出す
-        if (context_.camera && context_.offscreenRenderer) {
+        if (GetContext().camera && GetContext().offscreenRenderer) {
             Vector2 grenadeShockwaveUV{};
             if (TryConvertWorldToScreenUV(
                 explosionPosition,
-                context_.camera->GetViewProjectionMatrix(),
+                GetContext().camera->GetViewProjectionMatrix(),
                 grenadeShockwaveUV)) {
                 // グレネードの衝撃波は通常時間に戻して、大きさだけ個別に変える
-                context_.offscreenRenderer->SetShockwaveDuration(0.28f);
-                context_.offscreenRenderer->StartShockwave(grenadeShockwaveUV, 0.22f);
+                GetContext().offscreenRenderer->SetShockwaveDuration(0.28f);
+                GetContext().offscreenRenderer->StartShockwave(grenadeShockwaveUV, 0.22f);
             }
         }
 
@@ -2122,15 +2122,20 @@ void GamePlayScene::CheckCollisions()
 void GamePlayScene::DrawImGui()
 {
 #ifdef USE_IMGUI
-    if (!context_.camera) {
+    if (!GetContext().camera) {
         return;
     }
 
-    Transform& cameraTransform = context_.camera->GetTransform();
+    // ImGuiではコピーを編集し、変更があった時だけセッターでカメラへ反映する
+    Transform cameraTransform = GetContext().camera->GetTransform();
 
     ImGui::Begin("Camera");
-    ImGui::DragFloat3("Translate", &cameraTransform.translate.x, 0.1f);
-    ImGui::DragFloat3("Rotate", &cameraTransform.rotate.x, 0.01f);
+    if (ImGui::DragFloat3("Translate", &cameraTransform.translate.x, 0.1f)) {
+        GetContext().camera->SetTranslate(cameraTransform.translate);
+    }
+    if (ImGui::DragFloat3("Rotate", &cameraTransform.rotate.x, 0.01f)) {
+        GetContext().camera->SetRotate(cameraTransform.rotate);
+    }
     ImGui::Text("Skybox and objects use this camera.");
     ImGui::End();
 
@@ -2146,21 +2151,21 @@ void GamePlayScene::DrawImGui()
 
     ImGui::End();
 
-    if (context_.offscreenRenderer) {
+    if (GetContext().offscreenRenderer) {
         // 弾の発射時に出る衝撃波の見た目をゲームシーン側で調整する
-        float shockwaveDuration = context_.offscreenRenderer->GetShockwaveDuration();
-        float shockwaveSize = context_.offscreenRenderer->GetShockwaveMaxRadius();
-        bool isWhiteWaveEnabled = context_.offscreenRenderer->IsShockwaveWhiteWaveEnabled();
+        float shockwaveDuration = GetContext().offscreenRenderer->GetShockwaveDuration();
+        float shockwaveSize = GetContext().offscreenRenderer->GetShockwaveMaxRadius();
+        bool isWhiteWaveEnabled = GetContext().offscreenRenderer->IsShockwaveWhiteWaveEnabled();
 
         ImGui::Begin("Bullet Shockwave");
         if (ImGui::DragFloat("Duration", &shockwaveDuration, 0.01f, 0.05f, 1.0f)) {
-            context_.offscreenRenderer->SetShockwaveDuration(shockwaveDuration);
+            GetContext().offscreenRenderer->SetShockwaveDuration(shockwaveDuration);
         }
         if (ImGui::DragFloat("Size", &shockwaveSize, 0.01f, 0.05f, 0.40f)) {
-            context_.offscreenRenderer->SetShockwaveMaxRadius(shockwaveSize);
+            GetContext().offscreenRenderer->SetShockwaveMaxRadius(shockwaveSize);
         }
         if (ImGui::Checkbox("White Wave", &isWhiteWaveEnabled)) {
-            context_.offscreenRenderer->SetShockwaveWhiteWaveEnabled(isWhiteWaveEnabled);
+            GetContext().offscreenRenderer->SetShockwaveWhiteWaveEnabled(isWhiteWaveEnabled);
         }
         ImGui::End();
     }
@@ -2197,9 +2202,9 @@ void GamePlayScene::DrawImGui()
         object3d_->DrawLightImGui();
     }
 
-    if (context_.offscreenRenderer) {
-        context_.offscreenRenderer->DrawDebugGameViewImGui();
-        context_.offscreenRenderer->DrawImGui();
+    if (GetContext().offscreenRenderer) {
+        GetContext().offscreenRenderer->DrawDebugGameViewImGui();
+        GetContext().offscreenRenderer->DrawImGui();
     }
 #endif
 }
@@ -2293,7 +2298,7 @@ void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObje
         ModelManager::GetInstance()->LoadModel(objectData.fileName);
 
         auto mapObject = std::make_unique<Object3d>();
-        mapObject->Initialize(context_.object3dCommon);
+        mapObject->Initialize(GetContext().object3dCommon);
         mapObject->SetModel(objectData.fileName);
         mapObject->SetScale(objectData.scaling);
         mapObject->SetRotate(objectData.rotation);
@@ -2481,7 +2486,7 @@ void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
         const Vector3& spawnPosition = enemyEntry.second;
 
         auto enemy = std::make_unique<Enemy>();
-        enemy->Initialize(context_.object3dCommon, context_.camera, spawnPosition);
+        enemy->Initialize(GetContext().object3dCommon, GetContext().camera, spawnPosition);
         enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
 
         // 敵にもプレイヤーと同じマップとコライダー情報を渡す
@@ -2530,8 +2535,8 @@ void GamePlayScene::SpawnBosses(const std::vector<LevelObjectData>& allObjects)
 
         auto boss = std::make_unique<Boss>();
         boss->Initialize(
-            context_.object3dCommon,
-            context_.camera,
+            GetContext().object3dCommon,
+            GetContext().camera,
             objectData.translation,
             objectData.rotation,
             objectData.scaling);

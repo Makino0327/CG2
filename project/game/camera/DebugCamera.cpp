@@ -10,7 +10,8 @@ void DebugCamera::Update(Camera* camera, Input* input, OffscreenRenderer* offscr
         return;
     }
 
-    Transform& transform = camera->GetTransform();
+    // カメラの中身を直接書き換えず、コピーを編集してからセッターで反映する
+    Transform transform = camera->GetTransform();
 
     // デバッグ開始時のカメラ姿勢を保存する
     if (isDebugMode && !wasDebugMode_) {
@@ -20,8 +21,8 @@ void DebugCamera::Update(Camera* camera, Input* input, OffscreenRenderer* offscr
 
     // デバッグ終了時に元のカメラ姿勢へ戻す
     if (!isDebugMode && wasDebugMode_) {
-        transform.translate = savedTranslate_;
-        transform.rotate = savedRotate_;
+        camera->SetTranslate(savedTranslate_);
+        camera->SetRotate(savedRotate_);
     }
 
     wasDebugMode_ = isDebugMode;
@@ -114,4 +115,7 @@ void DebugCamera::Update(Camera* camera, Input* input, OffscreenRenderer* offscr
             transform.translate.y -= moveSpeed_;
         }
     }
+
+    camera->SetRotate(transform.rotate);
+    camera->SetTranslate(transform.translate);
 }

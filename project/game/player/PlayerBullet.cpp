@@ -46,7 +46,7 @@ void PlayerBullet::Initialize(
 
     // ライトの影響を受けない明るい黄色にする
     object_->SetColor({ 1.0f, 0.92f, 0.34f, 0.65f });
-    object_->GetMaterial()->lightingType = static_cast<int>(LightingType::None);
+    object_->SetLightingType(LightingType::None);
 
     // 位置を設定する
     object_->SetTranslate(position_);

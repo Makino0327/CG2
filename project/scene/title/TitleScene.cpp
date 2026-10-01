@@ -131,13 +131,13 @@ std::unique_ptr<Object3d> TitleScene::CreateObject(const char* model, const Vect
     const Vector3& scale, const Vector4& color) {
     // タイトル用オブジェクトの共通設定をまとめる
     auto object = std::make_unique<Object3d>();
-    object->Initialize(context_.object3dCommon);
-    object->SetCamera(context_.camera);
+    object->Initialize(GetContext().object3dCommon);
+    object->SetCamera(GetContext().camera);
     object->SetModel(model);
     object->SetTranslate(position);
     object->SetScale(scale);
     object->SetColor(color);
-    object->GetMaterial()->lightingType = static_cast<int>(LightingType::None);
+    object->SetLightingType(LightingType::None);
     object->Update();
     return object;
 }
@@ -152,7 +152,7 @@ Sprite* TitleScene::CreateUiRect(const Vector2& position, const Vector2& size, c
 Sprite* TitleScene::CreateUiTexture(const char* path, const Vector2& position, const Vector2& size) {
     // 実行時のフォント読み込みを避け、生成済みの画像をそのまま配置する
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), path);
+    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), path);
     sprite->SetPosition(position);
     sprite->SetSize(size);
     sprite->Update();
@@ -164,7 +164,7 @@ Sprite* TitleScene::CreateUiTexture(const char* path, const Vector2& position, c
 Sprite* TitleScene::CreateUiLabel(int row, const Vector2& position, const Vector2& size) {
     // 文字画像の指定行を切り出す。日本語フォントの実行時読み込みは不要
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(context_.spriteCommon, directionalLightResource_.Get(), "Resources/title/menu_labels.png");
+    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/title/menu_labels.png");
     sprite->SetTextureLeftTop({ row == 2 ? 0.0f : 256.0f, static_cast<float>(row * 64) });
     sprite->SetTextureSize({ row == 2 ? 1024.0f : 512.0f, 64.0f });
     sprite->SetPosition(position);
@@ -178,7 +178,7 @@ Sprite* TitleScene::CreateUiLabel(int row, const Vector2& position, const Vector
 void TitleScene::Initialize() {
     if (initialized_) { return; }
     initialized_ = true;
-    assert(context_.camera && context_.input && context_.dxCommon);
+    assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
     frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = 0;
     selectedButton_ = 0;
     buttonSelection_.fill(0.0f);
@@ -191,18 +191,18 @@ void TitleScene::Initialize() {
 
     // カメラを中央へ寄せ、プレイヤーと敵の戦闘を大きく見せる
     // 高さに合わせて奥行きも調整し、中央を見下ろす構図を保つ
-    context_.camera->SetTranslate({ 0.0f, 50.0f, -4.6f });
-    context_.camera->SetRotate({ 1.48f, 0.0f, 0.0f });
-    context_.camera->Update();
-    if (context_.isDebugMode) { *context_.isDebugMode = false; }
-    if (context_.offscreenRenderer) {
+    GetContext().camera->SetTranslate({ 0.0f, 50.0f, -4.6f });
+    GetContext().camera->SetRotate({ 1.48f, 0.0f, 0.0f });
+    GetContext().camera->Update();
+    if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
+    if (GetContext().offscreenRenderer) {
         // 前のシーンの死亡・構え演出をタイトルへ持ち越さない
-        context_.offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         for (int effect = 0; effect <= static_cast<int>(PostEffectType::DepthOutline); ++effect) {
-            context_.offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
+            GetContext().offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
         }
         // 本編と同じ銃の衝撃波サイズにする
-        context_.offscreenRenderer->SetShockwaveMaxRadius(0.10f);
+        GetContext().offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
 
     // 本編と同じモデルを使い、見た目の雰囲気をつなげる
@@ -212,7 +212,7 @@ void TitleScene::Initialize() {
         models->LoadModel(model);
     }
     originalCubeTextureIndex_ = models->FindModel("cube.obj")->GetModelData().material.textureIndex;
-    directionalLightResource_ = context_.dxCommon->CreateBufferResource(sizeof(DirectionalLight));
+    directionalLightResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
     directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
     light->color = { 1, 1, 1, 1 };
@@ -221,10 +221,10 @@ void TitleScene::Initialize() {
 
     // 本編(testScene.json の Floor)と同じ床: cube.obj を (0,-1,0) に 50x1x50 で置く。上面は y=0
     scenery_.push_back(CreateObject("cube.obj", { 0.0f,-1.0f,0.0f }, { 50.0f,1.0f,50.0f }, { 1,1,1,1 }));
-    scenery_.back()->GetMaterial()->lightingType = static_cast<int>(LightingType::HalfLambert);
+    scenery_.back()->SetLightingType(LightingType::HalfLambert);
     // プレイヤーも本編と同じ色・ライティングにする
     playerObject_ = CreateObject("player/player.obj", kPlayerPosition, { 1,1,1 }, { 1,1,1,1 });
-    playerObject_->GetMaterial()->lightingType = static_cast<int>(LightingType::HalfLambert);
+    playerObject_->SetLightingType(LightingType::HalfLambert);
 
     // 本編の Floor と同じ床コライダー。敵の接地と破片の着地に使う
     floorColliders_.clear();
@@ -232,9 +232,9 @@ void TitleScene::Initialize() {
 
     // 本編と同じ構成のパーティクル。弾の軌跡・発射炎は加算、血しぶきは通常アルファ
     particleSystem_ = std::make_unique<ParticleSystem>();
-    particleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
+    particleSystem_->Initialize(GetContext().dxCommon, GetContext().particleCommon, GetContext().camera, GetContext().srvManager, ParticleType::CircleBurst);
     bloodParticleSystem_ = std::make_unique<ParticleSystem>();
-    bloodParticleSystem_->Initialize(context_.dxCommon, context_.particleCommon, context_.camera, context_.srvManager, ParticleType::CircleBurst);
+    bloodParticleSystem_->Initialize(GetContext().dxCommon, GetContext().particleCommon, GetContext().camera, GetContext().srvManager, ParticleType::CircleBurst);
     bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
     enemies_.clear();
     bullets_.clear();
@@ -273,8 +273,8 @@ void TitleScene::CreateMenu() {
 
 void TitleScene::UpdateMenu() {
     // マウスを動かしたときだけ選択を変え、キーボード操作と競合させない
-    const Vector2 mouse = context_.input->GetMousePosition();
-    const Vector2 delta = context_.input->GetMouseDelta();
+    const Vector2 mouse = GetContext().input->GetMousePosition();
+    const Vector2 delta = GetContext().input->GetMouseDelta();
     int hovered = -1;
     for (int i = 0; i < 2; ++i) {
         // 文字の周囲に透明な入力範囲を設け、クリックしやすくする
@@ -285,21 +285,21 @@ void TitleScene::UpdateMenu() {
     // 見えない文字への誤入力を防ぐため、最初の短いフェードだけ待つ
     if (!isStarting_ && frame_ >= 40) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
-        if (context_.input->TriggerKey(DIK_UP) || context_.input->TriggerKey(DIK_DOWN) ||
-            context_.input->TriggerKey(DIK_W) || context_.input->TriggerKey(DIK_S)) {
+        if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_DOWN) ||
+            GetContext().input->TriggerKey(DIK_W) || GetContext().input->TriggerKey(DIK_S)) {
             selectedButton_ = 1-selectedButton_;
         }
-        const bool clicked = hovered >= 0 && context_.input->TriggerMouseLeft();
+        const bool clicked = hovered >= 0 && GetContext().input->TriggerMouseLeft();
         if (clicked) { selectedButton_ = hovered; }
-        if (clicked || context_.input->TriggerKey(DIK_RETURN) || context_.input->TriggerKey(DIK_SPACE)) {
+        if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
             if (selectedButton_ == 0) {
                 isStarting_ = true;
                 // 背景の銃の歪みを止め、画面中央への一発でタイトルを割る。
-                if (context_.offscreenRenderer) {
-                    context_.offscreenRenderer->StopShockwave();
-                    context_.offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
+                if (GetContext().offscreenRenderer) {
+                    GetContext().offscreenRenderer->StopShockwave();
+                    GetContext().offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
                 }
-                if (context_.sound) { context_.sound->SoundPlayWave(GetStartGunshotSound()); }
+                if (GetContext().sound) { GetContext().sound->SoundPlayWave(GetStartGunshotSound()); }
             } else {
                 // 強制終了せず、通常の終了メッセージで後片付けを行う
                 PostQuitMessage(0);
@@ -364,7 +364,7 @@ void TitleScene::SpawnEnemy(float radius) {
 
     // 本編と同じEnemyを使う。中央への巡回点を与え、視界に入ったら本編AIで追跡させる
     auto enemy = std::make_unique<Enemy>();
-    enemy->Initialize(context_.object3dCommon, context_.camera, position);
+    enemy->Initialize(GetContext().object3dCommon, GetContext().camera, position);
     enemy->SetFloorColliders(&floorColliders_);
     enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
     enemy->SetTargetPosition(kPlayerPosition);
@@ -401,7 +401,7 @@ void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
     firePosition.z += direction.z*kBulletMuzzleDistance;
 
     auto bullet = std::make_unique<PlayerBullet>();
-    bullet->Initialize(context_.object3dCommon, firePosition,
+    bullet->Initialize(GetContext().object3dCommon, firePosition,
         { direction.x*kBulletSpeed,direction.y*kBulletSpeed,direction.z*kBulletSpeed },
         nullptr, particleSystem_.get());
     bullets_.push_back(std::move(bullet));
@@ -434,7 +434,7 @@ void TitleScene::FireShotgun(const Vector3& baseDirection) {
         const float speed = kBulletSpeed*randomSpeed(randomEngine_);
 
         auto bullet = std::make_unique<PlayerBullet>();
-        bullet->Initialize(context_.object3dCommon, pelletPosition,
+        bullet->Initialize(GetContext().object3dCommon, pelletPosition,
             { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get());
         bullets_.push_back(std::move(bullet));
     }
@@ -469,11 +469,11 @@ void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& dir
 void TitleScene::StartShockwave(const Vector3& firePosition) {
     // 本編と同じく、発射位置を画面UVへ変換して画面歪みを出す
     // 暗転中は衝撃波を出さない(フェードの上に白い波が残るため)
-    if (!context_.offscreenRenderer || !context_.camera || isStarting_) { return; }
+    if (!GetContext().offscreenRenderer || !GetContext().camera || isStarting_) { return; }
     Vector2 uv{};
-    if (!TryConvertWorldToScreenUV(firePosition, context_.camera->GetViewProjectionMatrix(), uv)) { return; }
-    context_.offscreenRenderer->SetShockwaveDuration(0.16f);
-    context_.offscreenRenderer->StartShockwave(uv);
+    if (!TryConvertWorldToScreenUV(firePosition, GetContext().camera->GetViewProjectionMatrix(), uv)) { return; }
+    GetContext().offscreenRenderer->SetShockwaveDuration(0.16f);
+    GetContext().offscreenRenderer->StartShockwave(uv);
 }
 
 void TitleScene::CheckBulletHits() {
@@ -607,9 +607,9 @@ void TitleScene::UpdateDemo() {
 void TitleScene::Update() {
     // 破片が飛び終わるまではタイトルに留まり、重い本編の初期化を始めない。
     if (isStarting_) {
-        if (!context_.offscreenRenderer || !context_.offscreenRenderer->IsScreenShatterPlaying()) {
+        if (!GetContext().offscreenRenderer || !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
             // このフレームで黒画面を表示してから、次の更新で本編を読み込む。
-            sceneManager_->SetNextScene(std::make_unique<GamePlayScene>());
+            GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
         }
         return;
     }
@@ -621,15 +621,15 @@ void TitleScene::Update() {
 
 void TitleScene::Draw() {
     // 演出終了後に黒画面を一度描き、読み込み中も最後の破片が残らないようにする。
-    if (isStarting_ && context_.offscreenRenderer && !context_.offscreenRenderer->IsScreenShatterPlaying()) {
+    if (isStarting_ && GetContext().offscreenRenderer && !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
         const float black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        context_.dxCommon->GetCommandList()->ClearRenderTargetView(
-            context_.offscreenRenderer->GetRenderTexture()->GetRTVHandle(), black, 0, nullptr);
+        GetContext().dxCommon->GetCommandList()->ClearRenderTargetView(
+            GetContext().offscreenRenderer->GetRenderTexture()->GetRTVHandle(), black, 0, nullptr);
         return;
     }
 
     // 通常時は背景の戦闘だけを描き、波動をかける対象を分離する
-    context_.object3dCommon->CommonDrawSetting();
+    GetContext().object3dCommon->CommonDrawSetting();
     for (auto& object : scenery_) { object->Draw(); }
     // 敵は生存中は本体、撃破後は破片を描画する(本編と同じ)
     for (auto& enemy : enemies_) { enemy->Draw(); }
@@ -640,19 +640,19 @@ void TitleScene::Draw() {
 
     // 開始時は波動を停止済みなので、文字も一緒に保存して画面を割る
     // オフスクリーン描画を使わない場合も、ここでUIを表示する
-    if (isStarting_ || !context_.offscreenRenderer) {
+    if (isStarting_ || !GetContext().offscreenRenderer) {
         DrawTitleUi();
     }
 }
 
 void TitleScene::DrawOverlay() {
     // 破壊中は保存した画面に文字が含まれるため、上から重ね直さない
-    if (isStarting_ || !context_.offscreenRenderer) { return; }
+    if (isStarting_ || !GetContext().offscreenRenderer) { return; }
 
     // エフェクト後の画面を消さず、スプライト用の深度バッファだけを設定し直す
-    auto* commandList = context_.dxCommon->GetCommandList();
-    const auto rtv = context_.dxCommon->GetCurrentBackBufferRTVHandle();
-    const auto dsv = context_.dxCommon->GetDSVHandle();
+    auto* commandList = GetContext().dxCommon->GetCommandList();
+    const auto rtv = GetContext().dxCommon->GetCurrentBackBufferRTVHandle();
+    const auto dsv = GetContext().dxCommon->GetDSVHandle();
     commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     DrawTitleUi();
@@ -660,7 +660,7 @@ void TitleScene::DrawOverlay() {
 
 void TitleScene::DrawTitleUi() {
     // ロゴ・メニュー・霧を同じ順序で重ね、文字を波動で歪ませない
-    context_.spriteCommon->CommonDrawSetting();
+    GetContext().spriteCommon->CommonDrawSetting();
     for (auto& sprite : uiSprites_) { sprite->Draw(); }
 }
 
