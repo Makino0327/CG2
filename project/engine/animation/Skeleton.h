@@ -29,3 +29,11 @@ Skeleton CreateSkeleton(const Node& rootNode);
 void UpdateSkeleton(Skeleton& skeleton);
 // Animation を Skeleton に適用する
 void ApplyAnimation(Skeleton& skeleton, const Animation& animation, float animationTime);
+
+// 親をたどってモデル空間での骨の回転を求める。
+Quaternion GetJointModelRotation(const Skeleton& skeleton, int32_t jointIndex);
+// 別モーションから移した上半身に、移動側の腰のひねりが重複しないよう補正する。
+void CorrectJointParentRotation(Skeleton& skeleton, int32_t jointIndex, const Quaternion& referenceParentRotation);
+
+// 切り替え直前の姿勢から現在の姿勢へ、滑らかな加減速でつなぐ。
+void BlendSkeletonPose(Skeleton& skeleton, const std::vector<QuaternionTransform>& sourcePose, float progress);

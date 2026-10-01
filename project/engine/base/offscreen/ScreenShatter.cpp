@@ -356,16 +356,22 @@ void ScreenShatter::UpdateVertices() {
         const Vector2 head = BulletScreen(headProgress, headDepth);
         const Vector2 tail = BulletScreen(tailProgress, tailDepth);
         const float length = std::max(std::hypot(head.x-tail.x, head.y-tail.y), 0.0001f);
-        const Vector2 normal{ -(head.y-tail.y)/length, (head.x-tail.x)/length };
-        const float headWidth = 0.035f/headDepth, tailWidth = 0.006f/tailDepth;
+        const Vector2 direction{ (head.x-tail.x)/length, (head.y-tail.y)/length };
+        const Vector2 normal{ -direction.y, direction.x };
+        // 先端を平らな太い辺にすると、尾の方へ向かう矢印に見えて弾が逆向きに見える。
+        // 先端を尖らせ、そのすぐ後ろを一番太くして、尾へ細く伸ばす。
+        const float bodyWidth = 0.035f/headDepth;
+        const float tipLength = std::min(bodyWidth*2.5f, length*0.4f);
+        const Vector2 body{ head.x-direction.x*tipLength, head.y-direction.y*tipLength };
+        const float bodyAlong = 1.0f-tipLength/length;
         const Vector2 points[] = {
-            { tail.x-normal.x*tailWidth, tail.y-normal.y*tailWidth },
-            { tail.x+normal.x*tailWidth, tail.y+normal.y*tailWidth },
-            { head.x-normal.x*headWidth, head.y-normal.y*headWidth },
-            { head.x+normal.x*headWidth, head.y+normal.y*headWidth },
+            tail,
+            { body.x+normal.x*bodyWidth, body.y+normal.y*bodyWidth },
+            { body.x-normal.x*bodyWidth, body.y-normal.y*bodyWidth },
+            head,
         };
-        const Vector2 uvs[] = { {0,0}, {0,1}, {1,0}, {1,1} };
-        for (size_t corner : { 0, 1, 2, 2, 1, 3 }) {
+        const Vector2 uvs[] = { {0,0.5f}, {bodyAlong,1}, {bodyAlong,0}, {1,0.5f} };
+        for (size_t corner : { 0, 1, 2, 1, 3, 2 }) {
             Vertex& vertex = vertexData_[index++];
             vertex.position = { points[corner].x/aspect+shakeX, points[corner].y+shakeY, 0.5f, 1.0f };
             vertex.uv = uvs[corner];

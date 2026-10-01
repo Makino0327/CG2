@@ -74,6 +74,8 @@ public:
 	void SetScale(const Vector3& scale) { transform.scale = scale; }
 	void SetRotate(const Vector3& rotate) { transform.rotate = rotate; }
 	void SetTranslate(const Vector3& translate) { transform.translate = translate; }
+	// 論理座標を変えず、モデルの原点だけを描画時に補正する。
+	void SetModelOffset(const Vector3& offset) { modelOffset_ = offset; }
 	void SetCamera(Camera* camera) { camera_ = camera; }	
 
 	// ----- getter -----
@@ -98,10 +100,23 @@ public:
 
 	// アニメーション関連
 	void SetAnimation(const Animation& animation) { animation_ = animation; }
+	// 現在表示中の姿勢から次のモーションへつなぐ。移動同士なら足運びの周期も引き継ぐ。
+	void TransitionToAnimation(const Animation& animation, float seconds, bool preservePhase);
 	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
 	void ResetAnimationTime() { animationTime_ = 0.0f; }
 	void ResetSkeletonPose(); // Skeletonをモデル読み込み時の姿勢に戻す
 	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
+
+	// 指定された骨だけに一度きりの動作を重ね、移動の再生時刻は維持する。
+	void PlayAnimationOverlay(const Animation& animation) {
+		animationOverlay_ = animation;
+		animationOverlayTime_ = 0.0f;
+		isAnimationOverlayPlaying_ = animation.duration > 0.0f;
+	}
+	void StopAnimationOverlay() { isAnimationOverlayPlaying_ = false; }
+	// 構えの基準となる親の回転を保存し、移動モーションのひねりを相殺する。
+	void SetAnimationParentReference(const std::string& jointName, const Animation& reference);
+	void SetAnimationParentCorrectionEnabled(bool enabled) { isAnimationParentCorrectionEnabled_ = enabled; }
 
 	const Skeleton& GetSkeleton() const { return skeleton_; } // Skeleton を参照する
 	bool HasSkeleton() const { return hasSkeleton_; }         // Skeleton を持つか返す
@@ -154,6 +169,7 @@ private:
 	CameraForGPU* cameraData_ = nullptr;
 
 	Transform transform;
+	Vector3 modelOffset_{};
 	Transform cameraTransform;
 
 	Model* model_ = nullptr;
@@ -171,6 +187,15 @@ private:
 
 	// アニメーション関連
 	Animation animation_;
+	std::vector<QuaternionTransform> animationBlendSource_;
+	float animationBlendTime_ = 0.0f;
+	float animationBlendDuration_ = 0.0f;
+	int32_t animationCorrectionJoint_ = -1;
+	Quaternion animationReferenceParent_{ 0.0f, 0.0f, 0.0f, 1.0f };
+	bool isAnimationParentCorrectionEnabled_ = false;
+	Animation animationOverlay_; // 射撃などで上書きする骨だけを持つモーション
+	float animationOverlayTime_ = 0.0f;
+	bool isAnimationOverlayPlaying_ = false;
 	float animationTime_ = 0.0f;
 	bool isAnimationPlaying_ = false;
 	std::string animationNodeName_;

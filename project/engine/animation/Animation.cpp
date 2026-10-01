@@ -2,9 +2,9 @@
 #include <cassert>
 #include <fstream>
 #include <sstream>
-#include <regex>
 #include <cctype>
 #include <filesystem>
+#include <unordered_map>
 
 namespace {
 
@@ -114,33 +114,58 @@ namespace {
 		return objects;
 	}
 
+	bool TryFindRawValue(const std::string& objectText, const std::string& key, bool isString, std::string& outValue)
+	{
+		// std::regex は数千回呼ぶと Debug で数秒かかるため、"key": value を手で探す
+		const std::string target = "\"" + key + "\"";
+		for (size_t keyPos = objectText.find(target); keyPos != std::string::npos;
+			keyPos = objectText.find(target, keyPos + 1)) {
+			size_t i = keyPos + target.size();
+			while (i < objectText.size() && std::isspace(static_cast<unsigned char>(objectText[i]))) { ++i; }
+			if (i >= objectText.size() || objectText[i] != ':') { continue; }
+			++i;
+			while (i < objectText.size() && std::isspace(static_cast<unsigned char>(objectText[i]))) { ++i; }
+			if (isString) {
+				// 空文字列は対象外にする
+				if (i >= objectText.size() || objectText[i] != '"') { continue; }
+				const size_t end = objectText.find('"', i + 1);
+				if (end == std::string::npos || end == i + 1) { continue; }
+				outValue = objectText.substr(i + 1, end - i - 1);
+				return true;
+			}
+			size_t end = i;
+			while (end < objectText.size() && std::isdigit(static_cast<unsigned char>(objectText[end]))) { ++end; }
+			if (end == i) { continue; }
+			outValue = objectText.substr(i, end - i);
+			return true;
+		}
+		return false;
+	}
+
 	std::string FindStringValue(const std::string& objectText, const std::string& key)
 	{
 		// "key": "value" の文字列値を取得する
-		std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");
-		std::smatch match;
-		bool found = std::regex_search(objectText, match, pattern);
+		std::string value;
+		bool found = TryFindRawValue(objectText, key, true, value);
 		assert(found);
-		return match[1].str();
+		return value;
 	}
 
 	uint32_t FindUIntValue(const std::string& objectText, const std::string& key)
 	{
 		// "key": number の整数値を取得する
-		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
-		std::smatch match;
-		bool found = std::regex_search(objectText, match, pattern);
+		std::string value;
+		bool found = TryFindRawValue(objectText, key, false, value);
 		assert(found);
-		return static_cast<uint32_t>(std::stoul(match[1].str()));
+		return static_cast<uint32_t>(std::stoul(value));
 	}
 
 	uint32_t FindUIntValueOrDefault(const std::string& objectText, const std::string& key, uint32_t defaultValue)
 	{
 		// 値があれば取得し、無ければ既定値を返す
-		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
-		std::smatch match;
-		if (std::regex_search(objectText, match, pattern)) {
-			return static_cast<uint32_t>(std::stoul(match[1].str()));
+		std::string value;
+		if (TryFindRawValue(objectText, key, false, value)) {
+			return static_cast<uint32_t>(std::stoul(value));
 		}
 		return defaultValue;
 	}
@@ -250,14 +275,104 @@ namespace {
 		return channels;
 	}
 
-	std::string FindNodeName(const std::string& jsonText, uint32_t nodeIndex)
+	std::vector<std::string> ParseNodeNames(const std::string& jsonText)
 	{
-		// nodes 配列から指定 index の node 名を取る
-		std::string nodesBlock = ExtractArrayBlock(jsonText, "nodes");
-		std::vector<std::string> nodeObjects = SplitTopLevelObjects(nodesBlock);
+		// channel ごとに nodes 配列を切り出すと遅いので、node 名は最初に全部取っておく
+		std::vector<std::string> names;
+		for (const std::string& nodeObject : SplitTopLevelObjects(ExtractArrayBlock(jsonText, "nodes"))) {
+			std::string name;
+			TryFindRawValue(nodeObject, "name", true, name);
+			names.push_back(name);
+		}
+		return names;
+	}
 
-		assert(nodeIndex < nodeObjects.size());
-		return FindStringValue(nodeObjects[nodeIndex], "name");
+	// 1つの glTF から複数のアニメーションを読むため、解析結果をファイル単位で使い回す
+	struct GltfAnimationFile {
+		std::vector<GltfAccessor> accessors;
+		std::vector<GltfBufferView> bufferViews;
+		std::vector<uint8_t> binary;
+		std::vector<std::string> nodeNames;
+		std::vector<std::string> animationObjects;
+	};
+
+	const GltfAnimationFile& LoadGltfAnimationFile(const std::string& directoryPath, const std::string& filename)
+	{
+		static std::unordered_map<std::string, GltfAnimationFile> cache;
+		const std::string filePath = directoryPath + "/" + filename;
+		if (auto found = cache.find(filePath); found != cache.end()) {
+			return found->second;
+		}
+
+		GltfAnimationFile& result = cache[filePath];
+
+		// gltf本体をテキストとして読む
+		std::ifstream file(filePath);
+		assert(file.is_open());
+
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+		std::string jsonText = buffer.str();
+
+		// accessor と bufferView を先に配列化しておく
+		result.accessors = ParseAccessors(jsonText);
+		result.bufferViews = ParseBufferViews(jsonText);
+		result.nodeNames = ParseNodeNames(jsonText);
+		result.animationObjects = SplitTopLevelObjects(ExtractArrayBlock(jsonText, "animations"));
+
+		const std::filesystem::path gltfDirectory = std::filesystem::path(filePath).parent_path();
+
+		auto decodeBase64 = [](const std::string& text) {
+			std::vector<uint8_t> result;
+			int values[256];
+			for (int index = 0; index < 256; ++index) {
+				values[index] = -1;
+			}
+			const std::string table =
+				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+			for (int index = 0; index < static_cast<int>(table.size()); ++index) {
+				values[static_cast<unsigned char>(table[index])] = index;
+			}
+
+			int currentValue = 0;
+			int bitCount = -8;
+			for (unsigned char c : text) {
+				if (std::isspace(c)) {
+					continue;
+				}
+				if (c == '=') {
+					break;
+				}
+				if (values[c] < 0) {
+					continue;
+				}
+				currentValue = (currentValue << 6) + values[c];
+				bitCount += 6;
+				if (bitCount >= 0) {
+					result.push_back(static_cast<uint8_t>((currentValue >> bitCount) & 0xFF));
+					bitCount -= 8;
+				}
+			}
+			return result;
+		};
+
+		// buffers[0].uri を使って対応するバッファを読む
+		std::string buffersBlock = ExtractArrayBlock(jsonText, "buffers");
+		std::vector<std::string> bufferObjects = SplitTopLevelObjects(buffersBlock);
+		assert(!bufferObjects.empty());
+
+		std::string bufferUri = FindStringValue(bufferObjects[0], "uri");
+		if (bufferUri.rfind("data:", 0) == 0) {
+			// glTF内にbase64で埋め込まれたバッファを読む
+			const size_t commaPos = bufferUri.find(',');
+			assert(commaPos != std::string::npos);
+			result.binary = decodeBase64(bufferUri.substr(commaPos + 1));
+		} else {
+			// 従来通り、外部binファイルを読む
+			result.binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
+		}
+
+		return result;
 	}
 
 }
@@ -267,15 +382,8 @@ std::vector<std::string> GetAnimationNames(const std::string& directoryPath, con
 {
 	std::vector<std::string> names;
 
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	std::string jsonText = buffer.str();
-
-	std::string animationsBlock = ExtractArrayBlock(jsonText, "animations");
-	std::vector<std::string> animationObjects = SplitTopLevelObjects(animationsBlock);
+	const GltfAnimationFile& gltf = LoadGltfAnimationFile(directoryPath, filename);
+	const std::vector<std::string>& animationObjects = gltf.animationObjects;
 
 	for (uint32_t index = 0; index < animationObjects.size(); ++index) {
 		if (animationObjects[index].find("\"name\"") != std::string::npos) {
@@ -292,79 +400,17 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 {
 	Animation animation;
 
-	// gltf本体をテキストとして読む
-	std::ifstream file(directoryPath + "/" + filename);
-	assert(file.is_open());
-
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	std::string jsonText = buffer.str();
-
-	// accessor と bufferView を先に配列化しておく
-	std::vector<GltfAccessor> accessors = ParseAccessors(jsonText);
-	std::vector<GltfBufferView> bufferViews = ParseBufferViews(jsonText);
-
-	const std::filesystem::path gltfDirectory =
-		std::filesystem::path(directoryPath + "/" + filename).parent_path();
-
-	auto decodeBase64 = [](const std::string& text) {
-		std::vector<uint8_t> result;
-		int values[256];
-		for (int index = 0; index < 256; ++index) {
-			values[index] = -1;
-		}
-		const std::string table =
-			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-		for (int index = 0; index < static_cast<int>(table.size()); ++index) {
-			values[static_cast<unsigned char>(table[index])] = index;
-		}
-
-		int currentValue = 0;
-		int bitCount = -8;
-		for (unsigned char c : text) {
-			if (std::isspace(c)) {
-				continue;
-			}
-			if (c == '=') {
-				break;
-			}
-			if (values[c] < 0) {
-				continue;
-			}
-			currentValue = (currentValue << 6) + values[c];
-			bitCount += 6;
-			if (bitCount >= 0) {
-				result.push_back(static_cast<uint8_t>((currentValue >> bitCount) & 0xFF));
-				bitCount -= 8;
-			}
-		}
-		return result;
-	};
-
-	// buffers[0].uri を使って対応するバッファを読む
-	std::string buffersBlock = ExtractArrayBlock(jsonText, "buffers");
-	std::vector<std::string> bufferObjects = SplitTopLevelObjects(buffersBlock);
-	assert(!bufferObjects.empty());
-
-	std::string bufferUri = FindStringValue(bufferObjects[0], "uri");
-	std::vector<uint8_t> binary;
-	if (bufferUri.rfind("data:", 0) == 0) {
-		// glTF内にbase64で埋め込まれたバッファを読む
-		const size_t commaPos = bufferUri.find(',');
-		assert(commaPos != std::string::npos);
-		binary = decodeBase64(bufferUri.substr(commaPos + 1));
-	} else {
-		// 従来通り、外部binファイルを読む
-		binary = ReadBinaryFile((gltfDirectory / bufferUri).string());
-	}
+	// 同じファイルの2回目以降は、解析済みの accessor やバッファを使う
+	const GltfAnimationFile& gltf = LoadGltfAnimationFile(directoryPath, filename);
+	const std::vector<GltfAccessor>& accessors = gltf.accessors;
+	const std::vector<GltfBufferView>& bufferViews = gltf.bufferViews;
+	const std::vector<uint8_t>& binary = gltf.binary;
 
 	// animations 配列から指定された index のアニメーションを使う
-	std::string animationsBlock = ExtractArrayBlock(jsonText, "animations");
-	std::vector<std::string> animationObjects = SplitTopLevelObjects(animationsBlock);
-	assert(!animationObjects.empty());
-	assert(animationIndex < animationObjects.size());
+	assert(!gltf.animationObjects.empty());
+	assert(animationIndex < gltf.animationObjects.size());
 
-	const std::string& animationObject = animationObjects[animationIndex];
+	const std::string& animationObject = gltf.animationObjects[animationIndex];
 
 	// samplers と channels を分けて読む
 	std::vector<GltfAnimationSampler> samplers = ParseAnimationSamplers(animationObject);
@@ -389,7 +435,9 @@ Animation LoadAnimationFile(const std::string& directoryPath, const std::string&
 		animation.duration = std::max(animation.duration, inputTimes[inputAccessor.count - 1]);
 
 		// channel の対象 node 名を取得する
-		std::string nodeName = FindNodeName(jsonText, channel.targetNode);
+		assert(channel.targetNode < gltf.nodeNames.size());
+		const std::string& nodeName = gltf.nodeNames[channel.targetNode];
+		assert(!nodeName.empty());
 
 		// 出力値 accessor を取得する
 		const GltfAccessor& outputAccessor = accessors[sampler.output];

@@ -26,8 +26,8 @@ private:
     // 追従対象の座標
     Vector3 targetPosition_ = { 0.0f, 0.0f, 0.0f };
 
-    // プレイヤーから見たカメラのずらし量
-    Vector3 offset_ = { 0.0f, 60.0f, -7.0f };
+    // 見下ろす角度を保ちつつ、少し距離を戻して周囲も見やすくする。
+    Vector3 offset_ = { 0.0f, 50.0f, -5.9f };
 
     // 少し上から見るための回転
     Vector3 rotate_ = { 1.5f, 0.0f, 0.0f };

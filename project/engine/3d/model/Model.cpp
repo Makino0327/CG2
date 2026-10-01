@@ -3,7 +3,8 @@
 #include <cstring>
 #include <cctype>
 #include <filesystem>
-#include <regex>
+#include <fstream>
+#include <sstream>
 #include "../obj3d/Object3d.h"
 
 
@@ -138,33 +139,65 @@ namespace {
 		return objects;
 	}
 
+	bool TryFindRawValue(const std::string& objectText, const std::string& key, bool isString, std::string& outValue)
+	{
+		// std::regex は数千回呼ぶと Debug で数秒かかるため、"key": value を手で探す
+		const std::string target = "\"" + key + "\"";
+		for (size_t keyPos = objectText.find(target); keyPos != std::string::npos;
+			keyPos = objectText.find(target, keyPos + 1)) {
+			size_t i = keyPos + target.size();
+			while (i < objectText.size() && std::isspace(static_cast<unsigned char>(objectText[i]))) { ++i; }
+			if (i >= objectText.size() || objectText[i] != ':') { continue; }
+			++i;
+			while (i < objectText.size() && std::isspace(static_cast<unsigned char>(objectText[i]))) { ++i; }
+			if (isString) {
+				// 空文字列は対象外にする
+				if (i >= objectText.size() || objectText[i] != '"') { continue; }
+				const size_t end = objectText.find('"', i + 1);
+				if (end == std::string::npos || end == i + 1) { continue; }
+				outValue = objectText.substr(i + 1, end - i - 1);
+				return true;
+			}
+			size_t end = i;
+			while (end < objectText.size() && std::isdigit(static_cast<unsigned char>(objectText[end]))) { ++end; }
+			if (end == i) { continue; }
+			outValue = objectText.substr(i, end - i);
+			return true;
+		}
+		return false;
+	}
+
+	bool TryFindUIntValue(const std::string& objectText, const std::string& key, uint32_t& outValue)
+	{
+		std::string value;
+		if (!TryFindRawValue(objectText, key, false, value)) {
+			return false;
+		}
+		outValue = static_cast<uint32_t>(std::stoul(value));
+		return true;
+	}
+
 	std::string FindStringValue(const std::string& objectText, const std::string& key)
 	{
-		std::regex pattern("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");
-		std::smatch match;
-		bool found = std::regex_search(objectText, match, pattern);
+		std::string value;
+		bool found = TryFindRawValue(objectText, key, true, value);
 		assert(found);
-		return match[1].str();
+		return value;
 	}
 
 	uint32_t FindUIntValue(const std::string& objectText, const std::string& key)
 	{
-		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
-		std::smatch match;
-		bool found = std::regex_search(objectText, match, pattern);
+		uint32_t value = 0;
+		bool found = TryFindUIntValue(objectText, key, value);
 		assert(found);
-		return static_cast<uint32_t>(std::stoul(match[1].str()));
+		return value;
 	}
 
 	uint32_t FindUIntValueOrDefault(const std::string& objectText, const std::string& key, uint32_t defaultValue)
 	{
-		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
-		std::smatch match;
-		if (std::regex_search(objectText, match, pattern)) {
-			return static_cast<uint32_t>(std::stoul(match[1].str()));
-		}
-
-		return defaultValue;
+		uint32_t value = defaultValue;
+		TryFindUIntValue(objectText, key, value);
+		return value;
 	}
 
 	std::vector<GltfAccessor> ParseAccessors(const std::string& json)
@@ -211,23 +244,10 @@ namespace {
 		uint32_t& texcoordAccessorIndex,
 		uint32_t& indexAccessorIndex)
 	{
-		std::smatch match;
-
-		bool found = std::regex_search(meshObject, match, std::regex("\"POSITION\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		positionAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
-
-		found = std::regex_search(meshObject, match, std::regex("\"NORMAL\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		normalAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
-
-		found = std::regex_search(meshObject, match, std::regex("\"TEXCOORD_0\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		texcoordAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
-
-		found = std::regex_search(meshObject, match, std::regex("\"indices\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		indexAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
+		positionAccessorIndex = FindUIntValue(meshObject, "POSITION");
+		normalAccessorIndex = FindUIntValue(meshObject, "NORMAL");
+		texcoordAccessorIndex = FindUIntValue(meshObject, "TEXCOORD_0");
+		indexAccessorIndex = FindUIntValue(meshObject, "indices");
 	}
 
 
@@ -236,15 +256,8 @@ namespace {
 		uint32_t& jointsAccessorIndex,
 		uint32_t& weightsAccessorIndex)
 	{
-		std::smatch match;
-
-		bool found = std::regex_search(meshObject, match, std::regex("\"JOINTS_0\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		jointsAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
-
-		found = std::regex_search(meshObject, match, std::regex("\"WEIGHTS_0\"\\s*:\\s*(\\d+)"));
-		assert(found);
-		weightsAccessorIndex = static_cast<uint32_t>(std::stoul(match[1].str()));
+		jointsAccessorIndex = FindUIntValue(meshObject, "JOINTS_0");
+		weightsAccessorIndex = FindUIntValue(meshObject, "WEIGHTS_0");
 	}
 
 	std::vector<float> ParseFloatArray(const std::string& objectText, const std::string& key)
@@ -756,13 +769,7 @@ ModelData Model::LoadGltfFile(const std::string& directoryPath, const std::strin
 	};
 
 	auto tryFindUIntValue = [](const std::string& objectText, const std::string& key, uint32_t& outValue) {
-		std::regex pattern("\"" + key + "\"\\s*:\\s*(\\d+)");
-		std::smatch match;
-		if (!std::regex_search(objectText, match, pattern)) {
-			return false;
-		}
-		outValue = static_cast<uint32_t>(std::stoul(match[1].str()));
-		return true;
+		return TryFindUIntValue(objectText, key, outValue);
 	};
 
 	auto getAccessorPointer = [&](const GltfAccessor& accessor, const std::vector<uint8_t>& binary) {

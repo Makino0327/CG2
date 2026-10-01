@@ -1,6 +1,58 @@
 #include "Skeleton.h"
 #include <cassert>
 
+void BlendSkeletonPose(Skeleton& skeleton, const std::vector<QuaternionTransform>& sourcePose, float progress)
+{
+    assert(sourcePose.size() == skeleton.joints.size());
+    const float t = progress < 0.0f ? 0.0f : (progress > 1.0f ? 1.0f : progress);
+    // Smoothstepで始点と終点の速度を落とし、急な姿勢切り替えをなくす。
+    const float eased = t * t * (3.0f - 2.0f * t);
+    for (size_t index = 0; index < skeleton.joints.size(); ++index) {
+        auto& target = skeleton.joints[index].transform;
+        const auto& source = sourcePose[index];
+        target.translate = Lerp(source.translate, target.translate, eased);
+        target.rotate = Slerp(source.rotate, target.rotate, eased);
+        target.scale = Lerp(source.scale, target.scale, eased);
+    }
+}
+
+namespace {
+    // 親の回転に子の回転を合成するハミルトン積。
+    Quaternion ComposeRotation(const Quaternion& parent, const Quaternion& local)
+    {
+        return Normalize({
+            parent.w * local.x + parent.x * local.w + parent.y * local.z - parent.z * local.y,
+            parent.w * local.y - parent.x * local.z + parent.y * local.w + parent.z * local.x,
+            parent.w * local.z + parent.x * local.y - parent.y * local.x + parent.z * local.w,
+            parent.w * local.w - parent.x * local.x - parent.y * local.y - parent.z * local.z
+        });
+    }
+}
+
+Quaternion GetJointModelRotation(const Skeleton& skeleton, int32_t jointIndex)
+{
+    Quaternion rotation{ 0.0f, 0.0f, 0.0f, 1.0f };
+    std::optional<int32_t> current = jointIndex;
+    while (current) {
+        const Joint& joint = skeleton.joints[*current];
+        rotation = ComposeRotation(joint.transform.rotate, rotation);
+        current = joint.parent;
+    }
+    return rotation;
+}
+
+void CorrectJointParentRotation(Skeleton& skeleton, int32_t jointIndex, const Quaternion& referenceParentRotation)
+{
+    Joint& joint = skeleton.joints[jointIndex];
+    const Quaternion currentParent = joint.parent
+        ? GetJointModelRotation(skeleton, *joint.parent)
+        : Quaternion{ 0.0f, 0.0f, 0.0f, 1.0f };
+    const Quaternion inverseParent{ -currentParent.x, -currentParent.y, -currentParent.z, currentParent.w };
+    // 構え・反動のモデル空間での向きを保ち、現在の腰に対する回転へ変換する。
+    joint.transform.rotate = ComposeRotation(inverseParent,
+        ComposeRotation(referenceParentRotation, joint.transform.rotate));
+}
+
 int32_t CreateJoint(const Node& node, const std::optional<int32_t>& parent, std::vector<Joint>& joints)
 {
     Joint joint; // // 今から追加する Joint を作る

@@ -2,6 +2,7 @@
 #define NOMINMAX
 
 #include <memory>
+#include <array>
 #include <vector>
 
 #include "../../engine/3d/obj3d/Object3d.h"
@@ -126,6 +127,22 @@ public:
     }
 
 private:
+    // 公式モデルのモーションを操作状態に合わせて選ぶ。
+    enum class Motion : size_t {
+        Idle, Run, RunBack, RunLeft, RunRight,
+        AimIdle, AimRun, AimBack, AimLeft, AimRight,
+        Count
+    };
+
+    // モーションは初期化時に読み込み、毎フレームのファイルアクセスを避ける。
+    void InitializeAnimations();
+    void UpdateAnimation(const Vector3& movement, bool isAiming);
+    void PlayMotion(Motion motion, bool restart = false);
+
+    std::array<Animation, static_cast<size_t>(Motion::Count)> animations_{};
+    Motion currentMotion_ = Motion::Count;
+    Animation shootingOverlay_; // 両手・肩・胸の反動だけを重ねるモーション
+
     // 下方向のマップ当たり判定を処理する
     void ResolveBottomCollisionWithMap(Vector3& pos);
 
@@ -286,7 +303,7 @@ private:
     Vector3 rotate_ = { 0.0f, 0.0f, 0.0f };
 
     // プレイヤーの大きさ
-    Vector3 scale_ = { 1.0f, 1.0f, 1.0f };
+    Vector3 scale_ = { 2.4f, 2.4f, 2.4f }; // 直前の2.1から約14%大きくし、構えを見やすくする
 
     // プレイヤーの当たり判定半径
     float colliderRadius_ = 1.0f;

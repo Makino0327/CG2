@@ -48,6 +48,16 @@ void Object3d::Update()
         ApplyAnimation(skeleton_, animation_, animationTime_);
     }
 
+    if (hasSkeleton_ && isAnimationPlaying_ && isAnimationOverlayPlaying_) {
+        // 足の動作を進めた後、反動に必要な上半身の骨だけを上書きする。
+        animationOverlayTime_ += 1.0f / 60.0f;
+        if (animationOverlayTime_ >= animationOverlay_.duration) {
+            animationOverlayTime_ = animationOverlay_.duration;
+            isAnimationOverlayPlaying_ = false;
+        }
+        ApplyAnimation(skeleton_, animationOverlay_, animationOverlayTime_);
+    }
+
     if (!hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
         auto it = animation_.nodeAnimations.find(animationNodeName_);
 
@@ -77,6 +87,19 @@ void Object3d::Update()
     }
 
     if (hasSkeleton_) {
+        // 構えと射撃の両方を適用してから、腰の回転だけを補正する。
+        if (isAnimationParentCorrectionEnabled_ && animationCorrectionJoint_ >= 0) {
+            CorrectJointParentRotation(skeleton_, animationCorrectionJoint_, animationReferenceParent_);
+        }
+        if (isAnimationPlaying_ && animationBlendDuration_ > 0.0f) {
+            // 腰の補正と反動を含めた完成姿勢へ補間し、構えの切り替えも滑らかにする。
+            animationBlendTime_ += 1.0f / 60.0f;
+            BlendSkeletonPose(skeleton_, animationBlendSource_, animationBlendTime_ / animationBlendDuration_);
+            if (animationBlendTime_ >= animationBlendDuration_) {
+                animationBlendDuration_ = 0.0f;
+                animationBlendSource_.clear();
+            }
+        }
         // animation 適用後の transform から Skeleton 行列を更新する
         UpdateSkeleton(skeleton_);
     }
@@ -101,6 +124,9 @@ void Object3d::Update()
         worldMatrix =
             MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
     }
+
+    // モデルの拡大時も足元を合わせ、当たり判定が使うtransformは維持する。
+    worldMatrix = Multiply(MakeTranslateMatrix(modelOffset_), worldMatrix);
 
     Matrix4x4 worldViewProjectionMatrix;
 
@@ -273,6 +299,9 @@ void Object3d::SetModel(const std::string& filePath)
 
 void Object3d::ResetSkeletonPose()
 {
+    // 初期化や復活で姿勢を戻す場合は、以前の切り替えを引き継がない。
+    animationBlendDuration_ = 0.0f;
+    animationBlendSource_.clear();
     if (!model_) {
         return;
     }
@@ -286,6 +315,39 @@ void Object3d::ResetSkeletonPose()
     skeleton_ = CreateSkeleton(modelData.rootNode);
     UpdateSkeleton(skeleton_);
     hasSkeleton_ = true;
+}
+
+void Object3d::TransitionToAnimation(const Animation& animation, float seconds, bool preservePhase)
+{
+    const float phase = preservePhase && animation_.duration > 0.0f
+        ? animationTime_ / animation_.duration : 0.0f;
+    // 補間途中に別の操作が来ても、最後に表示した姿勢から次の切り替えを始める。
+    std::vector<QuaternionTransform> displayedPose;
+    displayedPose.reserve(skeleton_.joints.size());
+    for (const Joint& joint : skeleton_.joints) { displayedPose.push_back(joint.transform); }
+    ResetSkeletonPose();
+    animation_ = animation;
+    animationTime_ = phase * animation_.duration;
+    isAnimationPlaying_ = true;
+    if (hasSkeleton_ && seconds > 0.0f && displayedPose.size() == skeleton_.joints.size()) {
+        animationBlendSource_ = std::move(displayedPose);
+        animationBlendTime_ = 0.0f;
+        animationBlendDuration_ = seconds;
+    }
+}
+
+void Object3d::SetAnimationParentReference(const std::string& jointName, const Animation& reference)
+{
+    animationCorrectionJoint_ = -1;
+    const auto found = skeleton_.jointMap.find(jointName);
+    if (!hasSkeleton_ || found == skeleton_.jointMap.end()) { return; }
+    Skeleton referenceSkeleton = skeleton_;
+    ApplyAnimation(referenceSkeleton, reference, 0.0f);
+    animationCorrectionJoint_ = found->second;
+    const auto parent = referenceSkeleton.joints[animationCorrectionJoint_].parent;
+    animationReferenceParent_ = parent
+        ? GetJointModelRotation(referenceSkeleton, *parent)
+        : Quaternion{ 0.0f, 0.0f, 0.0f, 1.0f };
 }
 void Object3d::SetTexture(const std::string& filePath)
 {

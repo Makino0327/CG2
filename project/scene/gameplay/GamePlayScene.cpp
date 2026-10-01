@@ -327,7 +327,8 @@ void GamePlayScene::Initialize()
     ModelManager::GetInstance()->LoadModel("fence.obj");
     ModelManager::GetInstance()->LoadModel("plane.obj");
     ModelManager::GetInstance()->LoadModel("cube.obj");
-    ModelManager::GetInstance()->LoadModel("player/player.obj");
+    // プレイヤー用に銃付きのスキンメッシュを事前に読み込む。
+    ModelManager::GetInstance()->LoadModel("player_modular/Swat.gltf");
     ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
     // Gキーで投げるグレネードモデルを読み込む
     ModelManager::GetInstance()->LoadModel("grenade/grenade.obj");

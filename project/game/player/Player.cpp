@@ -23,11 +23,15 @@ void Player::Initialize(
     // 3D描画の共通設定を渡す
     object_->Initialize(object3dCommon);
 
-    // プレイヤーモデルを使う
-    object_->SetModel("player/player.obj");
+    // 銃と骨が含まれるQuaterniusのSWATモデルを使う。
+    object_->SetModel("player_modular/Swat.gltf");
+    object_->SetSkeletonVisible(false);
+    InitializeAnimations();
 
     // プレイヤーの大きさを設定する
     object_->SetScale(scale_);
+    // 素材の足元はY=-2/3。拡大後も当たり判定の下端へ足を合わせる。
+    object_->SetModelOffset({ 0.0f, 2.0f / 3.0f - colliderRadius_ / scale_.y, 0.0f });
 
     // プレイヤーの回転を設定する
     object_->SetRotate(rotate_);
@@ -36,6 +40,125 @@ void Player::Initialize(
     object_->SetTranslate(translate_);
     
 
+}
+
+void Player::InitializeAnimations()
+{
+    // 番号を決め打ちせず、配布ファイルのアニメーション名から検索する。
+    const std::string directory = "Resources/player_modular";
+    const std::string file = "Swat.gltf";
+    const auto names = GetAnimationNames(directory, file);
+    const auto load = [&](const std::string& name) {
+        const auto found = std::find(names.begin(), names.end(), name);
+        assert(found != names.end());
+        return LoadAnimationFile(directory, file, static_cast<uint32_t>(found - names.begin()));
+    };
+    const auto index = [](Motion motion) { return static_cast<size_t>(motion); };
+    animations_[index(Motion::Idle)] = load("Idle_Gun");
+    animations_[index(Motion::Run)] = load("Run");
+    animations_[index(Motion::RunBack)] = load("Run_Back");
+    animations_[index(Motion::RunLeft)] = load("Run_Left");
+    animations_[index(Motion::RunRight)] = load("Run_Right");
+    // 両手構えと反動は、このゲーム向けに調整した専用のモーションを読む。
+    animations_[index(Motion::AimIdle)] = LoadAnimationFile(directory, "SwatTwoHand.gltf", 0);
+    shootingOverlay_ = LoadAnimationFile(directory, "SwatTwoHand.gltf", 1);
+
+    // 構え中は移動速度が半分になるので、足のモーションも半分の速さにする。
+    // 上半身だけを構え姿勢に固定し、前後左右の足運びは元の走行から残す。
+    const Animation& aiming = animations_[index(Motion::AimIdle)];
+    object_->SetAnimationParentReference("Abdomen", aiming);
+    const Skeleton& skeleton = object_->GetSkeleton();
+    const auto isUpperBody = [&](const std::string& name) {
+        const auto found = skeleton.jointMap.find(name);
+        if (found == skeleton.jointMap.end()) { return false; }
+        std::optional<int32_t> jointIndex = found->second;
+        while (jointIndex) {
+            const Joint& joint = skeleton.joints[*jointIndex];
+            if (joint.name == "Abdomen") { return true; }
+            jointIndex = joint.parent;
+        }
+        return false;
+    };
+    // 射撃で脚や足を上書きしないよう、上半身以外のキーを取り除く。
+    std::erase_if(shootingOverlay_.nodeAnimations,
+        [&](const auto& node) { return !isUpperBody(node.first); });
+    for (size_t direction = 0; direction < 4; ++direction) {
+        Animation aimed = animations_[index(Motion::Run) + direction];
+        aimed.duration *= 2.0f;
+        for (auto& [name, node] : aimed.nodeAnimations) {
+            for (auto& key : node.translate.keyframes) { key.time *= 2.0f; }
+            for (auto& key : node.rotate.keyframes) { key.time *= 2.0f; }
+            for (auto& key : node.scale.keyframes) { key.time *= 2.0f; }
+
+            // 腹部より上の骨だけを対象にし、腰・脚・足は移動アニメーションに任せる。
+            const auto foundPose = aiming.nodeAnimations.find(name);
+            if (!isUpperBody(name) || foundPose == aiming.nodeAnimations.end()) { continue; }
+            const NodeAnimation& pose = foundPose->second;
+            if (!pose.translate.keyframes.empty()) {
+                node.translate.keyframes = { { 0.0f, CalculateValue(pose.translate.keyframes, 0.0f) } };
+            }
+            if (!pose.rotate.keyframes.empty()) {
+                node.rotate.keyframes = { { 0.0f, CalculateValue(pose.rotate.keyframes, 0.0f) } };
+            }
+            if (!pose.scale.keyframes.empty()) {
+                node.scale.keyframes = { { 0.0f, CalculateValue(pose.scale.keyframes, 0.0f) } };
+            }
+        }
+        animations_[index(Motion::AimRun) + direction] = std::move(aimed);
+    }
+    PlayMotion(Motion::Idle, true);
+}
+
+void Player::PlayMotion(Motion motion, bool restart)
+{
+    // 同じモーションを毎フレーム先頭へ戻さず、切り替え時だけリセットする。
+    if (currentMotion_ == motion && !restart) { return; }
+    const auto isLocomotion = [](Motion value) {
+        return (value >= Motion::Run && value <= Motion::RunRight) ||
+            (value >= Motion::AimRun && value <= Motion::AimRight);
+    };
+    if (!restart && currentMotion_ != Motion::Count) {
+        // 足の周期を保ったまま約0.15秒で次の姿勢へつなぐ。
+        object_->TransitionToAnimation(animations_[static_cast<size_t>(motion)], 0.15f,
+            isLocomotion(currentMotion_) && isLocomotion(motion));
+        currentMotion_ = motion;
+        return;
+    }
+    currentMotion_ = motion;
+    object_->ResetSkeletonPose();
+    object_->SetAnimation(animations_[static_cast<size_t>(motion)]);
+    object_->ResetAnimationTime();
+    object_->SetIsAnimationPlaying(true);
+}
+
+void Player::UpdateAnimation(const Vector3& movement, bool isAiming)
+{
+    // 構え姿勢を使う間は、足運びに含まれる腰の回転で銃口を振らない。
+    const bool usesAimingPose = isAiming && !isReloading_;
+    object_->SetAnimationParentCorrectionEnabled(usesAimingPose);
+    const bool moving = movement.x * movement.x + movement.z * movement.z > 0.000001f;
+    if (firedThisFrame_ && isAiming && !isReloading_) {
+        // 実際の発砲時だけ反動を重ねる。連射しても足の動作を先頭に戻さない。
+        object_->PlayAnimationOverlay(shootingOverlay_);
+    }
+    if (!isAiming || isReloading_) { object_->StopAnimationOverlay(); }
+    if (!moving) {
+        PlayMotion(isAiming && !isReloading_ ? Motion::AimIdle : Motion::Idle);
+        return;
+    }
+
+    // マウスへの向きと実際の移動方向を比較し、後退や横移動でも足を合わせる。
+    const float yaw = rotate_.y - frontAngleOffset_;
+    const float forward = movement.x * std::sin(yaw) + movement.z * std::cos(yaw);
+    const float right = movement.x * std::cos(yaw) - movement.z * std::sin(yaw);
+    size_t direction = 0;
+    if (std::abs(forward) >= std::abs(right)) {
+        direction = forward >= 0.0f ? 0 : 1;
+    } else {
+        direction = right < 0.0f ? 2 : 3;
+    }
+    const Motion first = usesAimingPose ? Motion::AimRun : Motion::Run;
+    PlayMotion(static_cast<Motion>(static_cast<size_t>(first) + direction));
 }
 
 int Player::GetCurrentAmmo() const
@@ -197,10 +320,6 @@ void Player::Update(Camera* camera)
     // マウスの方向へ向ける
     RotateToMouse(camera);
 
-    // プレイヤーを更新する
-    object_->Update();
-
-
     // Qキーでは銃だけを切り替え、近距離攻撃は右クリックを離した時の通常状態にする
     if (input_->TriggerKey(DIK_Q)) {
         // Qキーを押すたびに銃を順番に切り替える
@@ -275,6 +394,10 @@ void Player::Update(Camera* camera)
     if (input_->TriggerKey(DIK_G)) {
         ThrowGrenade(camera);
     }
+
+    // 衝突解決後の移動量と発砲結果でモーションを決め、骨を1回更新する。
+    UpdateAnimation({ pos.x - prevPos_.x, 0.0f, pos.z - prevPos_.z }, isAimingGun);
+    object_->Update();
 
     // 弾とグレネードを更新する
     UpdateBullets();
@@ -1141,8 +1264,11 @@ void Player::RotateToMouse(Camera* camera)
         return;
     }
 
-    // Z+ を正面としてY回転を作る
-    rotate_.y = std::atan2(direction.x, direction.z) + frontAngleOffset_;
+    // 角度の境界をまたいでも最短方向へ回し、構え中は素早く狙いへ追従する。
+    const float targetYaw = std::atan2(direction.x, direction.z) + frontAngleOffset_;
+    const float difference = std::atan2(std::sin(targetYaw - rotate_.y), std::cos(targetYaw - rotate_.y));
+    const float followRate = input_->PushMouseRight() ? 0.55f : 0.32f;
+    rotate_.y += difference * followRate;
 
     // 回転を反映する
     object_->SetRotate(rotate_);
@@ -1182,6 +1308,10 @@ void Player::Respawn()
         object_->SetTranslate(translate_);
         object_->SetRotate(rotate_);
         object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        // 復活時に直前の射撃や走行モーションを引き継がない。
+        object_->StopAnimationOverlay();
+        object_->SetAnimationParentCorrectionEnabled(false);
+        PlayMotion(Motion::Idle, true);
         object_->Update();
     }
 }
