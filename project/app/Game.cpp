@@ -169,7 +169,16 @@ void Game::Draw() {
 #endif
 
 
+    // 通常画面を描く前に、光の視点から人や壁の深度を保存する。
+    if (object3dCommon_ && camera_) {
+        const Vector3 cameraPosition = camera_->GetTranslate();
+        object3dCommon_->BeginShadowPass({ cameraPosition.x, 0.0f, cameraPosition.z });
+        if (sceneManager_) { sceneManager_->DrawShadow(); }
+        object3dCommon_->EndShadowPass();
+    }
+
     if (offscreenRenderer_) {
+        // 影用の描画先・画面範囲を、通常画面用のものへ切り替える。
         offscreenRenderer_->PreDrawScene();
     }
 

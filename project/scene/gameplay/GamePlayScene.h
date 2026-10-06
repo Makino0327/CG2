@@ -46,6 +46,7 @@ public:
     void Initialize() override;
     void Update() override;
     void Draw() override;
+    void DrawShadow() override; // 人や壁の形を、影用の深度画像へ描く。
     void DrawBloom() override;
     void Finalize() override;
     void DrawImGui() override;

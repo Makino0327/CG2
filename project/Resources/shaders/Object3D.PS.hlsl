@@ -1,4 +1,5 @@
 #include "Object3d.hlsli"
+#include "ShadowMap.hlsli"
 
 struct Material
 {
@@ -101,6 +102,10 @@ PixelShaderOutput main(VertexShaderOutput input)
         ? baseColor
         : baseColor * gDirectionalLight.color.rgb * gDirectionalLight.intensity * lighting;
 
+    // 光を遮られた面だけ暗くし、環境反射や発光色はそのまま残す。
+    if (gMaterial.lightingType != 0) {
+        finalColor *= GetShadowVisibility(input.worldPosition, normal);
+    }
     finalColor += environmentColor;
 
     // ディゾルブ境界色はライトの影響を受けない加算色として扱う

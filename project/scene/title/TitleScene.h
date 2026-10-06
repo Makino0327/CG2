@@ -26,6 +26,7 @@ public:
     void Initialize() override;
     void Update() override;
     void Draw() override;
+    void DrawShadow() override; // タイトルの背景モデルにも同じ影を付ける。
     void DrawBloom() override;
     // タイトル文字とメニューを、背景の波動より後に描画する
     void DrawOverlay() override;

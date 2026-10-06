@@ -42,6 +42,12 @@ void SceneManager::DrawBloom()
     if (scene_) { scene_->DrawBloom(); }
 }
 
+void SceneManager::DrawShadow()
+{
+    // シーンごとに指定された3Dモデルだけを、光の視点から描く。
+    if (scene_) { scene_->DrawShadow(); }
+}
+
 void SceneManager::DrawOverlay()
 {
     // 通常の描画と同じシーンへ、前面UIの描画を渡す

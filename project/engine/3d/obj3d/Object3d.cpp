@@ -156,7 +156,8 @@ void Object3d::Draw()
 
     object3dCommon_->CommonDrawSetting();
 
-    // Apply the shared light intensity before drawing.
+    // 明るさと影の向きに、同じ平行光源を使う。
+    directionalLightData_->direction = object3dCommon_->GetLightDirection();
     directionalLightData_->intensity = lightIntensity_;
 
     commandList->SetGraphicsRootConstantBufferView(
@@ -453,7 +454,8 @@ void Object3d::DrawInstanced(UINT instanceCount)
 
     object3dCommon_->CommonDrawSetting();
 
-    // Apply the shared light intensity before drawing.
+    // インスタンシング描画も、影と同じ光の向きにそろえる。
+    directionalLightData_->direction = object3dCommon_->GetLightDirection();
     directionalLightData_->intensity = lightIntensity_;
 
     commandList->SetGraphicsRootConstantBufferView(

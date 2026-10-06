@@ -13,6 +13,8 @@ public:
     virtual void Finalize() = 0;
     virtual void Update() = 0;
     virtual void Draw() = 0;
+    // 影を落とす3Dモデルだけを描く。UIや発光エフェクトは含めない。
+    virtual void DrawShadow() {}
     // 個別指定された光だけをBloom用画像へ描く。必要なシーンだけ実装する。
     virtual void DrawBloom() {}
 

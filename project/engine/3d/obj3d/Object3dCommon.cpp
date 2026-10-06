@@ -9,6 +9,9 @@ void Object3dCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
     // SrvManager を保存する
     srvManager_ = srvManager;
 
+    // 画面用とは別に、影を保存する深度画像を用意する。
+    shadowMap_.Initialize(dxCommon_, srvManager_);
+
     CreateRootSignature();
     CreateGraphicsPipelineState();
 
@@ -23,7 +26,8 @@ void Object3dCommon::CommonDrawSetting()
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
     commandList->SetGraphicsRootSignature(rootSignature_.Get());
-    commandList->SetPipelineState(pipelineState_.Get());
+    // 同じDraw呼び出しで、通常画面と光から見た深度を切り替える。
+    commandList->SetPipelineState(isShadowPass_ ? shadowPipelineState_.Get() : pipelineState_.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     // ★ 共有SRVヒープをセット
@@ -31,6 +35,21 @@ void Object3dCommon::CommonDrawSetting()
         TextureManager::GetInstance()->GetSrvManager()->GetDescriptorHeap()
     };
     commandList->SetDescriptorHeaps(1, heaps);
+    shadowMap_.Bind(commandList, isShadowPass_);
+}
+
+void Object3dCommon::BeginShadowPass(const Vector3& focus)
+{
+    // カメラの周辺を毎フレーム更新し、動くモデルの形に影を合わせる。
+    isShadowPass_ = true;
+    shadowMap_.Begin(focus);
+}
+
+void Object3dCommon::EndShadowPass()
+{
+    // 次の通常描画では、完成した深度画像を読み取る。
+    shadowMap_.End();
+    isShadowPass_ = false;
 }
 
 
@@ -60,9 +79,16 @@ void Object3dCommon::CreateRootSignature()
     environmentDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     environmentDescriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
+    // t3 : 光の視点から保存した深度画像。
+    D3D12_DESCRIPTOR_RANGE shadowDescriptorRange{};
+    shadowDescriptorRange.BaseShaderRegister = 3;
+    shadowDescriptorRange.NumDescriptors = 1;
+    shadowDescriptorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    shadowDescriptorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
 
     // --- RootParameter ---
-    D3D12_ROOT_PARAMETER rootParameters[8]{};
+    D3D12_ROOT_PARAMETER rootParameters[10]{};
 
 
     // b0 : Material
@@ -109,6 +135,15 @@ void Object3dCommon::CreateRootSignature()
     rootParameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[7].Descriptor.ShaderRegister = 4;
 
+    // b5 : 影描画と通常描画で共有する光の行列・影の濃さ。
+    rootParameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[8].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    rootParameters[8].Descriptor.ShaderRegister = 5;
+    rootParameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParameters[9].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[9].DescriptorTable.NumDescriptorRanges = 1;
+    rootParameters[9].DescriptorTable.pDescriptorRanges = &shadowDescriptorRange;
+
 
     // --- Sampler ---
     D3D12_STATIC_SAMPLER_DESC staticSampler{};
@@ -119,13 +154,23 @@ void Object3dCommon::CreateRootSignature()
     staticSampler.ShaderRegister = 0;
     staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
+    // s1は深度の大小を比較する専用サンプラー。画像の外側は光が届く扱いにする。
+    D3D12_STATIC_SAMPLER_DESC samplers[2]{ staticSampler, {} };
+    samplers[1].Filter = D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    samplers[1].AddressU = samplers[1].AddressV = samplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    samplers[1].BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+    samplers[1].ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    samplers[1].MaxLOD = D3D12_FLOAT32_MAX;
+    samplers[1].ShaderRegister = 1;
+    samplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     // --- RootSignature 記述 ---
     D3D12_ROOT_SIGNATURE_DESC desc{};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     desc.pParameters = rootParameters;
     desc.NumParameters = _countof(rootParameters);
-    desc.pStaticSamplers = &staticSampler;
-    desc.NumStaticSamplers = 1;
+    desc.pStaticSamplers = samplers;
+    desc.NumStaticSamplers = _countof(samplers);
 
     Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -221,6 +266,20 @@ void Object3dCommon::CreateGraphicsPipelineState()
     desc.SampleDesc.Count = 1;
 
     HRESULT hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // 骨で変形した頂点もそのまま使い、影には光から見た深度だけを書き込む。
+    auto shadowVS = dxCommon_->CompileShader(L"Resources/shaders/ShadowDepth.VS.hlsl", L"vs_6_0");
+    auto shadowPS = dxCommon_->CompileShader(L"Resources/shaders/ShadowDepth.PS.hlsl", L"ps_6_0");
+    desc.VS = { shadowVS->GetBufferPointer(), shadowVS->GetBufferSize() };
+    desc.PS = { shadowPS->GetBufferPointer(), shadowPS->GetBufferSize() };
+    desc.NumRenderTargets = 0;
+    desc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    desc.BlendState.RenderTarget[0].BlendEnable = FALSE;
+    desc.RasterizerState.DepthClipEnable = TRUE;
+    desc.RasterizerState.DepthBias = 1000;
+    desc.RasterizerState.SlopeScaledDepthBias = 1.5f;
+    hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(shadowPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
 }

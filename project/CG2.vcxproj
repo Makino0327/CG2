@@ -459,6 +459,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\3d\model\ModelManager.h" />
     <ClInclude Include="engine\3d\obj3d\Object3d.h" />
     <ClInclude Include="engine\3d\obj3d\Object3dCommon.h" />
+    <ClInclude Include="engine\3d\obj3d\ShadowMap.h" />
     <ClInclude Include="engine\particle\Particle.h" />
     <ClInclude Include="engine\particle\ParticleCommon.h" />
     <ClInclude Include="game\player\Player.h" />
@@ -488,6 +489,9 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
     <None Include="Resources\shaders\Bloom.hlsli" />
+    <None Include="Resources\shaders\ShadowMap.hlsli" />
+    <None Include="Resources\shaders\ShadowDepth.VS.hlsl" />
+    <None Include="Resources\shaders\ShadowDepth.PS.hlsl" />
     <None Include="Resources\shaders\ScreenShatter.VS.hlsl" />
     <None Include="Resources\shaders\ScreenShatter.PS.hlsl" />
     <None Include="Resources\shaders\Particle.hlsli" />

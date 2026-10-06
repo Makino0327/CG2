@@ -103,6 +103,7 @@
     <ClInclude Include="engine\3d\model\ModelManager.h" />
     <ClInclude Include="engine\3d\obj3d\Object3d.h" />
     <ClInclude Include="engine\3d\obj3d\Object3dCommon.h" />
+    <ClInclude Include="engine\3d\obj3d\ShadowMap.h" />
     <ClInclude Include="engine\particle\Particle.h" />
     <ClInclude Include="engine\particle\ParticleCommon.h" />
     <ClInclude Include="game\player\Player.h" />
@@ -157,6 +158,9 @@
     <None Include="Resources\shaders\Skybox.hlsli" />
     <None Include="Resources\shaders\CopyImage.hlsli" />
     <None Include="Resources\shaders\Bloom.hlsli" />
+    <None Include="Resources\shaders\ShadowMap.hlsli" />
+    <None Include="Resources\shaders\ShadowDepth.VS.hlsl" />
+    <None Include="Resources\shaders\ShadowDepth.PS.hlsl" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\BloomExtract.PS.hlsl" />

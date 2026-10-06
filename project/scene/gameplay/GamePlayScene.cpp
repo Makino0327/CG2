@@ -855,6 +855,16 @@ void GamePlayScene::Update()
     }
 }
 
+void GamePlayScene::DrawShadow()
+{
+    // 影の描画では、空・UI・煙・弾の軌跡を含めない。
+    if (player_) { player_->Draw(); }
+    for (auto& enemy : enemies_) { enemy->Draw(); }
+    for (auto& boss : bosses_) { boss->Draw(); }
+    for (auto& floor : floorObjects_) { floor->Draw(); }
+    for (auto& wall : wallObjects_) { wall->Draw(); }
+}
+
 void GamePlayScene::Draw()
 {
     assert(GetContext().dxCommon);

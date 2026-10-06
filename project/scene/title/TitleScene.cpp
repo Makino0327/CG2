@@ -653,6 +653,13 @@ void TitleScene::Update() {
     UpdateMenu();
 }
 
+void TitleScene::DrawShadow() {
+    // 保存するタイトル画像にも影を含め、画面が割れる時に影だけ消えないようにする。
+    for (auto& object : scenery_) { object->Draw(); }
+    for (auto& enemy : enemies_) { enemy->Draw(); }
+    if (playerObject_) { playerObject_->Draw(); }
+}
+
 void TitleScene::Draw() {
     // 演出終了後に黒画面を一度描き、読み込み中も最後の破片が残らないようにする。
     if (isStarting_ && GetContext().offscreenRenderer && !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
