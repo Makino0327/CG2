@@ -26,6 +26,7 @@ public:
     void Initialize() override;
     void Update() override;
     void Draw() override;
+    void DrawBloom() override;
     // タイトル文字とメニューを、背景の波動より後に描画する
     void DrawOverlay() override;
     void Finalize() override;
@@ -53,6 +54,8 @@ private:
     void FireWeapon(const Vector3& direction);
     void FireBullet(const Vector3& direction, float spreadAngle);
     void FireShotgun(const Vector3& direction);
+    // 描画と同じ骨の変形を使い、銃口の少し先の位置を取得する。
+    Vector3 GetMuzzlePosition() const;
     void EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun);
     void StartShockwave(const Vector3& firePosition);
     // 本編のCheckCollisionsと同じ命中処理
@@ -75,6 +78,9 @@ private:
 
     // プレイヤーは位置固定の描画専用。ダメージ処理を持たないため絶対に死亡しない
     std::unique_ptr<Object3d> playerObject_;
+    // 銃口の発射位置を示す赤い印。Mキーで表示を切り替える。
+    std::unique_ptr<Object3d> muzzleMarker_;
+    bool showMuzzleMarker_ = true;
     std::vector<std::unique_ptr<Object3d>> scenery_;
     // 本編と同じ敵・弾クラスを使い、撃破演出や血しぶきも共通にする
     std::vector<std::unique_ptr<Enemy>> enemies_;

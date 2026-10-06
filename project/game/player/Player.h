@@ -347,11 +347,8 @@ private:
     // 弾の速度
     float bulletSpeed_ = 1.4f;
 
-    // 弾の発射位置の高さ
-    float bulletSpawnHeight_ = 0.7f;
-
-    // プレイヤー中心から射出口までの前方向距離
-    float bulletMuzzleDistance_ = 1.6f;
+    // マウスの地面座標に対する狙いの高さ。発射位置は銃口の実頂点から求める。
+    float bulletAimHeight_ = 0.7f;
 
     // ショットガンで一度に出す弾の数
     int shotgunPelletCount_ = 5;

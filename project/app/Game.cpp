@@ -178,6 +178,11 @@ void Game::Draw() {
     }
 
     if (offscreenRenderer_) {
+        if (offscreenRenderer_->IsBloomEnabled()) {
+            // 床・キャラクター・UIを描き直さず、指定された光だけをBloomへ渡す。
+            offscreenRenderer_->BeginBloomMask();
+            if (sceneManager_) { sceneManager_->DrawBloom(); }
+        }
         offscreenRenderer_->DrawToBackBuffer();
     }
 

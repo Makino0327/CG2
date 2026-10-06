@@ -13,6 +13,8 @@ public:
     virtual void Finalize() = 0;
     virtual void Update() = 0;
     virtual void Draw() = 0;
+    // 個別指定された光だけをBloom用画像へ描く。必要なシーンだけ実装する。
+    virtual void DrawBloom() {}
 
     // ポストエフェクトの影響を受けないUIを最後に重ねる。必要なシーンだけ実装する
     virtual void DrawOverlay() {}

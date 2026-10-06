@@ -14,6 +14,8 @@ class ParticleCommon
 public:
 	void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
 	void CommonDrawSetting(ParticleBlendMode blendMode = ParticleBlendMode::Additive);
+	// 個別指定した光を、浮動小数点のBloom用画像へ加算する描画設定。
+	void CommonBloomDrawSetting();
 
 	DirectXCommon* GetDxCommon() const { return dxCommon_; }
 	// Particle 初期化用 ComputeShader の設定を commandList に入れる
@@ -52,6 +54,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> alphaPipelineState_;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> bloomPipelineState_;
 	
 	SrvManager* srvManager_ = nullptr;
 

@@ -62,6 +62,7 @@
     <ClCompile Include="engine\3d\skybox\Skybox.cpp" />
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
+    <ClCompile Include="engine\base\offscreen\Bloom.cpp" />
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\animation\Animation.cpp" />
@@ -105,6 +106,8 @@
     <ClInclude Include="engine\particle\Particle.h" />
     <ClInclude Include="engine\particle\ParticleCommon.h" />
     <ClInclude Include="game\player\Player.h" />
+    <ClInclude Include="game\player\PlayerMuzzle.h" />
+    <ClInclude Include="game\player\ShootingBloom.h" />
     <ClInclude Include="engine\2d\sprite\Sprite.h" />
     <ClInclude Include="engine\2d\sprite\SpriteCommon.h" />
     <ClInclude Include="engine\base\srv\SrvManager.h" />
@@ -123,6 +126,7 @@
     <ClInclude Include="engine\3d\skybox\Skybox.h" />
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
+    <ClInclude Include="engine\base\offscreen\Bloom.h" />
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\animation\Animation.h" />
@@ -152,5 +156,11 @@
     <None Include="Resources\shaders\Particle.hlsli" />
     <None Include="Resources\shaders\Skybox.hlsli" />
     <None Include="Resources\shaders\CopyImage.hlsli" />
+    <None Include="Resources\shaders\Bloom.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Resources\shaders\BloomExtract.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\BloomBlur.PS.hlsl" />
+    <FxCompile Include="Resources\shaders\BloomComposite.PS.hlsl" />
   </ItemGroup>
 </Project>

@@ -37,6 +37,12 @@ void ParticleCommon::CommonDrawSetting(ParticleBlendMode blendMode)
 
 
 
+void ParticleCommon::CommonBloomDrawSetting()
+{
+    CommonDrawSetting(ParticleBlendMode::Additive);
+    dxCommon_->GetCommandList()->SetPipelineState(bloomPipelineState_.Get());
+}
+
 void ParticleCommon::CreateRootSignature()
 {
     ID3D12Device* device = dxCommon_->GetDevice();
@@ -189,6 +195,12 @@ void ParticleCommon::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(alphaPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+    // 通常画面ではなく、指定した光だけを保持するHDR画像へ描くPSO。
+    // 深度は通常描画と同じものを読み、書き換えない。
+    desc.BlendState = blendDesc;
+    desc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(bloomPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 }
 

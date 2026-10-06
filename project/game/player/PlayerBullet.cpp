@@ -1,4 +1,5 @@
 #include "PlayerBullet.h"
+#include "ShootingBloom.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,13 +14,15 @@ void PlayerBullet::Initialize(
     const Vector3& position,
     const Vector3& velocity,
     const std::vector<LevelColliderData>* wallColliders,
-    ParticleSystem* particleSystem)
+    ParticleSystem* particleSystem,
+    std::optional<float> flightHeight)
 {
     // 初期位置を保存する
     position_ = position;
 
     // 初速度を保存する
     velocity_ = velocity;
+    flightHeight_ = flightHeight;
 
     // Blender JSON の壁コライダー一覧を保存する
     wallColliders_ = wallColliders;
@@ -40,9 +43,11 @@ void PlayerBullet::Initialize(
     // 弾本体を細長くして光の芯として見せる
     object_->SetScale({ 0.30f, 0.30f, 0.30f });
 
-    // 細長くしたZ軸を弾の進行方向へ向ける
+    // 細長くしたZ軸を進行方向へ向け、銃口から下向きに撃つ場合も弾と軌跡をそろえる。
     float bulletAngle = std::atan2(velocity_.x, velocity_.z);
-    object_->SetRotate({ 0.0f, bulletAngle, 0.0f });
+    const float horizontalSpeed = std::sqrt(velocity_.x*velocity_.x + velocity_.z*velocity_.z);
+    const float bulletPitch = -std::atan2(velocity_.y, horizontalSpeed);
+    object_->SetRotate({ bulletPitch, bulletAngle, 0.0f });
 
     // ライトの影響を受けない明るい黄色にする
     object_->SetColor({ 1.0f, 0.92f, 0.34f, 0.65f });
@@ -61,6 +66,16 @@ void PlayerBullet::Update()
     // 弾を進める
     Vector3 previousPosition = position_;
     position_ = Add(position_, velocity_);
+
+    if (flightHeight_ &&
+        ((velocity_.y < 0.0f && position_.y <= *flightHeight_) ||
+         (velocity_.y > 0.0f && position_.y >= *flightHeight_))) {
+        // マウス位置の高さに到達したら水平に進め、床の下へ入って軌跡が消えるのを防ぐ。
+        position_.y = *flightHeight_;
+        const float speed = std::sqrt(velocity_.x*velocity_.x+velocity_.y*velocity_.y+velocity_.z*velocity_.z);
+        const Vector3 horizontal = Normalize(Vector3{ velocity_.x,0.0f,velocity_.z });
+        velocity_ = { horizontal.x*speed,0.0f,horizontal.z*speed };
+    }
 
     // 点状の火花を重ねず、移動区間へ連続した発光軌跡だけを作る
     EmitTrail(previousPosition, position_);
@@ -167,24 +182,41 @@ void PlayerBullet::Draw()
 
 void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
 {
-    if (!particleSystem_) {
+    if (!particleSystem_ || !particleSystem_->IsSegmentVisible(start, end)) {
         return;
     }
 
-    // 丸い粒子の中心間隔を狭くし、加算合成の明るさを均一にする
-    constexpr int kDivisionCount = 48;
+    // 距離に応じて粒子数を決め、短い区間へ大量の粒子を出して枠を使い切らないようにする。
+    // 白い芯は全ての点へ出し、最も速い散弾でも点の間隔を一定以下に保つ。
+    constexpr float kMaxPointSpacing = 0.06f;
+    const float dx = end.x-start.x;
+    const float dy = end.y-start.y;
+    const float dz = end.z-start.z;
+    const float distance = std::sqrt(dx*dx+dy*dy+dz*dz);
+    const int divisionCount = (std::max)(1, static_cast<int>(std::ceil(distance/kMaxPointSpacing)));
 
-    for (int index = 0; index < kDivisionCount; ++index) {
+    for (int index = 0; index < divisionCount; ++index) {
         // 区間の端ではなく各分割の中央へ置き、フレーム境界の粒子重複を防ぐ
         const float t =
             (static_cast<float>(index) + 0.5f) /
-            static_cast<float>(kDivisionCount);
+            static_cast<float>(divisionCount);
 
         Vector3 trailPosition = {
             start.x + (end.x - start.x) * t,
             start.y + (end.y - start.y) * t,
             start.z + (end.z - start.z) * t
         };
+
+        // 軌跡の周囲に大きく薄いオレンジ色の光を重ね、光のにじみを作る。
+        // 3点に1回だけ出し、連射や散弾でも光が強くなりすぎないようにする。
+        if (index % 3 == 0) {
+            particleSystem_->Emit(
+                trailPosition,
+                { 0.60f, 0.60f, 0.60f },
+                { 0.0f, 0.0f, 0.0f },
+                { 1.0f, 0.45f, 0.08f, 0.08f },
+                0.06f, ShootingBloom::bulletTrailStrength);
+        }
 
         // 後ろ側の赤橙色から先端側の黄色へ滑らかに変化させる
         const float trailGreen = 0.22f + 0.40f * t;
@@ -195,17 +227,25 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             trailPosition,
             { 0.30f, 0.30f, 0.30f },
             { 0.0f, 0.0f, 0.0f },
-            { 1.0f, trailGreen, trailBlue, 0.20f },
-            0.11f);
+            { 1.0f, trailGreen, trailBlue, 0.32f },
+            0.11f, ShootingBloom::bulletTrailStrength);
+
+        // 細く短い白黄色の芯を重ね、周囲の薄い光との明るさの差を付ける。
+        particleSystem_->Emit(
+            trailPosition,
+            { 0.10f, 0.10f, 0.10f },
+            { 0.0f, 0.0f, 0.0f },
+            { 1.0f, 0.95f, 0.72f, 0.32f },
+            0.045f, ShootingBloom::bulletTrailStrength);
     }
 
-    // 軌跡の先端だけ少し明るくし、弾の現在位置を分かりやすくする
+    // 軌跡の先端は白黄色へ寄せ、弾の現在位置が最も明るく見えるようにする。
     particleSystem_->Emit(
         end,
         { 0.38f, 0.38f, 0.38f },
         { 0.0f, 0.0f, 0.0f },
-        { 1.0f, 0.82f, 0.24f, 0.32f },
-        0.045f);
+        { 1.0f, 0.95f, 0.65f, 0.45f },
+        0.045f, ShootingBloom::bulletTrailStrength);
 }
 
 void PlayerBullet::EmitSparks()
@@ -304,6 +344,52 @@ Vector3 PlayerBullet::CalcDirectionToMouseGround(
     };
 
     return Normalize(direction);
+}
+
+Vector3 PlayerBullet::CalcDirectionToMouseAtHeight(
+    const Vector3& startPosition,
+    const Vector3& playerPosition,
+    Camera* camera,
+    Input* input,
+    float targetHeight)
+{
+    if (!camera || !input) { return { 0.0f, 0.0f, 0.0f }; }
+
+    // マウスが指している地面の位置を取得する。
+    Vector3 targetPosition = GetMousePositionOnGround(camera, input);
+
+    // 体の回転と同じく、プレイヤーの中心からマウスへの方向を求める。
+    const float dx = targetPosition.x - playerPosition.x;
+    const float dz = targetPosition.z - playerPosition.z;
+    const float targetDistance = std::sqrt(dx * dx + dz * dz);
+
+    // 中心と完全に重なる場合は方向を決められないので発射しない。
+    if (targetDistance <= 0.0001f) {
+        return { 0.0f, 0.0f, 0.0f };
+    }
+
+    // プレイヤーの中心から銃口までの水平距離を求める。
+    const float muzzleX = startPosition.x - playerPosition.x;
+    const float muzzleZ = startPosition.z - playerPosition.z;
+    const float muzzleDistance = std::sqrt(muzzleX * muzzleX + muzzleZ * muzzleZ);
+
+    // 近くを狙う時も、目標を銃口より十分先へ置く。
+    // この値を大きくすると、近距離で弾が横や下へ急に曲がりにくくなる。
+    constexpr float kAimClearance = 2.0f;
+    const float minimumDistance = muzzleDistance + kAimClearance;
+
+    if (targetDistance < minimumDistance) {
+        // 狙った方角を保ちながら、近すぎる目標だけ前方へ延ばす。
+        targetPosition.x = playerPosition.x + dx / targetDistance * minimumDistance;
+        targetPosition.z = playerPosition.z + dz / targetDistance * minimumDistance;
+    }
+
+    // 実際の銃口から、補正した目標と敵に当たる高さへ向けて撃つ。
+    return Normalize(Vector3{
+        targetPosition.x - startPosition.x,
+        targetHeight - startPosition.y,
+        targetPosition.z - startPosition.z
+    });
 }
 
 Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)

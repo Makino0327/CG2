@@ -7,6 +7,8 @@ class SceneManager
 public:
 	void Update();
 	void Draw();
+	// 通常画面とは別に、発光を指定した対象だけを描画する。
+	void DrawBloom();
 	// 背景へのエフェクトが終わってから、シーンの前面UIを描画する
 	void DrawOverlay();
 

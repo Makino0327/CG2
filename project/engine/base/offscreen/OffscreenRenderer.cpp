@@ -29,6 +29,17 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
         DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
         Vector4(0.0f, 0.0f, 0.0f, 1.0f)); // 複数ポストエフェクトの途中結果を書き込む
 
+    // Game ViewでもBloom後の画面を確認できるよう、最後の結果を別の画像へ保存する。
+    processedRenderTexture_ = std::make_unique<RenderTexture>();
+    processedRenderTexture_->Initialize(dxCommon_, srvManager_,
+        WinApp::kClientWidth, WinApp::kClientHeight,
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, { 0,0,0,1 });
+    // 床やUIを含めず、指定した対象の光だけを描く画像を用意する。
+    bloomEmissionTexture_ = std::make_unique<RenderTexture>();
+    bloomEmissionTexture_->Initialize(dxCommon_, srvManager_,
+        WinApp::kClientWidth, WinApp::kClientHeight,
+        DXGI_FORMAT_R16G16B16A16_FLOAT, { 0,0,0,0 });
+
     depthSrvIndex_ = srvManager_->Allocate(); // DepthTexture逕ｨ縺ｮSRV逡ｪ蜿ｷ繧堤｢ｺ菫昴☆繧・
     srvManager_->CreateSRVForDepthTexture(
         depthSrvIndex_,
@@ -40,6 +51,9 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     // 画面破壊用の画像と描画設定は、一度だけ作って使い回す。
     screenShatter_ = std::make_unique<ScreenShatter>();
     screenShatter_->Initialize(dxCommon_, srvManager_);
+    // 光の抽出・ぼかし・合成用の画像と描画設定を、一度だけ作って使い回す。
+    bloom_ = std::make_unique<Bloom>();
+    bloom_->Initialize(dxCommon_, srvManager_);
 
     // 繝ｩ繧ｸ繧｢繝ｫ繝悶Λ繝ｼ逕ｨ縺ｮ螳壽焚繝舌ャ繝輔ぃ繧剃ｽ懈・縺吶ｋ
     radialBlurResource_ = dxCommon_->CreateBufferResource(sizeof(RadialBlurData));
@@ -120,6 +134,21 @@ void OffscreenRenderer::PreDrawScene()
         srvManager_->GetDescriptorHeap());
 }
 
+void OffscreenRenderer::BeginBloomMask()
+{
+    // 深度を消さず、通常画面の壁やキャラクターに隠れた光を描かないようにする。
+    auto* list = dxCommon_->GetCommandList();
+    const auto rtv = bloomEmissionTexture_->GetRTVHandle();
+    const auto dsv = dxCommon_->GetDSVHandle();
+    list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    const float black[4] = { 0,0,0,0 };
+    list->ClearRenderTargetView(rtv, black, 0, nullptr);
+    const D3D12_VIEWPORT viewport{ 0,0,static_cast<float>(WinApp::kClientWidth),static_cast<float>(WinApp::kClientHeight),0,1 };
+    const D3D12_RECT scissor{ 0,0,WinApp::kClientWidth,WinApp::kClientHeight };
+    list->RSSetViewports(1, &viewport);
+    list->RSSetScissorRects(1, &scissor);
+}
+
 void OffscreenRenderer::SetPostEffectEnabled(PostEffectType type, bool enabled)
 {
     size_t index = static_cast<size_t>(type);
@@ -179,11 +208,17 @@ void OffscreenRenderer::DrawToBackBuffer()
     scissorRect.right = WinApp::kClientWidth;
     scissorRect.bottom = WinApp::kClientHeight;
 
-    std::array<PostEffectType, static_cast<size_t>(PostEffectType::DepthOutline) + 1> activeEffects{};
+    std::array<PostEffectType, static_cast<size_t>(PostEffectType::Count)> activeEffects{};
     size_t activeEffectCount = 0;
 
+    // 光は元の色から抽出し、その後に白黒化・ビネット・衝撃波を重ねる。
+    if (IsPostEffectEnabled(PostEffectType::Bloom) || postEffectType_ == PostEffectType::Bloom) {
+        activeEffects[activeEffectCount++] = PostEffectType::Bloom;
+    }
     for (size_t index = 1; index < enabledPostEffects_.size(); ++index) {
-        if (enabledPostEffects_[index]) {
+        if (index == static_cast<size_t>(PostEffectType::Bloom)) { continue; }
+        // Bloomと併用していても、死亡時などの主エフェクトを適用する。
+        if (enabledPostEffects_[index] || postEffectType_ == static_cast<PostEffectType>(index)) {
             activeEffects[activeEffectCount] = static_cast<PostEffectType>(index);
             ++activeEffectCount;
         }
@@ -256,6 +291,11 @@ void OffscreenRenderer::DrawToBackBuffer()
     };
 
     auto DrawPostEffectPass = [&](PostEffectType type, uint32_t inputSrvIndex, D3D12_CPU_DESCRIPTOR_HANDLE outputRTVHandle) {
+        if (type == PostEffectType::Bloom) {
+            // Bloomだけは、専用の半解像度画像を使う複数パスで描画する。
+            bloom_->Draw(inputSrvIndex, bloomEmissionTexture_->GetSRVIndex(), outputRTVHandle);
+            return;
+        }
         commandList->OMSetRenderTargets(1, &outputRTVHandle, FALSE, nullptr);
 
         const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -293,6 +333,14 @@ void OffscreenRenderer::DrawToBackBuffer()
     D3D12_RESOURCE_STATES sceneTextureState = D3D12_RESOURCE_STATE_RENDER_TARGET;
     D3D12_RESOURCE_STATES workTextureState = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
+    TransitionResource(processedRenderTexture_->GetResource(), processedTextureState_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    processedTextureState_ = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    if (IsBloomEnabled()) {
+        // 指定した対象だけが描かれた画像を、Bloomの入力として読める状態へ切り替える。
+        TransitionResource(bloomEmissionTexture_->GetResource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+
     for (size_t index = 0; index < activeEffectCount; ++index) {
         const bool isLastPass = index + 1 == activeEffectCount;
         const bool readSceneTexture = (index % 2) == 0;
@@ -304,7 +352,7 @@ void OffscreenRenderer::DrawToBackBuffer()
         inputState = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
         if (isLastPass) {
-            DrawPostEffectPass(activeEffects[index], inputTexture->GetSRVIndex(), backBufferRTVHandle);
+            DrawPostEffectPass(activeEffects[index], inputTexture->GetSRVIndex(), processedRenderTexture_->GetRTVHandle());
             continue;
         }
 
@@ -320,6 +368,16 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     TransitionResource(renderTexture_->GetResource(), sceneTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
     TransitionResource(workRenderTexture_->GetResource(), workTextureState, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+    // 加工済み画像を通常画面へコピーし、ImGuiからも安全に読める状態で保持する。
+    TransitionResource(processedRenderTexture_->GetResource(), processedTextureState_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    processedTextureState_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    DrawPostEffectPass(PostEffectType::Copy, processedRenderTexture_->GetSRVIndex(), backBufferRTVHandle);
+    if (IsBloomEnabled()) {
+        // 次のフレームで指定した光だけを描き直せるように戻す。
+        TransitionResource(bloomEmissionTexture_->GetResource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_RENDER_TARGET);
+    }
 
     // タイトルの破片を黒背景へ描き、演出中は本編の読み込みを待つ。
     screenShatter_->Draw();
@@ -766,6 +824,7 @@ void OffscreenRenderer::DrawImGui()
         "RandomNoise",
         "Shockwave",
         "DepthOutline",
+        "Bloom",
     };
 
     ImGui::Text("Enabled Effects");
@@ -779,6 +838,15 @@ void OffscreenRenderer::DrawImGui()
     const bool isDissolveSelected = IsPostEffectEnabled(PostEffectType::Dissolve) || postEffectType_ == PostEffectType::Dissolve;
     const bool isRandomNoiseSelected = IsPostEffectEnabled(PostEffectType::RandomNoise) || postEffectType_ == PostEffectType::RandomNoise;
     const bool isShockwaveSelected = IsPostEffectEnabled(PostEffectType::Shockwave) || postEffectType_ == PostEffectType::Shockwave;
+
+    if (IsPostEffectEnabled(PostEffectType::Bloom) || postEffectType_ == PostEffectType::Bloom) {
+        // 弾の光り方を実画面で調整できるよう、抽出・強さ・広がりを編集する。
+        auto& parameters = bloom_->GetParameters();
+        ImGui::SliderFloat("Bloom Threshold", &parameters.threshold, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bloom Soft Knee", &parameters.knee, 0.0f, 0.5f);
+        ImGui::SliderFloat("Bloom Intensity", &parameters.intensity, 0.0f, 6.0f);
+        ImGui::SliderFloat("Bloom Radius", &parameters.radius, 0.5f, 5.0f);
+    }
 
     if (isDissolveSelected) {
         const char* maskItems[] = { "noise0", "noise1" };
@@ -824,7 +892,7 @@ void OffscreenRenderer::DrawImGui()
 void OffscreenRenderer::DrawDebugGameViewImGui()
 {
 #ifdef USE_IMGUI
-    if (!renderTexture_) {
+    if (!processedRenderTexture_) {
         return;
     }
 
@@ -843,7 +911,7 @@ void OffscreenRenderer::DrawDebugGameViewImGui()
     }
 
     ImTextureID textureId =
-        static_cast<ImTextureID>(renderTexture_->GetSRVGPUHandle().ptr);
+        static_cast<ImTextureID>(processedRenderTexture_->GetSRVGPUHandle().ptr);
 
     ImGui::Image(textureId, imageSize);
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <vector>
+#include <optional>
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/math/Math.h"
 #include "../collision/Collision.h"
@@ -17,7 +18,8 @@ public:
         const Vector3& position,
         const Vector3& velocity,
         const std::vector<LevelColliderData>* wallColliders,
-        ParticleSystem* particleSystem);
+        ParticleSystem* particleSystem,
+        std::optional<float> flightHeight = std::nullopt);
 
     void Update();
     void Draw();
@@ -37,6 +39,14 @@ public:
         const Vector3& startPosition,
         Camera* camera,
         Input* input);
+
+    // プレイヤーの中心も使い、近くを狙った時の発射方向を安定させる。
+    static Vector3 CalcDirectionToMouseAtHeight(
+        const Vector3& startPosition,
+        const Vector3& playerPosition,
+        Camera* camera,
+        Input* input,
+        float targetHeight);
 
 private:
     static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
@@ -61,6 +71,8 @@ private:
 
     // 弾の速度
     Vector3 velocity_ = { 0.0f, 0.0f, 0.0f };
+    // 狙う高さへ到達した後は、この高さを保って進む。床の下へ弾を落とさない。
+    std::optional<float> flightHeight_;
 
     // 弾の大きさ
     Vector3 scale_ = { 0.5f, 0.5f, 0.5f };

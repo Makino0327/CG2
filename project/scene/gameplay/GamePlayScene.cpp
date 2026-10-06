@@ -20,6 +20,7 @@
 #include "../engine/3d/obj3d/Object3d.h"
 #include "../game/camera/Camera.h"
 #include "../../game/player/PlayerBullet.h"
+#include "../../game/player/ShootingBloom.h"
 
 #include "../engine/particle/ParticleCommon.h"
 #include "../engine/particle/Particle.h"
@@ -534,6 +535,8 @@ void GamePlayScene::Initialize()
 
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
+        // 本編でも、弾の軌跡と銃口の発射炎へBloomをかける。
+        GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);
         // タイトルの衝撃波を本編へ持ち越さない
         GetContext().offscreenRenderer->StopShockwave();
         // ゲームシーン側で通常の衝撃波サイズを調整する
@@ -979,6 +982,14 @@ namespace {
     // 合わせ目の緑の線が左右へ伸びる時間と、扉が開き切るまでの時間（60FPS）
     constexpr int kIntroSeamFrames = 10;
     constexpr int kIntroOpenFrames = 32;
+}
+
+void GamePlayScene::DrawBloom()
+{
+    // 通常の画面が明るくても、発光を指定していない粒子や3Dモデルは対象にしない。
+    if (particleSystem_) { particleSystem_->DrawBloom(); }
+    if (bloodParticleSystem_) { bloodParticleSystem_->DrawBloom(); }
+    if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->DrawBloom(); }
 }
 
 void GamePlayScene::UpdateIntroTransition()
@@ -2206,6 +2217,11 @@ void GamePlayScene::DrawImGui()
         GetContext().offscreenRenderer->DrawDebugGameViewImGui();
         GetContext().offscreenRenderer->DrawImGui();
     }
+    // 弾の軌跡と発射炎を別々に変更できるようにする。0にするとその対象だけOFFになる。
+    ImGui::Begin("Shooting Bloom");
+    ImGui::SliderFloat("Bullet Trail", &ShootingBloom::bulletTrailStrength, 0.0f, 3.0f);
+    ImGui::SliderFloat("Muzzle Flash", &ShootingBloom::muzzleFlashStrength, 0.0f, 3.0f);
+    ImGui::End();
 #endif
 }
 

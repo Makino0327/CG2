@@ -82,6 +82,8 @@ public:
 	const Vector3& GetScale()     const { return transform.scale; }
 	const Vector3& GetRotate()    const { return transform.rotate; }
 	const Vector3& GetTranslate() const { return transform.translate; }
+	// 骨に付けた銃口などの位置計算にも、描画と同じ足元補正済みの行列を渡す。
+	const Matrix4x4& GetWorldMatrix() const { assert(transformationMatrixData_); return transformationMatrixData_->World; }
 	Matrix4x4 GetViewProjectionMatrix() const { return viewProjectionMatrix_; }
 
 	void SetColor(const Vector4& color);

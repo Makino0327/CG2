@@ -215,12 +215,16 @@ bool ParticleSystem::Emit(
     const Vector3& scale,
     const Vector3& velocity,
     const Vector4& color,
-    float lifeTime)
+    float lifeTime,
+    float bloomStrength)
 {
     // 寿命がない場合や初期化前の場合は生成しない
     if (lifeTime <= 0.0f || !manualParticleData_) {
         return false;
     }
+    // 発光対象が指定されたシステムにだけ、追加のGPUバッファを作る。
+    bloomStrength = bloomStrength > 0.0f ? bloomStrength : 0.0f;
+    if (bloomStrength > 0.0f && !bloomParticleData_) { InitializeBloomParticleResource(); }
 
     // 前回使用した位置の続きから空きを探す
     for (uint32_t offset = 0; offset < kNumInstance; ++offset) {
@@ -235,6 +239,8 @@ bool ParticleSystem::Emit(
         particle.isAlive = true;
         particle.initialScale = scale;
         particle.initialColor = color;
+        particle.bloomStrength = bloomStrength;
+        if (bloomStrength > 0.0f) { ++bloomParticleCount_; }
 
         // GPUへ送るパーティクル情報を設定する
         particle.gpuData.translate = position;
@@ -246,6 +252,7 @@ bool ParticleSystem::Emit(
 
         // 今フレームから描画できるようにGPUバッファへ反映する
         manualParticleData_[index] = particle.gpuData;
+        WriteBloomParticle(index);
 
         // 次回は今回使用した位置の次から空きを探す
         manualEmitCursor_ = (index + 1) % kNumInstance;
@@ -300,6 +307,7 @@ void ParticleSystem::UpdateManualParticles(float deltaTime)
 
         // 更新結果をGPUバッファへ反映する
         manualParticleData_[index] = particle.gpuData;
+        WriteBloomParticle(index);
     }
 }
 
@@ -307,6 +315,9 @@ void ParticleSystem::KillManualParticle(uint32_t index)
 {
     ManualParticle& particle = manualParticles_[index];
 
+    // 発光対象がなくなったら、Bloom用の追加描画を省略できるようにする。
+    if (particle.isAlive && particle.bloomStrength > 0.0f) { --bloomParticleCount_; }
+    particle.bloomStrength = 0.0f;
     // CPU側を未使用状態へ戻す
     particle.isAlive = false;
     particle.initialScale = { 0.0f, 0.0f, 0.0f };
@@ -323,6 +334,8 @@ void ParticleSystem::KillManualParticle(uint32_t index)
     if (manualParticleData_) {
         manualParticleData_[index] = particle.gpuData;
     }
+    // 寿命を迎えた光も同時に消し、別の発光粒子が残っていても残像が残らないようにする。
+    WriteBloomParticle(index);
 }
 
 ParticleData ParticleSystem::MakeNewParticle()
@@ -636,6 +649,51 @@ void ParticleSystem::Draw()
 
 }
 
+bool ParticleSystem::IsSegmentVisible(const Vector3& start, const Vector3& end) const
+{
+    if (!camera_) { return true; }
+    const Matrix4x4& matrix = camera_->GetViewProjectionMatrix();
+    const auto clip = [&](const Vector3& p) {
+        return Vector4{
+            p.x*matrix.m[0][0]+p.y*matrix.m[1][0]+p.z*matrix.m[2][0]+matrix.m[3][0],
+            p.x*matrix.m[0][1]+p.y*matrix.m[1][1]+p.z*matrix.m[2][1]+matrix.m[3][1],
+            p.x*matrix.m[0][2]+p.y*matrix.m[1][2]+p.z*matrix.m[2][2]+matrix.m[3][2],
+            p.x*matrix.m[0][3]+p.y*matrix.m[1][3]+p.z*matrix.m[2][3]+matrix.m[3][3]
+        };
+    };
+    const Vector4 a = clip(start);
+    const Vector4 b = clip(end);
+    // 光の広がりを含めて少し余白を取る。両端が同じ側の外にある区間だけを省く。
+    constexpr float kMargin = 1.10f;
+    if (a.w <= 0.0f && b.w <= 0.0f) { return false; }
+    if (a.x < -kMargin*a.w && b.x < -kMargin*b.w) { return false; }
+    if (a.x > kMargin*a.w && b.x > kMargin*b.w) { return false; }
+    if (a.y < -kMargin*a.w && b.y < -kMargin*b.w) { return false; }
+    if (a.y > kMargin*a.w && b.y > kMargin*b.w) { return false; }
+    if (a.z < 0.0f && b.z < 0.0f) { return false; }
+    if (a.z > a.w && b.z > b.w) { return false; }
+    return true;
+}
+
+void ParticleSystem::DrawBloom()
+{
+    if (!bloomParticleData_ || bloomParticleCount_ == 0) { return; }
+    // 位置・寿命・深度判定は通常描画と同じにし、指定した粒子の光だけを描く。
+    particleCommon_->CommonBloomDrawSetting();
+    ID3D12GraphicsCommandList* cmd = dxCommon_->GetCommandList();
+    cmd->SetGraphicsRootDescriptorTable(0, bloomParticleSrvHandleGPU_);
+    cmd->SetGraphicsRootDescriptorTable(1, TextureManager::GetInstance()->GetSrvHandleGPU(textureFilePath_));
+    cmd->SetGraphicsRootConstantBufferView(2, perViewResource_->GetGPUVirtualAddress());
+    if (meshType_ == EffectMeshType::Plane) {
+        Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
+        if (model) { model->DrawInstancedForParticle(kNumInstance); }
+    } else if (meshType_ == EffectMeshType::Ring) {
+        if (ring_) { ring_->DrawInstanced(kNumInstance); }
+    } else if (meshType_ == EffectMeshType::Cylinder) {
+        if (cylinder_) { cylinder_->DrawInstanced(kNumInstance); }
+    }
+}
+
 void ParticleSystem::ShowImGui(const char* windowName)
 {
 #ifdef USE_IMGUI
@@ -750,6 +808,35 @@ void ParticleSystem::InitializeManualParticleResource()
     for (uint32_t index = 0; index < kNumInstance; ++index) {
         KillManualParticle(index);
     }
+}
+
+void ParticleSystem::InitializeBloomParticleResource()
+{
+    bloomParticleResource_ = dxCommon_->CreateBufferResource(sizeof(ParticleCS)*kNumInstance);
+    const HRESULT hr = bloomParticleResource_->Map(0, nullptr, reinterpret_cast<void**>(&bloomParticleData_));
+    assert(SUCCEEDED(hr));
+    assert(srvManager_->CanAllocate());
+    const uint32_t srvIndex = srvManager_->Allocate();
+    srvManager_->CreateSRVforStructuredBuffer(srvIndex, bloomParticleResource_.Get(), kNumInstance, sizeof(ParticleCS));
+    bloomParticleSrvHandleGPU_ = srvManager_->GetGPUDescriptorHandle(srvIndex);
+    // 既存の発光しない粒子は透明にし、画面の明るさによる自動選択を行わない。
+    for (uint32_t index = 0; index < kNumInstance; ++index) { WriteBloomParticle(index); }
+}
+
+void ParticleSystem::WriteBloomParticle(uint32_t index)
+{
+    if (!bloomParticleData_) { return; }
+    const ManualParticle& particle = manualParticles_[index];
+    ParticleCS data = particle.gpuData;
+    if (!particle.isAlive || particle.bloomStrength <= 0.0f) {
+        data.color.w = 0.0f;
+    } else {
+        // 通常の色を変えず、発光用の画像にだけ指定された強さを適用する。
+        data.color.x *= particle.bloomStrength;
+        data.color.y *= particle.bloomStrength;
+        data.color.z *= particle.bloomStrength;
+    }
+    bloomParticleData_[index] = data;
 }
 
 // GPU Particle 用 Resource と View を作る

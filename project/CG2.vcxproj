@@ -180,6 +180,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="engine\particle\Cylinder.cpp" />
     <ClCompile Include="engine\base\renderTexture\RenderTexture.cpp" />
     <ClCompile Include="engine\base\offscreen\OffscreenRenderer.cpp" />
+    <ClCompile Include="engine\base\offscreen\Bloom.cpp" />
     <ClCompile Include="engine\base\offscreen\ScreenShatter.cpp" />
     <ClCompile Include="engine\particle\Ring.cpp" />
     <ClCompile Include="engine\3d\obj3d\Line3DCommon.cpp" />
@@ -276,6 +277,18 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="Resources\shaders\BloomExtract.PS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Resources\shaders\BloomBlur.PS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
+    </FxCompile>
+    <FxCompile Include="Resources\shaders\BloomComposite.PS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <ShaderModel>5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="Resources\shaders\Grayscale.PS.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
@@ -418,6 +431,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\particle\Cylinder.h" />
     <ClInclude Include="engine\base\renderTexture\RenderTexture.h" />
     <ClInclude Include="engine\base\offscreen\OffscreenRenderer.h" />
+    <ClInclude Include="engine\base\offscreen\Bloom.h" />
     <ClInclude Include="engine\base\offscreen\ScreenShatter.h" />
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
@@ -448,6 +462,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\particle\Particle.h" />
     <ClInclude Include="engine\particle\ParticleCommon.h" />
     <ClInclude Include="game\player\Player.h" />
+    <ClInclude Include="game\player\PlayerMuzzle.h" />
+    <ClInclude Include="game\player\ShootingBloom.h" />
     <ClInclude Include="scene\SceneContext.h" />
     <ClInclude Include="scene\SceneManager.h" />
     <ClInclude Include="engine\audio\SoundManager.h" />
@@ -471,6 +487,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
+    <None Include="Resources\shaders\Bloom.hlsli" />
     <None Include="Resources\shaders\ScreenShatter.VS.hlsl" />
     <None Include="Resources\shaders\ScreenShatter.PS.hlsl" />
     <None Include="Resources\shaders\Particle.hlsli" />

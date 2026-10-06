@@ -81,7 +81,7 @@ void ResultScene::Initialize() {
     if (GetContext().offscreenRenderer) {
         // 本編の死亡時の白黒や構え演出を持ち越さない
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-        for (int effect = 0; effect <= static_cast<int>(PostEffectType::DepthOutline); ++effect) {
+        for (int effect = 0; effect < static_cast<int>(PostEffectType::Count); ++effect) {
             GetContext().offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
         }
         GetContext().offscreenRenderer->StopShockwave();

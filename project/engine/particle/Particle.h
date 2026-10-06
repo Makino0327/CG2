@@ -132,6 +132,10 @@ public:
 
     // パーティクルを描画する
     void Draw();
+    // 個別に発光を指定した手動パーティクルだけを、Bloom用画像へ描画する。
+    void DrawBloom();
+    // 軌跡の区間が画面の外側にあるかを調べ、見えない弾で粒子の枠を消費しないようにする。
+    bool IsSegmentVisible(const Vector3& start, const Vector3& end) const;
 
     // ImGui の編集UIを表示する
     void ShowImGui(const char* windowName);
@@ -150,7 +154,8 @@ public:
         const Vector3& scale,
         const Vector3& velocity,
         const Vector4& color,
-        float lifeTime);
+        float lifeTime,
+        float bloomStrength = 0.0f); // 省略時は発光しない。正の値でBloomの強さを指定する。
 
     // 初期化後にプリセットを切り替える
     void ApplyPreset(ParticleType type);
@@ -177,6 +182,7 @@ private:
 
         // 現在使用中か
         bool isAlive = false;
+        float bloomStrength = 0.0f; // このパーティクルだけの発光の強さ。
     };
 
     DirectXCommon* dxCommon_ = nullptr;
@@ -202,6 +208,12 @@ private:
 
     // 手動パーティクル用SRVのGPUハンドル
     D3D12_GPU_DESCRIPTOR_HANDLE manualParticleSrvHandleGPU_{};
+
+    // 通常画面と色データを分け、指定した粒子だけを発光用に保持する。
+    Microsoft::WRL::ComPtr<ID3D12Resource> bloomParticleResource_;
+    ParticleCS* bloomParticleData_ = nullptr;
+    D3D12_GPU_DESCRIPTOR_HANDLE bloomParticleSrvHandleGPU_{};
+    uint32_t bloomParticleCount_ = 0;
 
     // 手動生成したパーティクル一覧
     ManualParticle manualParticles_[kNumInstance]{};
@@ -295,6 +307,9 @@ private:
 
     // 手動パーティクル用StructuredBufferを作る
     void InitializeManualParticleResource();
+    // 発光する粒子が初めて出る時だけ、追加の画像入力用バッファを確保する。
+    void InitializeBloomParticleResource();
+    void WriteBloomParticle(uint32_t index);
 
     // 手動生成したパーティクルを更新する
     void UpdateManualParticles(float deltaTime);

@@ -37,6 +37,11 @@ void SceneManager::Draw()
     }
 }
 
+void SceneManager::DrawBloom()
+{
+    if (scene_) { scene_->DrawBloom(); }
+}
+
 void SceneManager::DrawOverlay()
 {
     // 通常の描画と同じシーンへ、前面UIの描画を渡す

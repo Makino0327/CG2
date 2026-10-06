@@ -15,12 +15,17 @@
 #include "../../game/camera/Camera.h"
 #include "../../game/enemy/Enemy.h"
 #include "../../game/player/PlayerBullet.h"
+#include "../../game/player/PlayerMuzzle.h"
+#include "../../game/player/ShootingBloom.h"
 #include "../SceneManager.h"
 #include "../gameplay/GamePlayScene.h"
 
 namespace {
     // プレイヤーの位置と、武器を切り替える時間（60FPSで6秒）
     constexpr Vector3 kPlayerPosition{ 0.0f, 1.0f, 0.0f };
+    // 描画と銃口の座標変換で、同じ大きさと足元補正を使う。
+    constexpr Vector3 kPlayerScale{ 2.4f, 2.4f, 2.4f };
+    constexpr Vector3 kPlayerModelOffset{ 0.0f, 2.0f / 3.0f - 1.0f / kPlayerScale.y, 0.0f };
     constexpr int kWeaponDuration = 360;
     constexpr float kPi = 3.14159265f;
     // 横長のロゴの下へ、余白を取って文字だけのメニューを並べる
@@ -103,8 +108,6 @@ namespace {
 
     // 本編Playerと同じ射撃パラメータ
     constexpr float kBulletSpeed = 1.4f;
-    constexpr float kBulletSpawnHeight = 0.7f;
-    constexpr float kBulletMuzzleDistance = 1.6f;
     constexpr int kAssaultFireInterval = 6;
     constexpr float kAssaultSpreadIncrease = 0.008f;
     constexpr float kAssaultMaxSpreadAngle = 0.08f;
@@ -198,9 +201,11 @@ void TitleScene::Initialize() {
     if (GetContext().offscreenRenderer) {
         // 前のシーンの死亡・構え演出をタイトルへ持ち越さない
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-        for (int effect = 0; effect <= static_cast<int>(PostEffectType::DepthOutline); ++effect) {
+        for (int effect = 0; effect < static_cast<int>(PostEffectType::Count); ++effect) {
             GetContext().offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);
         }
+        // 背景の弾と発射炎を光らせる。ロゴやメニューはこの処理の後に描画する。
+        GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);
         // 本編と同じ銃の衝撃波サイズにする
         GetContext().offscreenRenderer->SetShockwaveMaxRadius(0.10f);
     }
@@ -208,9 +213,11 @@ void TitleScene::Initialize() {
     // 本編と同じモデルを使い、見た目の雰囲気をつなげる
     auto models = ModelManager::GetInstance();
     // plane.obj はパーティクルの板ポリに使うので必ず読み込む(無いとエフェクトが描画されない)
-    for (const char* model : { "cube.obj", "plane.obj", "player/player.obj", "enemy/enemy.obj", "bullet/bullet.obj" }) {
+    for (const char* model : { "cube.obj", "plane.obj", "player_modular/Swat.gltf", "enemy/enemy.obj", "bullet/bullet.obj" }) {
         models->LoadModel(model);
     }
+    // マーカーだけは別のモデルとして保持し、共有マテリアルの赤が床へ反映されるのを防ぐ。
+    models->LoadModel("./cube.obj");
     originalCubeTextureIndex_ = models->FindModel("cube.obj")->GetModelData().material.textureIndex;
     directionalLightResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(DirectionalLight));
     DirectionalLight* light = nullptr;
@@ -222,9 +229,22 @@ void TitleScene::Initialize() {
     // 本編(testScene.json の Floor)と同じ床: cube.obj を (0,-1,0) に 50x1x50 で置く。上面は y=0
     scenery_.push_back(CreateObject("cube.obj", { 0.0f,-1.0f,0.0f }, { 50.0f,1.0f,50.0f }, { 1,1,1,1 }));
     scenery_.back()->SetLightingType(LightingType::HalfLambert);
-    // プレイヤーも本編と同じ色・ライティングにする
-    playerObject_ = CreateObject("player/player.obj", kPlayerPosition, { 1,1,1 }, { 1,1,1,1 });
+    // 本編と同じプレイヤーモデルを、同じ大きさ・色・ライティングで表示する。
+    playerObject_ = CreateObject("player_modular/Swat.gltf", kPlayerPosition, kPlayerScale, { 1,1,1,1 });
     playerObject_->SetLightingType(LightingType::HalfLambert);
+    // 骨のデバッグ表示を非表示にする。
+    playerObject_->SetSkeletonVisible(false);
+    // 本編と同じ補正を使い、足元を床の高さに合わせる。
+    playerObject_->SetModelOffset(kPlayerModelOffset);
+    // 本編の両手構えモーションを読み込み、タイトルでも銃を構える。
+    playerObject_->ResetSkeletonPose();
+    playerObject_->SetAnimation(LoadAnimationFile("Resources/player_modular", "SwatTwoHand.gltf", 0));
+    playerObject_->ResetAnimationTime();
+    playerObject_->SetIsAnimationPlaying(true);
+    playerObject_->Update();
+    // 弾と同じ位置に小さな赤い印を置き、銃口との一致を確認できるようにする。
+    showMuzzleMarker_ = true;
+    muzzleMarker_ = CreateObject("./cube.obj", GetMuzzlePosition(), { 0.025f,0.025f,0.025f }, { 1,0,0,1 });
 
     // 本編の Floor と同じ床コライダー。敵の接地と破片の着地に使う
     floorColliders_.clear();
@@ -372,6 +392,11 @@ void TitleScene::SpawnEnemy(float radius) {
     enemies_.push_back(std::move(enemy));
 }
 
+Vector3 TitleScene::GetMuzzlePosition() const {
+    // 本編のプレイヤーと同じ、銃口の実頂点を使う計算にそろえる。
+    return GetPlayerMuzzlePosition(*playerObject_);
+}
+
 void TitleScene::FireWeapon(const Vector3& direction) {
     // 本編と同じ発射処理を武器ごとに呼び分ける
     if (weapon_ == DemoWeapon::Shotgun) {
@@ -388,7 +413,7 @@ void TitleScene::FireWeapon(const Vector3& direction) {
 }
 
 void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
-    // Player::FireBulletと同じ位置・弾速・ばらけ方で1発撃つ
+    // 本編と同じ弾速・ばらけ方で、描画中の銃口から1発撃つ。
     Vector3 direction = baseDirection;
     if (spreadAngle > 0.0f) {
         const float angle = std::uniform_real_distribution<float>(-spreadAngle,spreadAngle)(randomEngine_);
@@ -396,14 +421,13 @@ void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
         const float s = std::sin(angle);
         direction = Normalize(Vector3{ direction.x*c-direction.z*s,direction.y,direction.x*s+direction.z*c });
     }
-    Vector3 firePosition{ kPlayerPosition.x,kPlayerPosition.y+kBulletSpawnHeight,kPlayerPosition.z };
-    firePosition.x += direction.x*kBulletMuzzleDistance;
-    firePosition.z += direction.z*kBulletMuzzleDistance;
+    // 散らばりは方向だけに付け、発射位置を銃口からずらさない。
+    const Vector3 firePosition = GetMuzzlePosition();
 
     auto bullet = std::make_unique<PlayerBullet>();
     bullet->Initialize(GetContext().object3dCommon, firePosition,
         { direction.x*kBulletSpeed,direction.y*kBulletSpeed,direction.z*kBulletSpeed },
-        nullptr, particleSystem_.get());
+        nullptr, particleSystem_.get(), kEnemyHeight);
     bullets_.push_back(std::move(bullet));
 
     StartShockwave(firePosition);
@@ -412,11 +436,11 @@ void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
 
 void TitleScene::FireShotgun(const Vector3& baseDirection) {
     // Player::FireShotgunと同じ5発の扇状散弾
-    const Vector3 firePosition{ kPlayerPosition.x,kPlayerPosition.y+kBulletSpawnHeight,kPlayerPosition.z };
+    // 散弾も発射炎も、同じ銃口の位置を使う。
+    const Vector3 firePosition = GetMuzzlePosition();
     const float centerIndex = static_cast<float>(kShotgunPelletCount-1)*0.5f;
     const float angleStep = kShotgunSpreadAngle/static_cast<float>(kShotgunPelletCount-1);
     std::uniform_real_distribution<float> randomAngle(-kShotgunRandomSpreadAngle,kShotgunRandomSpreadAngle);
-    std::uniform_real_distribution<float> randomSide(-0.18f,0.18f);
     std::uniform_real_distribution<float> randomSpeed(0.85f,1.08f);
 
     for (int index = 0; index < kShotgunPelletCount; ++index) {
@@ -425,45 +449,38 @@ void TitleScene::FireShotgun(const Vector3& baseDirection) {
         const float s = std::sin(angle);
         const Vector3 dir = Normalize(Vector3{
             baseDirection.x*c-baseDirection.z*s,baseDirection.y,baseDirection.x*s+baseDirection.z*c });
-        const Vector3 side{ -dir.z,0.0f,dir.x };
-        const float sideOffset = randomSide(randomEngine_);
-        const Vector3 pelletPosition{
-            firePosition.x+dir.x*kBulletMuzzleDistance+side.x*sideOffset,
-            firePosition.y,
-            firePosition.z+dir.z*kBulletMuzzleDistance+side.z*sideOffset };
+        // 全ての散弾を銃口から出し、扇状の広がりは進行方向だけで表現する。
+        const Vector3 pelletPosition = firePosition;
         const float speed = kBulletSpeed*randomSpeed(randomEngine_);
 
         auto bullet = std::make_unique<PlayerBullet>();
         bullet->Initialize(GetContext().object3dCommon, pelletPosition,
-            { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get());
+            { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get(), kEnemyHeight);
         bullets_.push_back(std::move(bullet));
     }
     // 衝撃波と発射炎は他の銃と同じく銃口の位置から出す
-    const Vector3 muzzlePosition{
-        firePosition.x+baseDirection.x*kBulletMuzzleDistance,
-        firePosition.y,
-        firePosition.z+baseDirection.z*kBulletMuzzleDistance };
     // ショットガン全体で1つの衝撃波だけ出す
-    StartShockwave(muzzlePosition);
-    EmitMuzzleFlash(muzzlePosition, baseDirection, true);
+    StartShockwave(firePosition);
+    EmitMuzzleFlash(firePosition, baseDirection, true);
 }
 
 void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun) {
     // 本編のPlayerと同じ発射炎
     if (!particleSystem_) { return; }
     if (isShotgun) {
-        particleSystem_->Emit(firePosition, { 1.8f,1.8f,1.8f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f }, 0.14f);
-        particleSystem_->Emit(firePosition, { 0.75f,0.75f,0.75f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f }, 0.08f);
+        particleSystem_->Emit(firePosition, { 1.8f,1.8f,1.8f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f }, 0.14f, ShootingBloom::muzzleFlashStrength);
+        particleSystem_->Emit(firePosition, { 0.75f,0.75f,0.75f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f }, 0.08f, ShootingBloom::muzzleFlashStrength);
         return;
     }
-    particleSystem_->Emit(firePosition, { 1.2f,1.2f,1.2f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f }, 0.16f);
-    particleSystem_->Emit(firePosition, { 0.68f,0.68f,0.68f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f }, 0.11f);
-    particleSystem_->Emit(firePosition, { 0.30f,0.30f,0.30f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f }, 0.075f);
+    // 発射炎には発光の強さを明示し、他のエフェクトは省略時のOFFを使う。
+    particleSystem_->Emit(firePosition, { 1.2f,1.2f,1.2f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f }, 0.16f, ShootingBloom::muzzleFlashStrength);
+    particleSystem_->Emit(firePosition, { 0.68f,0.68f,0.68f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f }, 0.11f, ShootingBloom::muzzleFlashStrength);
+    particleSystem_->Emit(firePosition, { 0.30f,0.30f,0.30f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f }, 0.075f, ShootingBloom::muzzleFlashStrength);
     const Vector3 side{ -direction.z,0.0f,direction.x };
     particleSystem_->Emit({ firePosition.x+side.x*0.30f,firePosition.y,firePosition.z+side.z*0.30f },
-        { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f);
+        { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f, ShootingBloom::muzzleFlashStrength);
     particleSystem_->Emit({ firePosition.x-side.x*0.30f,firePosition.y,firePosition.z-side.z*0.30f },
-        { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f);
+        { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f, ShootingBloom::muzzleFlashStrength);
 }
 
 void TitleScene::StartShockwave(const Vector3& firePosition) {
@@ -532,6 +549,8 @@ void TitleScene::ResolveEnemyOverlap() {
 }
 
 void TitleScene::UpdateDemo() {
+    // 確認が終わったらMキーで赤い印を隠せるようにする。
+    if (GetContext().input->TriggerKey(DIK_M)) { showMuzzleMarker_ = !showMuzzleMarker_; }
     // 武器は6秒ごとに循環し、切り替え後はすぐ撃てるようにする
     if (++weaponTimer_ >= kWeaponDuration) {
         weaponTimer_ = 0;
@@ -573,6 +592,9 @@ void TitleScene::UpdateDemo() {
         if (distance < nearestDistance) { nearestDistance = distance; nearest = enemy.get(); }
     }
     if (fireTimer_ > 0) { --fireTimer_; }
+    // 最新の構え姿勢から発射できるよう、まず発射要求と狙う位置だけを保存する。
+    bool fireRequested = false;
+    Vector3 fireTarget{};
     if (nearest && nearestDistance > 0.0001f) {
         const Vector3 p = nearest->GetWorldPosition();
         const Vector3 direction{ p.x/nearestDistance,0.0f,p.z/nearestDistance };
@@ -584,7 +606,8 @@ void TitleScene::UpdateDemo() {
         // 十分に向き直ってから、今向いている方向へ撃つ
         const float fireRange = weapon_ == DemoWeapon::Shotgun ? 10.0f : 14.0f;
         if (fireTimer_ <= 0 && nearestDistance <= fireRange && std::fabs(diff) <= kFireAngleTolerance) {
-            FireWeapon({ std::sin(playerYaw_),0.0f,std::cos(playerYaw_) });
+            fireRequested = true;
+            fireTarget = nearest->GetCollider().center;
         }
     } else {
         assaultContinuousShotCount_ = 0;
@@ -594,6 +617,17 @@ void TitleScene::UpdateDemo() {
     playerObject_->SetTranslate(kPlayerPosition);
     playerObject_->SetRotate({ 0,playerYaw_,0 });
     playerObject_->Update();
+    // 印と弾は同じ関数で位置を求め、回転や構えが変わってもずれないようにする。
+    muzzleMarker_->SetTranslate(GetMuzzlePosition());
+    muzzleMarker_->Update();
+
+    if (fireRequested) {
+        // 銃口が敵より高いため、銃口から敵の当たり判定の中心へ向けて撃つ。
+        const Vector3 muzzle = GetMuzzlePosition();
+        FireWeapon(Normalize(Vector3{
+            fireTarget.x-muzzle.x, fireTarget.y-muzzle.y, fireTarget.z-muzzle.z
+        }));
+    }
 
     // 弾は本編のPlayerBullet::Updateで進め、軌跡パーティクルも本編と同じにする
     for (auto& bullet : bullets_) { bullet->Update(); }
@@ -634,14 +668,36 @@ void TitleScene::Draw() {
     // 敵は生存中は本体、撃破後は破片を描画する(本編と同じ)
     for (auto& enemy : enemies_) { enemy->Draw(); }
     playerObject_->Draw();
-    // 本編と同じく血しぶきを先に、発光する弾の軌跡を後に描く
-    bloodParticleSystem_->Draw();
-    particleSystem_->Draw();
+    // 開始演出用の画像に、銃口の印や止まったエフェクトを写さない。
+    if (!isStarting_) {
+        if (showMuzzleMarker_) {
+            muzzleMarker_->Draw();
+        }
+
+        // 通常のタイトル表示中だけ、血しぶきと銃のエフェクトを描く。
+        bloodParticleSystem_->Draw();
+        particleSystem_->Draw();
+    }
 
     // 開始時は波動を停止済みなので、文字も一緒に保存して画面を割る
     // オフスクリーン描画を使わない場合も、ここでUIを表示する
     if (isStarting_ || !GetContext().offscreenRenderer) {
         DrawTitleUi();
+    }
+}
+
+void TitleScene::DrawBloom() {
+    // 開始演出中と終了後の黒画面には、背景のエフェクトの光を重ねない。
+    if (isStarting_) {
+        return;
+    }
+
+    // 通常のタイトル表示中だけ、粒子の発光を描く。
+    if (particleSystem_) {
+        particleSystem_->DrawBloom();
+    }
+    if (bloodParticleSystem_) {
+        bloodParticleSystem_->DrawBloom();
     }
 }
 
@@ -684,6 +740,7 @@ void TitleScene::Finalize() {
     enemies_.clear();
     floorColliders_.clear();
     playerObject_.reset();
+    muzzleMarker_.reset();
     scenery_.clear();
     particleSystem_.reset();
     bloodParticleSystem_.reset();

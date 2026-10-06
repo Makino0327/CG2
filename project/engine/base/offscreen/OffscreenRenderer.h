@@ -5,6 +5,7 @@
 #include "../renderTexture/RenderTexture.h"
 #include <array>
 #include "ScreenShatter.h"
+#include "Bloom.h"
 
 enum class PostEffectType {
     Copy,
@@ -18,6 +19,8 @@ enum class PostEffectType {
     RandomNoise,
     Shockwave,
     DepthOutline,
+    Bloom,
+    Count, // ポストエフェクトの配列サイズに使う。
 };
 
 class OffscreenRenderer {
@@ -25,6 +28,9 @@ public:
     void Initialize(DirectXCommon* dxCommon, SrvManager* srvManager);
 
     void PreDrawScene();
+    // 発光を指定した対象だけを描く画像へ切り替える。深度は通常画面のものを使う。
+    void BeginBloomMask();
+    bool IsBloomEnabled() const { return IsPostEffectEnabled(PostEffectType::Bloom) || postEffectType_ == PostEffectType::Bloom; }
     void DrawToBackBuffer();
 
     // シーンを切り替えても、保存したタイトルの破片を最後まで描画する。
@@ -150,7 +156,12 @@ private:
 
     std::unique_ptr<RenderTexture> renderTexture_;
     std::unique_ptr<ScreenShatter> screenShatter_;
+    std::unique_ptr<Bloom> bloom_; // 明るい弾と発射炎から光を広げる。
+    std::unique_ptr<RenderTexture> bloomEmissionTexture_; // 指定した対象の光だけを保持する。
     std::unique_ptr<RenderTexture> workRenderTexture_; // 複数のポストエフェクトを順番にかけるための作業用テクスチャ
+    // 最後の加工結果を保存し、通常画面とデバッグのGame Viewへ同じ画像を表示する。
+    std::unique_ptr<RenderTexture> processedRenderTexture_;
+    D3D12_RESOURCE_STATES processedTextureState_ = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 
@@ -175,7 +186,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> shockwavePipelineState_;
 
     PostEffectType postEffectType_ = PostEffectType::Copy;
-    std::array<bool, static_cast<size_t>(PostEffectType::DepthOutline) + 1> enabledPostEffects_{}; // 同時に有効化するポストエフェクト一覧
+    std::array<bool, static_cast<size_t>(PostEffectType::Count)> enabledPostEffects_{}; // 同時に有効化するポストエフェクト一覧
 
     uint32_t depthSrvIndex_ = 0; // // DepthTextureを読むためのSRV番号
     Microsoft::WRL::ComPtr<ID3D12Resource> outlineParameterResource_; // // Outline用定数バッファ

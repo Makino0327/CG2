@@ -46,6 +46,7 @@ public:
     void Initialize() override;
     void Update() override;
     void Draw() override;
+    void DrawBloom() override;
     void Finalize() override;
     void DrawImGui() override;
 

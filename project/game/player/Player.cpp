@@ -1,4 +1,6 @@
 #include "Player.h"
+#include "PlayerMuzzle.h"
+#include "ShootingBloom.h"
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
 #include <cmath>
@@ -137,10 +139,6 @@ void Player::UpdateAnimation(const Vector3& movement, bool isAiming)
     const bool usesAimingPose = isAiming && !isReloading_;
     object_->SetAnimationParentCorrectionEnabled(usesAimingPose);
     const bool moving = movement.x * movement.x + movement.z * movement.z > 0.000001f;
-    if (firedThisFrame_ && isAiming && !isReloading_) {
-        // 実際の発砲時だけ反動を重ねる。連射しても足の動作を先頭に戻さない。
-        object_->PlayAnimationOverlay(shootingOverlay_);
-    }
     if (!isAiming || isReloading_) { object_->StopAnimationOverlay(); }
     if (!moving) {
         PlayMotion(isAiming && !isReloading_ ? Motion::AimIdle : Motion::Idle);
@@ -353,6 +351,10 @@ void Player::Update(Camera* camera)
     }
     UpdateReload();
 
+    // 移動・向き・構えの骨を先に1回更新し、描画中の銃口から弾を出せるようにする。
+    UpdateAnimation({ pos.x - prevPos_.x, 0.0f, pos.z - prevPos_.z }, isAimingGun);
+    object_->Update();
+
     // ハンドガンは左クリックした瞬間に1発撃つ
     if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
@@ -395,9 +397,10 @@ void Player::Update(Camera* camera)
         ThrowGrenade(camera);
     }
 
-    // 衝突解決後の移動量と発砲結果でモーションを決め、骨を1回更新する。
-    UpdateAnimation({ pos.x - prevPos_.x, 0.0f, pos.z - prevPos_.z }, isAimingGun);
-    object_->Update();
+    if (firedThisFrame_ && isAimingGun && !isReloading_) {
+        // 発射後に反動を開始する。次の骨更新で再生し、このフレームの銃口と弾を一致させる。
+        object_->PlayAnimationOverlay(shootingOverlay_);
+    }
 
     // 弾とグレネードを更新する
     UpdateBullets();
@@ -782,21 +785,16 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
         return false;
     }
 
-    // プレイヤーの位置を取る
-    Vector3 playerPosition = object_->GetTranslate();
+    // タイトルと同じ銃口の10頂点から、弾と発射炎の位置を求める。
+    const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
-    // プレイヤー位置から少し上に出す
-    Vector3 firePosition = {
-        playerPosition.x,
-        playerPosition.y + bulletSpawnHeight_,
-        playerPosition.z
-    };
-
-    // マウス方向への発射方向を計算する
-    Vector3 direction = PlayerBullet::CalcDirectionToMouseGround(
+    // 銃口から発射し、中心付近を狙った時は目標位置を前方へ補正する。
+    Vector3 direction = PlayerBullet::CalcDirectionToMouseAtHeight(
         firePosition,
+        object_->GetTranslate(),
         camera,
-        input_);
+        input_,
+        object_->GetTranslate().y + bulletAimHeight_);
 
     // 発射方向が取れない時は弾を減らさず撃たない
     if (direction.x == 0.0f && direction.z == 0.0f) {
@@ -829,10 +827,6 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
     // 銃声を発生させたことをシーンへ伝える
     firedThisFrame_ = true;
 
-    // 弾と発射エフェクトを銃口側へ移動する
-    firePosition.x += direction.x * bulletMuzzleDistance_;
-    firePosition.z += direction.z * bulletMuzzleDistance_;
-
     // 発射速度を作る
     Vector3 velocity = {
         direction.x * bulletSpeed_,
@@ -849,7 +843,8 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
         firePosition,
         velocity,
         wallColliders_,
-        particleSystem_);
+        particleSystem_,
+        object_->GetTranslate().y + bulletAimHeight_);
 
     // 弾の発射位置をScene側へ渡して画面歪みの中心に使う
     pendingBulletShockwavePositions_.push_back(firePosition);
@@ -861,7 +856,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
             { 1.2f, 1.2f, 1.2f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.34f, 0.05f, 0.38f },
-            0.16f);
+            0.16f, ShootingBloom::muzzleFlashStrength);
 
         // 発射口の中央へ黄色い強い光を重ねる
         particleSystem_->Emit(
@@ -869,7 +864,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
             { 0.68f, 0.68f, 0.68f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.72f, 0.22f, 0.9f },
-            0.11f);
+            0.11f, ShootingBloom::muzzleFlashStrength);
 
         // 最も明るい白い中心を重ねる
         particleSystem_->Emit(
@@ -877,7 +872,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
             { 0.30f, 0.30f, 0.30f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.95f, 0.72f, 1.0f },
-            0.075f);
+            0.075f, ShootingBloom::muzzleFlashStrength);
 
         // 発射方向に対して左右へ小さな火花を配置する
         Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
@@ -897,14 +892,14 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
             { 0.18f, 0.18f, 0.18f },
             { sideDirection.x * 0.6f, 0.0f, sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.08f);
+            0.08f, ShootingBloom::muzzleFlashStrength);
 
         particleSystem_->Emit(
             rightFlashPosition,
             { 0.18f, 0.18f, 0.18f },
             { -sideDirection.x * 0.6f, 0.0f, -sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.08f);
+            0.08f, ShootingBloom::muzzleFlashStrength);
     }
 
     // 弾をリストに追加する
@@ -929,17 +924,16 @@ bool Player::FireShotgun(Camera* camera)
         return false;
     }
 
-    Vector3 playerPosition = object_->GetTranslate();
-    Vector3 firePosition = {
-        playerPosition.x,
-        playerPosition.y + bulletSpawnHeight_,
-        playerPosition.z
-    };
+    // 全ての散弾と発射炎を、同じ銃口の実頂点の位置から出す。
+    const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
-    Vector3 baseDirection = PlayerBullet::CalcDirectionToMouseGround(
+    // 散弾の中心方向にも、通常弾と同じ近距離の補正を使う。
+    Vector3 baseDirection = PlayerBullet::CalcDirectionToMouseAtHeight(
         firePosition,
+        object_->GetTranslate(),
         camera,
-        input_);
+        input_,
+        object_->GetTranslate().y + bulletAimHeight_);
 
     // マウス方向が取れない場合は弾を消費しない
     if (baseDirection.x == 0.0f && baseDirection.z == 0.0f) {
@@ -961,7 +955,6 @@ bool Player::FireShotgun(Camera* camera)
     std::uniform_real_distribution<float> randomAngleDistribution(
         -shotgunRandomSpreadAngle_,
         shotgunRandomSpreadAngle_);
-    std::uniform_real_distribution<float> randomSideDistribution(-0.18f, 0.18f);
     std::uniform_real_distribution<float> randomSpeedDistribution(
         shotgunMinSpeedScale_,
         shotgunMaxSpeedScale_);
@@ -980,14 +973,8 @@ bool Player::FireShotgun(Camera* camera)
             baseDirection.x * sinAngle + baseDirection.z * cosAngle
         });
 
-        Vector3 sideDirection = { -pelletDirection.z, 0.0f, pelletDirection.x };
-        const float sideOffset = randomSideDistribution(randomEngine);
-
-        Vector3 pelletPosition = {
-            firePosition.x + pelletDirection.x * bulletMuzzleDistance_ + sideDirection.x * sideOffset,
-            firePosition.y,
-            firePosition.z + pelletDirection.z * bulletMuzzleDistance_ + sideDirection.z * sideOffset
-        };
+        // 発射位置を散らさず、進行方向と速度だけで散弾の広がりを表現する。
+        const Vector3 pelletPosition = firePosition;
 
         const float speedScale = randomSpeedDistribution(randomEngine);
         Vector3 velocity = {
@@ -1002,16 +989,13 @@ bool Player::FireShotgun(Camera* camera)
             pelletPosition,
             velocity,
             wallColliders_,
-            particleSystem_);
+            particleSystem_,
+            object_->GetTranslate().y + bulletAimHeight_);
 
         bullets_.push_back(std::move(bullet));
     }
 
-    // 衝撃波と発射炎はピストル・アサルトライフルと同じく銃口の位置から出す
-    firePosition.x += baseDirection.x * bulletMuzzleDistance_;
-    firePosition.z += baseDirection.z * bulletMuzzleDistance_;
-
-    // ショットガン全体で1つの衝撃波だけ出す
+    // ショットガン全体で、銃口の位置から1つの衝撃波だけ出す。
     pendingBulletShockwavePositions_.push_back(firePosition);
 
     if (particleSystem_) {
@@ -1021,7 +1005,7 @@ bool Player::FireShotgun(Camera* camera)
             { 1.8f, 1.8f, 1.8f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.38f, 0.06f, 0.48f },
-            0.14f);
+            0.14f, ShootingBloom::muzzleFlashStrength);
 
         // 中心に短い白い閃光を重ねる
         particleSystem_->Emit(
@@ -1029,7 +1013,7 @@ bool Player::FireShotgun(Camera* camera)
             { 0.75f, 0.75f, 0.75f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.92f, 0.58f, 0.9f },
-            0.08f);
+            0.08f, ShootingBloom::muzzleFlashStrength);
     }
 
     return true;
