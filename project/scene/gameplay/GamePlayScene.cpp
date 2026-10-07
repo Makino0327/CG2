@@ -535,7 +535,7 @@ void GamePlayScene::Initialize()
 
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-        // 本編でも、弾の軌跡と銃口の発射炎へBloomをかける。
+        // 本編では銃口の短い発射炎を中心にBloomをかける。
         GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);
         // タイトルの衝撃波を本編へ持ち越さない
         GetContext().offscreenRenderer->StopShockwave();
@@ -871,6 +871,13 @@ void GamePlayScene::Draw()
     assert(GetContext().spriteCommon);
     assert(GetContext().object3dCommon);
     assert(GetContext().particleCommon);
+
+    // 描画直前に銃口の光を設定し、床や壁にも一瞬だけ暖かい光を当てる。
+    if (player_) {
+        GetContext().object3dCommon->SetMuzzleLight(
+            player_->GetMuzzleLightPosition(), { 1.0f, 0.65f, 0.30f },
+            ShootingBloom::muzzleLightRadius, player_->GetMuzzleLightIntensity());
+    }
 
     ID3D12GraphicsCommandList* commandList = GetContext().dxCommon->GetCommandList();
     assert(commandList);
@@ -2231,6 +2238,10 @@ void GamePlayScene::DrawImGui()
     ImGui::Begin("Shooting Bloom");
     ImGui::SliderFloat("Bullet Trail", &ShootingBloom::bulletTrailStrength, 0.0f, 3.0f);
     ImGui::SliderFloat("Muzzle Flash", &ShootingBloom::muzzleFlashStrength, 0.0f, 3.0f);
+    // 発射炎のBloomとは別に、周囲へ当たる実際のライトを調整する。
+    ImGui::SliderFloat("Muzzle Light Intensity", &ShootingBloom::muzzleLightIntensity, 0.0f, 20.0f);
+    ImGui::SliderFloat("Muzzle Light Radius", &ShootingBloom::muzzleLightRadius, 1.0f, 10.0f);
+    ImGui::Checkbox("Preview Muzzle Light", &ShootingBloom::previewMuzzleLight);
     ImGui::End();
 #endif
 }

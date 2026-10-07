@@ -51,7 +51,7 @@ public:
 private:
     static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
 
-    // 1フレームの移動区間へ多層の発光粒子を並べる
+    // 1フレームの移動区間へ、少し小さくした多層の発光粒子を並べる。
     void EmitTrail(const Vector3& start, const Vector3& end);
 
     // 弾の周囲へ短時間で消える火花を生成する

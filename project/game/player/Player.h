@@ -100,6 +100,10 @@ public:
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
 
+    // Sceneへ銃口の短い発射光の位置と強度を渡す。
+    const Vector3& GetMuzzleLightPosition() const { return muzzleLightPosition_; }
+    float GetMuzzleLightIntensity() const;
+
     // 銃声が敵に届く範囲の半径を返す
     float GetGunshotSoundRange() const { return gunshotSoundRange_; }
 
@@ -175,6 +179,27 @@ private:
 
     // 弾を更新する
     void UpdateBullets();
+
+    // 薬莢の移動、回転、寿命を管理する。床で止まった後も少しだけ残す。
+    struct Casing {
+        std::unique_ptr<Object3d> object;
+        Vector3 position{};
+        Vector3 velocity{};
+        Vector3 rotation{};
+        Vector3 angularVelocity{};
+        float floorY = 0.0f;
+        int lifeFrames = 180;
+        bool resting = false;
+    };
+
+    // 発射成功時に銃の右側へ薬莢を1個排出する。
+    void EjectCasing(const Vector3& muzzlePosition, const Vector3& direction);
+
+    // 薬莢を落下させ、床で跳ねさせてから寿命切れで削除する。
+    void UpdateCasings();
+
+    // 弾の当たり判定とは分けて、演出用の薬莢を保持する。
+    std::vector<Casing> casings_;
 
     // プレイヤーの向いている方向へグレネードを投げる
     void ThrowGrenade(Camera* camera);
@@ -262,6 +287,10 @@ private:
 
     // このフレームに発砲したか
     bool firedThisFrame_ = false;
+
+    // 発射後の短い時間だけ光らせ、減衰中も実際の銃口へ追従させる。
+    Vector3 muzzleLightPosition_{};
+    int muzzleLightFrames_ = 0;
 
     // 銃声が敵に届く範囲の半径
     float gunshotSoundRange_ = 18.0f;

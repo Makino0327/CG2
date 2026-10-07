@@ -39,9 +39,8 @@ void PlayerBullet::Initialize(
     // 弾モデルを設定する
     object_->SetModel("bullet/bullet.obj");
 
-    // 大きさを設定する
-    // 弾本体を細長くして光の芯として見せる
-    object_->SetScale({ 0.30f, 0.30f, 0.30f });
+    // 弾本体は小さく細長い形にし、発射炎より目立たないようにする。
+    object_->SetScale({ 0.045f, 0.045f, 0.12f });
 
     // 細長くしたZ軸を進行方向へ向け、銃口から下向きに撃つ場合も弾と軌跡をそろえる。
     float bulletAngle = std::atan2(velocity_.x, velocity_.z);
@@ -49,9 +48,9 @@ void PlayerBullet::Initialize(
     const float bulletPitch = -std::atan2(velocity_.y, horizontalSpeed);
     object_->SetRotate({ bulletPitch, bulletAngle, 0.0f });
 
-    // ライトの影響を受けない明るい黄色にする
-    object_->SetColor({ 1.0f, 0.92f, 0.34f, 0.65f });
-    object_->SetLightingType(LightingType::None);
+    // 弾本体の金属色を少し明るくし、細い発光の芯と合わせて見やすくする。
+    object_->SetColor({ 0.85f, 0.68f, 0.35f, 1.0f });
+    object_->SetLightingType(LightingType::HalfLambert);
 
     // 位置を設定する
     object_->SetTranslate(position_);
@@ -77,7 +76,7 @@ void PlayerBullet::Update()
         velocity_ = { horizontal.x*speed,0.0f,horizontal.z*speed };
     }
 
-    // 点状の火花を重ねず、移動区間へ連続した発光軌跡だけを作る
+    // 移動区間へ、ごく短く薄い軌跡を作る。
     EmitTrail(previousPosition, position_);
 
     // Blender JSON の壁コライダーに入ったら弾を消す
@@ -176,8 +175,7 @@ void PlayerBullet::Draw()
         return;
     }
 
-    // 弾を描画する
-    //object_->Draw();
+    // 前と同じく、弾の見た目は先端の発光粒子と軌跡で表現する。
 }
 
 void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
@@ -188,7 +186,9 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
 
     // 距離に応じて粒子数を決め、短い区間へ大量の粒子を出して枠を使い切らないようにする。
     // 白い芯は全ての点へ出し、最も速い散弾でも点の間隔を一定以下に保つ。
-    constexpr float kMaxPointSpacing = 0.06f;
+    // 前の発光軌跡の色と寿命を保ち、全ての粒子を80%の大きさにする。
+    constexpr float kVisualScale = 0.80f;
+    constexpr float kMaxPointSpacing = 0.06f * kVisualScale;
     const float dx = end.x-start.x;
     const float dy = end.y-start.y;
     const float dz = end.z-start.z;
@@ -212,7 +212,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         if (index % 3 == 0) {
             particleSystem_->Emit(
                 trailPosition,
-                { 0.60f, 0.60f, 0.60f },
+                { 0.60f * kVisualScale, 0.60f * kVisualScale, 0.60f * kVisualScale },
                 { 0.0f, 0.0f, 0.0f },
                 { 1.0f, 0.45f, 0.08f, 0.08f },
                 0.06f, ShootingBloom::bulletTrailStrength);
@@ -225,7 +225,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         // 粒子を少し大きくし、密に重ねて太めの一本線に見せる
         particleSystem_->Emit(
             trailPosition,
-            { 0.30f, 0.30f, 0.30f },
+            { 0.30f * kVisualScale, 0.30f * kVisualScale, 0.30f * kVisualScale },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, trailGreen, trailBlue, 0.32f },
             0.11f, ShootingBloom::bulletTrailStrength);
@@ -233,7 +233,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         // 細く短い白黄色の芯を重ね、周囲の薄い光との明るさの差を付ける。
         particleSystem_->Emit(
             trailPosition,
-            { 0.10f, 0.10f, 0.10f },
+            { 0.10f * kVisualScale, 0.10f * kVisualScale, 0.10f * kVisualScale },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.95f, 0.72f, 0.32f },
             0.045f, ShootingBloom::bulletTrailStrength);
@@ -242,7 +242,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
     // 軌跡の先端は白黄色へ寄せ、弾の現在位置が最も明るく見えるようにする。
     particleSystem_->Emit(
         end,
-        { 0.38f, 0.38f, 0.38f },
+        { 0.38f * kVisualScale, 0.38f * kVisualScale, 0.38f * kVisualScale },
         { 0.0f, 0.0f, 0.0f },
         { 1.0f, 0.95f, 0.65f, 0.45f },
         0.045f, ShootingBloom::bulletTrailStrength);

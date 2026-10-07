@@ -1,0 +1,4 @@
+# 金色は描画側のマテリアル色で設定する。
+newmtl Brass
+Kd 1.0 1.0 1.0
+map_Kd ../white1x1.png

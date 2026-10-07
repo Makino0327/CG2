@@ -1,6 +1,7 @@
 #include "Player.h"
 #include "PlayerMuzzle.h"
 #include "ShootingBloom.h"
+#include "../../engine/3d/model/ModelManager.h" // 薬莢のモデルを読み込む。
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
 #include <cmath>
@@ -18,6 +19,11 @@ void Player::Initialize(
     particleSystem_ = particleSystem;
     // 3D描画の共通設定を保存する
     object3dCommon_ = object3dCommon;
+
+    // 円柱と底の縁を持つ薬莢モデルを読み込み、古い演出をリセットする。
+    ModelManager::GetInstance()->LoadModel("casing/casing.obj");
+    casings_.clear();
+    muzzleLightFrames_ = 0; // 初期化時に発射光を消す。
 
     // プレイヤーのモデルを作る
     object_ = std::make_unique<Object3d>();
@@ -260,6 +266,11 @@ void Player::Update(Camera* camera)
     // 発砲検知用フラグを毎フレーム下ろす
     firedThisFrame_ = false;
 
+    // 発射後の短い光を減衰させ、撃っていない時は消す。
+    if (muzzleLightFrames_ > 0) {
+        --muzzleLightFrames_;
+    }
+
     // 死亡中にRキーで復活する
         // 死亡中の復活処理はシーン側でまとめて行う
     if (isDead_) {
@@ -355,6 +366,9 @@ void Player::Update(Camera* camera)
     UpdateAnimation({ pos.x - prevPos_.x, 0.0f, pos.z - prevPos_.z }, isAimingGun);
     object_->Update();
 
+    // 常に現在の銃口を保存し、光の減衰中やデバッグ点灯中も位置を合わせる。
+    muzzleLightPosition_ = GetPlayerMuzzlePosition(*object_);
+
     // ハンドガンは左クリックした瞬間に1発撃つ
     if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
         FireBullet(camera);
@@ -406,6 +420,9 @@ void Player::Update(Camera* camera)
     UpdateBullets();
     UpdateGrenades();
 
+    // 発射後の薬莢を、重力と回転を使って更新する。
+    UpdateCasings();
+
     // 無敵時間を減らす
     if (invincibleTimer_ > 0) {
         invincibleTimer_--;
@@ -444,6 +461,11 @@ void Player::Draw()
     // プレイヤーが投げたグレネードを描画する
     for (auto& grenade : grenades_) {
         grenade->Draw();
+    }
+
+    // 排出した薬莢を通常の3Dモデルとして描画する。
+    for (const Casing& casing : casings_) {
+        casing.object->Draw();
     }
 }
 
@@ -849,30 +871,34 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
     // 弾の発射位置をScene側へ渡して画面歪みの中心に使う
     pendingBulletShockwavePositions_.push_back(firePosition);
 
+    // 発射成功時だけ銃口の光を開始し、空撃ちやリロード中は光らせない。
+    muzzleLightPosition_ = firePosition;
+    muzzleLightFrames_ = ShootingBloom::muzzleLightDurationFrames;
+
     if (particleSystem_) {
-        // 発射口の外側へ広がるオレンジ色の光を作る
+        // 発射口へ小さく短いオレンジ色の炎を重ねる。
         particleSystem_->Emit(
             firePosition,
-            { 1.2f, 1.2f, 1.2f },
+            { 0.70f, 0.70f, 0.70f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.34f, 0.05f, 0.38f },
-            0.16f, ShootingBloom::muzzleFlashStrength);
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 
         // 発射口の中央へ黄色い強い光を重ねる
         particleSystem_->Emit(
             firePosition,
-            { 0.68f, 0.68f, 0.68f },
+            { 0.40f, 0.40f, 0.40f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.72f, 0.22f, 0.9f },
-            0.11f, ShootingBloom::muzzleFlashStrength);
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 
         // 最も明るい白い中心を重ねる
         particleSystem_->Emit(
             firePosition,
-            { 0.30f, 0.30f, 0.30f },
+            { 0.20f, 0.20f, 0.20f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.95f, 0.72f, 1.0f },
-            0.075f, ShootingBloom::muzzleFlashStrength);
+            0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 
         // 発射方向に対して左右へ小さな火花を配置する
         Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
@@ -892,18 +918,21 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
             { 0.18f, 0.18f, 0.18f },
             { sideDirection.x * 0.6f, 0.0f, sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.08f, ShootingBloom::muzzleFlashStrength);
+            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 
         particleSystem_->Emit(
             rightFlashPosition,
             { 0.18f, 0.18f, 0.18f },
             { -sideDirection.x * 0.6f, 0.0f, -sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.08f, ShootingBloom::muzzleFlashStrength);
+            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
     }
 
     // 弾をリストに追加する
     bullets_.push_back(std::move(bullet));
+
+    // 通常弾とアサルトライフルは、発射した弾1発につき薬莢を1個出す。
+    EjectCasing(firePosition, direction);
     return true;
 }
 
@@ -998,25 +1027,177 @@ bool Player::FireShotgun(Camera* camera)
     // ショットガン全体で、銃口の位置から1つの衝撃波だけ出す。
     pendingBulletShockwavePositions_.push_back(firePosition);
 
+    // ショットガンも1回の発射で1つの短い発射光を作る。
+    muzzleLightPosition_ = firePosition;
+    muzzleLightFrames_ = ShootingBloom::muzzleLightDurationFrames;
+
+    // 散弾の生成ループの外で排出し、1回の発射で薬莢を1個だけ出す。
+    EjectCasing(firePosition, baseDirection);
+
     if (particleSystem_) {
         // 通常弾より大きい発射炎でショットガンらしさを出す
         particleSystem_->Emit(
             firePosition,
-            { 1.8f, 1.8f, 1.8f },
+            { 1.0f, 1.0f, 1.0f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.38f, 0.06f, 0.48f },
-            0.14f, ShootingBloom::muzzleFlashStrength);
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 
         // 中心に短い白い閃光を重ねる
         particleSystem_->Emit(
             firePosition,
-            { 0.75f, 0.75f, 0.75f },
+            { 0.50f, 0.50f, 0.50f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.92f, 0.58f, 0.9f },
-            0.08f, ShootingBloom::muzzleFlashStrength);
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
     }
 
     return true;
+}
+
+float Player::GetMuzzleLightIntensity() const
+{
+    if (isDead_) {
+        return 0.0f;
+    }
+    // 点灯プレビューでは寿命を無視し、銃口から光が当たる位置を確認する。
+    if (ShootingBloom::previewMuzzleLight) {
+        return ShootingBloom::muzzleLightIntensity;
+    }
+    // 最初の数フレームは明るさを保ち、その後急速に減衰させる。
+    const float fadeFrames = static_cast<float>(ShootingBloom::muzzleLightDurationFrames - 2);
+    const float fade = std::clamp(static_cast<float>(muzzleLightFrames_) / fadeFrames, 0.0f, 1.0f);
+    return ShootingBloom::muzzleLightIntensity * fade * fade;
+}
+
+void Player::EjectCasing(const Vector3& muzzlePosition, const Vector3& direction)
+{
+    if (!object_ || !object3dCommon_) {
+        return;
+    }
+
+    // 発射方向から銃の右方向を求める。銃口より手前を排出口として近似する。
+    const Vector3 forward = Normalize(Vector3{ direction.x, 0.0f, direction.z });
+    const Vector3 right{ forward.z, 0.0f, -forward.x };
+    static std::mt19937 randomEngine{ std::random_device{}() };
+    std::uniform_real_distribution<float> variation(0.8f, 1.2f);
+    std::uniform_real_distribution<float> spin(-0.20f, 0.20f);
+
+    // 最大80個に制限し、連射中も描画用リソースが増え続けないようにする。
+    if (casings_.size() >= 80) {
+        casings_.erase(casings_.begin());
+    }
+
+    Casing casing{};
+    casing.position = {
+        muzzlePosition.x - forward.x * 0.35f + right.x * 0.12f,
+        muzzlePosition.y - 0.05f,
+        muzzlePosition.z - forward.z * 0.35f + right.z * 0.12f
+    };
+
+    // 排出速度を抑え、右上へ少し飛ばして銃の近くへ落とす。
+    const float sideSpeed = 0.045f * variation(randomEngine);
+    casing.velocity = {
+        right.x * sideSpeed - forward.x * 0.008f,
+        0.055f * variation(randomEngine),
+        right.z * sideSpeed - forward.z * 0.008f
+    };
+    casing.rotation = { 0.4f, std::atan2(forward.x, forward.z), 0.8f };
+    casing.angularVelocity = { spin(randomEngine), spin(randomEngine), spin(randomEngine) };
+    casing.floorY = object_->GetTranslate().y - colliderRadius_;
+
+    // 金色の薬莢を、光の影響を受ける通常の3Dモデルとして作る。
+    casing.object = std::make_unique<Object3d>();
+    casing.object->Initialize(object3dCommon_);
+    casing.object->SetModel("casing/casing.obj");
+    casing.object->SetScale({ 0.065f, 0.18f, 0.065f });
+    casing.object->SetColor({ 0.90f, 0.65f, 0.23f, 1.0f });
+    casing.object->SetLightingType(LightingType::HalfLambert);
+    casing.object->SetTranslate(casing.position);
+    casing.object->SetRotate(casing.rotation);
+    casing.object->Update();
+    casings_.push_back(std::move(casing));
+}
+
+void Player::UpdateCasings()
+{
+    constexpr float kRadius = 0.0715f;
+    constexpr float kHalfLength = 0.18f;
+
+    for (Casing& casing : casings_) {
+        if (!casing.resting) {
+            const float previousY = casing.position.y;
+
+            // 重力を少し強めて、遠くへ流れる前に回転しながら落下させる。
+            casing.velocity.y -= 0.014f;
+            casing.position = Add(casing.position, casing.velocity);
+            casing.rotation = Add(casing.rotation, casing.angularVelocity);
+
+            // 排出先の床コライダーを調べ、段差のある床でも上面に着地させる。
+            float floorY = -FLT_MAX;
+            if (floorColliders_) {
+                for (const LevelColliderData& floor : *floorColliders_) {
+                    if (!floor.hasCollider || floor.type != "BOX") {
+                        continue;
+                    }
+                    if (std::abs(casing.position.x - floor.center.x) > floor.size.x * 0.5f ||
+                        std::abs(casing.position.z - floor.center.z) > floor.size.z * 0.5f) {
+                        continue;
+                    }
+                    const float topY = floor.center.y + floor.size.y * 0.5f;
+                    // 薬莢より上にある床へ飛び上がらないようにする。
+                    if (topY <= previousY + 0.01f) {
+                        floorY = (std::max)(floorY, topY);
+                    }
+                }
+            }
+            if (floorY != -FLT_MAX) {
+                casing.floorY = floorY;
+            }
+
+            // 筒の傾きから下端までの高さを求め、回転中も床へ埋まらないようにする。
+            const Matrix4x4 rotation = MakeAffineMatrix(
+                Vector3{ 1.0f, 1.0f, 1.0f }, casing.rotation, Vector3{});
+            const float axisY = std::clamp(std::abs(rotation.m[1][1]), 0.0f, 1.0f);
+            const float supportHeight = kHalfLength * axisY +
+                kRadius * std::sqrt((std::max)(0.0f, 1.0f - axisY * axisY));
+
+            if (casing.position.y <= casing.floorY + supportHeight) {
+                casing.position.y = casing.floorY + supportHeight;
+                if (casing.velocity.y < -0.04f) {
+                    // 床に当たるたびに跳ねる力、横移動、回転を弱める。
+                    casing.velocity.y *= -0.30f;
+                    casing.velocity.x *= 0.60f;
+                    casing.velocity.z *= 0.60f;
+                    casing.angularVelocity.x *= 0.55f;
+                    casing.angularVelocity.y *= 0.55f;
+                    casing.angularVelocity.z *= 0.55f;
+                } else {
+                    // 小さな跳ね返りになったら横倒しにして床へ残す。
+                    casing.resting = true;
+                    casing.velocity = {};
+                    casing.angularVelocity = {};
+                    casing.rotation.x = 1.5707963f;
+                    casing.rotation.z = 0.0f;
+                    casing.position.y = casing.floorY + kRadius;
+                }
+            }
+        }
+
+        // 最後の30フレームで薄くし、約3秒経過したら削除する。
+        --casing.lifeFrames;
+        const float alpha = std::clamp(static_cast<float>(casing.lifeFrames) / 30.0f, 0.0f, 1.0f);
+        casing.object->SetColor({ 0.90f, 0.65f, 0.23f, alpha });
+        casing.object->SetTranslate(casing.position);
+        casing.object->SetRotate(casing.rotation);
+        casing.object->Update();
+    }
+
+    // 寿命切れの薬莢を削除し、描画用のリソースも解放する。
+    casings_.erase(
+        std::remove_if(casings_.begin(), casings_.end(),
+            [](const Casing& casing) { return casing.lifeFrames <= 0; }),
+        casings_.end());
 }
 
 void Player::ThrowGrenade(Camera* camera)
@@ -1260,6 +1441,10 @@ void Player::RotateToMouse(Camera* camera)
 
 void Player::Respawn()
 {
+    // 復活前の薬莢を残さず、演出も初期状態へ戻す。
+    casings_.clear();
+    muzzleLightFrames_ = 0; // 復活前の発射光も消す。
+
     // HPを最大まで戻す
     hp_ = maxHp_;
 
@@ -1402,9 +1587,16 @@ void Player::ResolveWallCollision(Vector3& pos)
 
 void Player::UpdateRenderOnly()
 {
+    // デバッグカメラへ切り替えた直後も、発射光だけは時間で消す。
+    if (muzzleLightFrames_ > 0) {
+        --muzzleLightFrames_;
+    }
+
     // // 本体オブジェクトがあればカメラ反映用に更新する
     if (object_) {
         object_->Update();
+        // デバッグカメラ中の点灯プレビューも現在の銃口へ合わせる。
+        muzzleLightPosition_ = GetPlayerMuzzlePosition(*object_);
     }
 
     // // 弾も見た目だけ更新する

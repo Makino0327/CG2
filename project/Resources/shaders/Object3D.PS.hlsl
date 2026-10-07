@@ -19,6 +19,15 @@ TextureCube<float4> gEnvironmentTexture : register(t2);
 
 SamplerState gSampler : register(s0);
 
+// C++のMuzzleLightParametersと同じ配置。発射時だけ周囲を照らす。
+cbuffer MuzzleLightParameters : register(b6)
+{
+    float3 gMuzzleLightPosition;
+    float gMuzzleLightRadius;
+    float3 gMuzzleLightColor;
+    float gMuzzleLightIntensity;
+};
+
 // オブジェクトごとに設定されるディゾルブ用パラメータ
 cbuffer DissolveParameter : register(b4)
 {
@@ -105,6 +114,25 @@ PixelShaderOutput main(VertexShaderOutput input)
     // 光を遮られた面だけ暗くし、環境反射や発光色はそのまま残す。
     if (gMaterial.lightingType != 0) {
         finalColor *= GetShadowVisibility(input.worldPosition, normal);
+
+        // 銃口へ向いた面だけを照らし、距離が離れるほど滑らかに弱める。
+        // 太陽用の影とは分け、日陰にいる時も発射炎の光が当たるようにする。
+        if (gMuzzleLightIntensity > 0.0f) {
+            float3 toMuzzle = gMuzzleLightPosition - input.worldPosition;
+            float distanceToMuzzle = length(toMuzzle);
+            float3 muzzleDirection = toMuzzle / max(distanceToMuzzle, 0.001f);
+            float rangeFalloff = saturate(1.0f - distanceToMuzzle / max(gMuzzleLightRadius, 0.001f));
+            float attenuation = rangeFalloff * rangeFalloff /
+                (1.0f + distanceToMuzzle * distanceToMuzzle * 0.08f);
+            float diffuse = saturate(dot(normal, muzzleDirection));
+
+            // 暗い銃にも発射光の反射が見えるよう、面の明るさに小さなハイライトを加える。
+            float3 halfVector = muzzleDirection - cameraToPosition;
+            halfVector *= rsqrt(max(dot(halfVector, halfVector), 0.0001f));
+            float specular = pow(saturate(dot(normal, halfVector)), 24.0f) * diffuse;
+            finalColor += (baseColor * diffuse + 0.18f * specular) * gMuzzleLightColor *
+                gMuzzleLightIntensity * attenuation;
+        }
     }
     finalColor += environmentColor;
 

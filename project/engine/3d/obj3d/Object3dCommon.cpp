@@ -9,6 +9,13 @@ void Object3dCommon::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
     // SrvManager を保存する
     srvManager_ = srvManager;
 
+    // 定数バッファは256バイト確保し、最初は発射光を消しておく。
+    muzzleLightResource_ = dxCommon_->CreateBufferResource(256);
+    const HRESULT lightMapResult = muzzleLightResource_->Map(
+        0, nullptr, reinterpret_cast<void**>(&muzzleLightData_));
+    assert(SUCCEEDED(lightMapResult));
+    *muzzleLightData_ = MuzzleLightParameters{};
+
     // 画面用とは別に、影を保存する深度画像を用意する。
     shadowMap_.Initialize(dxCommon_, srvManager_);
 
@@ -36,6 +43,27 @@ void Object3dCommon::CommonDrawSetting()
     };
     commandList->SetDescriptorHeaps(1, heaps);
     shadowMap_.Bind(commandList, isShadowPass_);
+
+    // 床、壁、キャラクター、薬莢へ同じ銃口の点光源を渡す。
+    commandList->SetGraphicsRootConstantBufferView(
+        10, muzzleLightResource_->GetGPUVirtualAddress());
+}
+
+void Object3dCommon::SetMuzzleLight(
+    const Vector3& position, const Vector3& color, float radius, float intensity)
+{
+    assert(muzzleLightData_);
+    muzzleLightData_->position = position;
+    muzzleLightData_->color = color;
+    muzzleLightData_->radius = radius;
+    muzzleLightData_->intensity = intensity;
+}
+
+void Object3dCommon::ClearMuzzleLight()
+{
+    // 共通描画の設定が別のシーンへ持ち越されないよう、強度だけゼロに戻す。
+    assert(muzzleLightData_);
+    muzzleLightData_->intensity = 0.0f;
 }
 
 void Object3dCommon::BeginShadowPass(const Vector3& focus)
@@ -88,7 +116,7 @@ void Object3dCommon::CreateRootSignature()
 
 
     // --- RootParameter ---
-    D3D12_ROOT_PARAMETER rootParameters[10]{};
+    D3D12_ROOT_PARAMETER rootParameters[11]{};
 
 
     // b0 : Material
@@ -143,6 +171,11 @@ void Object3dCommon::CreateRootSignature()
     rootParameters[9].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     rootParameters[9].DescriptorTable.NumDescriptorRanges = 1;
     rootParameters[9].DescriptorTable.pDescriptorRanges = &shadowDescriptorRange;
+
+    // b6 : 発射炎の位置、色、届く距離、明るさ。
+    rootParameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    rootParameters[10].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParameters[10].Descriptor.ShaderRegister = 6;
 
 
     // --- Sampler ---

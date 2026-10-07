@@ -154,6 +154,9 @@ void Game::Update() {
 void Game::Draw() {
     if (!dxCommon_) { return; }
 
+    // 前のフレームや別シーンの銃口の光を消し、現在のシーンで再設定する。
+    if (object3dCommon_) { object3dCommon_->ClearMuzzleLight(); }
+
 #ifdef USE_IMGUI
     // ImGuiを初期化している間は毎フレーム開始処理を行う
     if (imguiManager_) {
