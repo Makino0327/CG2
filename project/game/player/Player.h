@@ -62,6 +62,13 @@ public:
     // プレイヤーが持つ弾一覧を参照できるようにする
     const std::vector<std::unique_ptr<PlayerBullet>>& GetBullets() const { return bullets_; }
 
+    // マウスが重なる敵を調べるため、発射直前の当たり判定を受け取る。
+    void SetBulletAimTargets(const std::vector<BoxCollider>& boxes,
+        const std::vector<SphereCollider>& spheres) {
+        bulletAimBoxes_ = boxes;
+        bulletAimSpheres_ = spheres;
+    }
+
     // グレネード爆発によるカメラシェイク要求を一度だけ返す
     bool ConsumeGrenadeShakeRequest();
 
@@ -164,6 +171,9 @@ private:
 
     // ショットガンの弾をまとめて発射する
     bool FireShotgun(Camera* camera);
+
+    // マウスの位置か射線上に敵がいれば胴体を狙い、それ以外は高さの平面を狙う。
+    Vector3 CalcBulletDirection(Camera* camera, const Vector3& muzzle, float& flightHeight);
 
     // 現在の銃をリロード状態にする
     void StartReload();
@@ -360,6 +370,9 @@ private:
 
     // プレイヤーが撃った弾
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;
+    // 狙い位置の選択だけに使う、シーンから受け取った敵の判定。
+    std::vector<BoxCollider> bulletAimBoxes_;
+    std::vector<SphereCollider> bulletAimSpheres_;
 
     // プレイヤーが投げたグレネード
     std::vector<std::unique_ptr<PlayerGrenade>> grenades_;

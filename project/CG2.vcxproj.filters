@@ -139,6 +139,8 @@
     <ClInclude Include="engine\animation\SkinCluster.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
+    <ClInclude Include="game\player\BulletAim.h" />
+    <ClInclude Include="game\player\BulletFlight.h" />
     <ClInclude Include="game\player\PlayerGrenade.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\boss\Boss.h" />

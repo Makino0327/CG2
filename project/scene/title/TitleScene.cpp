@@ -183,6 +183,7 @@ void TitleScene::Initialize() {
     initialized_ = true;
     assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
     frame_ = spawnTimer_ = fireTimer_ = weaponTimer_ = 0;
+    muzzleLightFrames_ = 0; // タイトルへ戻った時に前の発射光を残さない。
     selectedButton_ = 0;
     buttonSelection_.fill(0.0f);
     isStarting_ = false;
@@ -465,22 +466,32 @@ void TitleScene::FireShotgun(const Vector3& baseDirection) {
 }
 
 void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& direction, bool isShotgun) {
-    // 本編のPlayerと同じ発射炎
+    // 発射ごとに、本編と同じ時間だけ周囲を照らすライトを開始する。
+    muzzleLightFrames_ = ShootingBloom::muzzleLightDurationFrames;
+
+    // 本編と同じ大きさ、色、延長した寿命で発射炎を生成する。
     if (!particleSystem_) { return; }
     if (isShotgun) {
-        particleSystem_->Emit(firePosition, { 1.8f,1.8f,1.8f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f }, 0.14f, ShootingBloom::muzzleFlashStrength);
-        particleSystem_->Emit(firePosition, { 0.75f,0.75f,0.75f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f }, 0.08f, ShootingBloom::muzzleFlashStrength);
+        particleSystem_->Emit(firePosition, { 1.0f,1.0f,1.0f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f },
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        particleSystem_->Emit(firePosition, { 0.50f,0.50f,0.50f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f },
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
         return;
     }
     // 発射炎には発光の強さを明示し、他のエフェクトは省略時のOFFを使う。
-    particleSystem_->Emit(firePosition, { 1.2f,1.2f,1.2f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f }, 0.16f, ShootingBloom::muzzleFlashStrength);
-    particleSystem_->Emit(firePosition, { 0.68f,0.68f,0.68f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f }, 0.11f, ShootingBloom::muzzleFlashStrength);
-    particleSystem_->Emit(firePosition, { 0.30f,0.30f,0.30f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f }, 0.075f, ShootingBloom::muzzleFlashStrength);
+    particleSystem_->Emit(firePosition, { 0.70f,0.70f,0.70f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f },
+        0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+    particleSystem_->Emit(firePosition, { 0.40f,0.40f,0.40f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f },
+        0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+    particleSystem_->Emit(firePosition, { 0.20f,0.20f,0.20f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f },
+        0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
     const Vector3 side{ -direction.z,0.0f,direction.x };
     particleSystem_->Emit({ firePosition.x+side.x*0.30f,firePosition.y,firePosition.z+side.z*0.30f },
-        { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f, ShootingBloom::muzzleFlashStrength);
+        { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f },
+        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
     particleSystem_->Emit({ firePosition.x-side.x*0.30f,firePosition.y,firePosition.z-side.z*0.30f },
-        { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f }, 0.08f, ShootingBloom::muzzleFlashStrength);
+        { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f },
+        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
 }
 
 void TitleScene::StartShockwave(const Vector3& firePosition) {
@@ -494,28 +505,31 @@ void TitleScene::StartShockwave(const Vector3& firePosition) {
 }
 
 void TitleScene::CheckBulletHits() {
-    // GamePlayScene::CheckCollisionsと同じ命中位置・方向でEnemy::OnHitを呼ぶ
+    // タイトルの戦闘も、弾の移動区間で最も手前の敵に命中させる。
     for (const auto& bullet : bullets_) {
         if (bullet->IsDead()) { continue; }
+        float nearestTime = 1.0f;
+        Enemy* hitEnemy = nullptr;
         for (auto& enemy : enemies_) {
             if (enemy->IsDead()) { continue; }
-            const SphereCollider enemyCollider = enemy->GetCollider();
-            const SphereCollider bulletCollider = bullet->GetCollider();
-            const float dx = enemyCollider.center.x-bulletCollider.center.x;
-            const float dy = enemyCollider.center.y-bulletCollider.center.y;
-            const float dz = enemyCollider.center.z-bulletCollider.center.z;
-            const float radius = enemyCollider.radius+bulletCollider.radius;
-            if (dx*dx+dy*dy+dz*dz > radius*radius) { continue; }
-
-            const Vector3 hitDirection = Normalize(bullet->GetVelocity());
-            const Vector3 hitPosition{
-                enemyCollider.center.x-hitDirection.x*enemyCollider.radius,
-                bulletCollider.center.y,
-                enemyCollider.center.z-hitDirection.z*enemyCollider.radius };
-            bullet->OnHit();
-            enemy->OnHit(hitPosition, hitDirection);
-            break;
+            float hitTime = 0.0f;
+            if (bullet->CheckHit(enemy->GetBulletCollider(), enemy->GetPreviousPosition(), hitTime) &&
+                (!hitEnemy || hitTime < nearestTime)) {
+                nearestTime = hitTime;
+                hitEnemy = enemy.get();
+            }
         }
+        if (hitEnemy) {
+            bullet->OnHit(nearestTime);
+            const BoxCollider enemyCollider = hitEnemy->GetBulletCollider(nearestTime);
+            const Vector3 hitDirection = Normalize(bullet->GetVelocity());
+            const Vector3 bulletPosition = bullet->GetCollider().center;
+            // タイトルでも、敵の箱の命中面へ血しぶきの位置を合わせる。
+            const Vector3 hitPosition = Collision::ClosestPointOnBox(bulletPosition, enemyCollider);
+            hitEnemy->OnHit(hitPosition, hitDirection);
+        }
+        // 命中位置が決まってから、その位置までの軌跡を生成する。
+        bullet->FinishUpdate();
     }
     // 死亡直後には消さず、破片演出が終わってから削除する
     enemies_.erase(std::remove_if(enemies_.begin(), enemies_.end(),
@@ -549,6 +563,8 @@ void TitleScene::ResolveEnemyOverlap() {
 }
 
 void TitleScene::UpdateDemo() {
+    // 撃っていない間はライトを減衰させ、次の射撃で寿命を戻す。
+    if (muzzleLightFrames_ > 0) { --muzzleLightFrames_; }
     // 確認が終わったらMキーで赤い印を隠せるようにする。
     if (GetContext().input->TriggerKey(DIK_M)) { showMuzzleMarker_ = !showMuzzleMarker_; }
     // 武器は6秒ごとに循環し、切り替え後はすぐ撃てるようにする
@@ -630,7 +646,7 @@ void TitleScene::UpdateDemo() {
     }
 
     // 弾は本編のPlayerBullet::Updateで進め、軌跡パーティクルも本編と同じにする
-    for (auto& bullet : bullets_) { bullet->Update(); }
+    for (auto& bullet : bullets_) { bullet->Update(true); }
     CheckBulletHits();
 
     const float dt = 1.0f/60.0f;
@@ -667,6 +683,16 @@ void TitleScene::Draw() {
         GetContext().dxCommon->GetCommandList()->ClearRenderTargetView(
             GetContext().offscreenRenderer->GetRenderTexture()->GetRTVHandle(), black, 0, nullptr);
         return;
+    }
+
+    // 背景を描く前に、現在の銃口から本編と同じ暖色の光を当てる。
+    // 開始演出中は点灯せず、保存した画面へ発射光が残らないようにする。
+    if (!isStarting_ && playerObject_ && muzzleLightFrames_ > 0) {
+        const float fadeFrames = static_cast<float>(ShootingBloom::muzzleLightDurationFrames - 2);
+        const float fade = std::clamp(static_cast<float>(muzzleLightFrames_) / fadeFrames, 0.0f, 1.0f);
+        GetContext().object3dCommon->SetMuzzleLight(
+            GetMuzzlePosition(), { 1.0f, 0.65f, 0.30f }, ShootingBloom::muzzleLightRadius,
+            ShootingBloom::muzzleLightIntensity * fade * fade);
     }
 
     // 通常時は背景の戦闘だけを描き、波動をかける対象を分離する
@@ -728,6 +754,7 @@ void TitleScene::DrawTitleUi() {
 }
 
 void TitleScene::Finalize() {
+    muzzleLightFrames_ = 0; // 次のシーンへ発射光の寿命を持ち越さない。
     // デモのリソースを解放してから、ゲームプレイ側に引き渡す
     if (initialized_) {
         ModelManager::GetInstance()->FindModel("cube.obj")->SetTextureIndex(originalCubeTextureIndex_);

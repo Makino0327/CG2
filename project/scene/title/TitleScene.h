@@ -69,6 +69,7 @@ private:
     int frame_ = 0;
     int spawnTimer_ = 0;
     int fireTimer_ = 0;
+    int muzzleLightFrames_ = 0; // タイトルの発射光も本編と同じ時間で減衰させる。
     int assaultContinuousShotCount_ = 0;
     int weaponTimer_ = 0;
     float playerYaw_ = 0.0f;

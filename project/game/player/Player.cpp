@@ -1,6 +1,7 @@
 #include "Player.h"
 #include "PlayerMuzzle.h"
 #include "ShootingBloom.h"
+#include "BulletAim.h"
 #include "../../engine/3d/model/ModelManager.h" // 薬莢のモデルを読み込む。
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
@@ -781,6 +782,57 @@ Vector3 Player::GetWorldPosition() const
     return object_->GetTranslate();
 }
 
+Vector3 Player::CalcBulletDirection(Camera* camera, const Vector3& muzzle, float& flightHeight)
+{
+    flightHeight = object_->GetTranslate().y+bulletAimHeight_;
+    Vector3 rayStart{}, rayEnd{}, target{}, bodyCenter{};
+    float targetTime = 1.0f;
+    float rayRadius = 0.0f;
+    const bool hasRay = PlayerBullet::GetMouseRay(camera, input_, rayStart, rayEnd);
+    bool hasTarget = hasRay && FindBulletAimTarget(rayStart, rayEnd,
+        bulletAimBoxes_, bulletAimSpheres_, target, targetTime, &bodyCenter);
+    if (!hasTarget && hasRay) {
+        const Vector3 delta{ rayEnd.x-rayStart.x, rayEnd.y-rayStart.y, rayEnd.z-rayStart.z };
+        if (std::abs(delta.y) > 0.00001f) {
+            const float t = (flightHeight-rayStart.y)/delta.y;
+            const Vector3 aimPoint{ rayStart.x+delta.x*t, flightHeight, rayStart.z+delta.z*t };
+            // マウスが敵の奥にあっても、胴体の高さの射線上にいる手前の敵を調べる。
+            // 銃口が高いまま奥を狙うと、途中の敵の上を弾が通ってしまうため。
+            rayStart = { object_->GetTranslate().x, flightHeight, object_->GetTranslate().z };
+            rayEnd = aimPoint;
+            // 弾本体と同じ半径を使い、射線から離れた敵は選ばない。
+            rayRadius = PlayerBullet::kColliderRadius;
+            hasTarget = FindBulletAimTarget(rayStart, rayEnd, bulletAimBoxes_,
+                bulletAimSpheres_, target, targetTime, &bodyCenter, rayRadius);
+        }
+    }
+    if (hasTarget) {
+        bool blocked = false;
+        // 壁越しの敵を狙い位置として選ばない。
+        if (wallColliders_) {
+            for (const LevelColliderData& wall : *wallColliders_) {
+                if (!wall.hasCollider || wall.type != "BOX") { continue; }
+                const Vector3 minimum{ wall.center.x-wall.size.x*0.5f,
+                    wall.center.y-wall.size.y*0.5f, wall.center.z-wall.size.z*0.5f };
+                const Vector3 maximum{ wall.center.x+wall.size.x*0.5f,
+                    wall.center.y+wall.size.y*0.5f, wall.center.z+wall.size.z*0.5f };
+                float time = 0.0f;
+                if (Collision::SweepSphereAabb(rayStart, rayEnd, rayRadius, minimum, maximum, time)
+                    && time < targetTime) { blocked = true; break; }
+            }
+        }
+        if (!blocked) {
+            // 上面の角ではなく胴体の中心を狙い、後退しながらの連射でも上を通る弾を減らす。
+            // 水平へ戻る高さも胴体に合わせ、敵の上面の高さを滑る軌道にしない。
+            flightHeight = bodyCenter.y;
+            return CalculateDirectBulletAimDirection(muzzle, bodyCenter);
+        }
+    }
+    // マウスが敵に重なっていない場合は、通常の高さへの射撃を使う。
+    return PlayerBullet::CalcDirectionToMouseAtHeight(muzzle, object_->GetTranslate(),
+        camera, input_, flightHeight);
+}
+
 bool Player::FireBullet(Camera* camera, float spreadAngle)
 {
     if (!object_ || !camera || !input_) {
@@ -810,16 +862,12 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
     // タイトルと同じ銃口の10頂点から、弾と発射炎の位置を求める。
     const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
-    // 銃口から発射し、中心付近を狙った時は目標位置を前方へ補正する。
-    Vector3 direction = PlayerBullet::CalcDirectionToMouseAtHeight(
-        firePosition,
-        object_->GetTranslate(),
-        camera,
-        input_,
-        object_->GetTranslate().y + bulletAimHeight_);
+    // マウスが重なる敵の胴体を優先し、近い敵を補正で飛び越さないようにする。
+    float flightHeight = 0.0f;
+    Vector3 direction = CalcBulletDirection(camera, firePosition, flightHeight);
 
     // 発射方向が取れない時は弾を減らさず撃たない
-    if (direction.x == 0.0f && direction.z == 0.0f) {
+    if (direction.x == 0.0f && direction.y == 0.0f && direction.z == 0.0f) {
         return false;
     }
 
@@ -866,7 +914,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
         velocity,
         wallColliders_,
         particleSystem_,
-        object_->GetTranslate().y + bulletAimHeight_);
+        flightHeight);
 
     // 弾の発射位置をScene側へ渡して画面歪みの中心に使う
     pendingBulletShockwavePositions_.push_back(firePosition);
@@ -956,16 +1004,12 @@ bool Player::FireShotgun(Camera* camera)
     // 全ての散弾と発射炎を、同じ銃口の実頂点の位置から出す。
     const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
-    // 散弾の中心方向にも、通常弾と同じ近距離の補正を使う。
-    Vector3 baseDirection = PlayerBullet::CalcDirectionToMouseAtHeight(
-        firePosition,
-        object_->GetTranslate(),
-        camera,
-        input_,
-        object_->GetTranslate().y + bulletAimHeight_);
+    // 散弾も、マウスが重なる敵の胴体へ中心の弾を向ける。
+    float flightHeight = 0.0f;
+    Vector3 baseDirection = CalcBulletDirection(camera, firePosition, flightHeight);
 
     // マウス方向が取れない場合は弾を消費しない
-    if (baseDirection.x == 0.0f && baseDirection.z == 0.0f) {
+    if (baseDirection.x == 0.0f && baseDirection.y == 0.0f && baseDirection.z == 0.0f) {
         return false;
     }
 
@@ -1019,7 +1063,7 @@ bool Player::FireShotgun(Camera* camera)
             velocity,
             wallColliders_,
             particleSystem_,
-            object_->GetTranslate().y + bulletAimHeight_);
+            flightHeight);
 
         bullets_.push_back(std::move(bullet));
     }
@@ -1395,7 +1439,8 @@ void Player::UpdateBullets()
 {
     // プレイヤー弾を更新する
     for (auto& bullet : bullets_) {
-        bullet->Update();
+        // 敵・ボスへの判定後に、命中位置までの軌跡を生成する。
+        bullet->Update(true);
     }
 
     // 消えたプレイヤー弾を取り除く

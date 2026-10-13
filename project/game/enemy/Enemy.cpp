@@ -217,7 +217,7 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     isReadyToRemove_ = false;
 
     // 初期位置を設定する
-    position_ = position;
+    position_ = prevPosition_ = position;
 
     // WaypointMover を初期化する
     waypointMover_.Initialize(object3dCommon, camera);
@@ -607,6 +607,14 @@ SphereCollider Enemy::GetCollider() const
 {
     // 位置と半径から球コライダーを作る
     return { position_, colliderRadius_ };
+}
+
+BoxCollider Enemy::GetBulletCollider(float frameTime) const
+{
+    // enemy.objは各軸が-1～1の立方体なので、拡大率が箱の半分の大きさになる。
+    // 命中演出では、敵の移動途中の位置へ箱の表面を合わせる。
+    return { Lerp(prevPosition_, position_, std::clamp(frameTime, 0.0f, 1.0f)),
+        { std::abs(scale_.x), std::abs(scale_.y), std::abs(scale_.z) }, rotation_.y };
 }
 
 void Enemy::OnHit(const Vector3& hitPosition, const Vector3& hitDirection)

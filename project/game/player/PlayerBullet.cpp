@@ -1,5 +1,7 @@
 #include "PlayerBullet.h"
 #include "ShootingBloom.h"
+#include "BulletAim.h"
+#include "BulletFlight.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,7 +20,10 @@ void PlayerBullet::Initialize(
     std::optional<float> flightHeight)
 {
     // 初期位置を保存する
-    position_ = position;
+    position_ = previousPosition_ = movementEnd_ = position;
+    wallHitTime_ = 1.0f;
+    isDead_ = wallHitPending_ = effectsPending_ = false;
+    lifeTime_ = 120;
 
     // 初速度を保存する
     velocity_ = velocity;
@@ -56,117 +61,96 @@ void PlayerBullet::Initialize(
     object_->SetTranslate(position_);
 }
 
-void PlayerBullet::Update()
+void PlayerBullet::Update(bool deferEffects)
 {
-    if (!object_ || isDead_) {
-        return;
-    }
+    if (!object_ || isDead_) { return; }
 
-    // 弾を進める
-    Vector3 previousPosition = position_;
-    position_ = Add(position_, velocity_);
+    // 移動前の位置を保存し、弾が通った区間全体を判定する。
+    previousPosition_ = position_;
+    AdvanceBulletFlight(position_, velocity_, flightHeight_);
+    wallHitPending_ = false;
+    effectsPending_ = true;
 
-    if (flightHeight_ &&
-        ((velocity_.y < 0.0f && position_.y <= *flightHeight_) ||
-         (velocity_.y > 0.0f && position_.y >= *flightHeight_))) {
-        // マウス位置の高さに到達したら水平に進め、床の下へ入って軌跡が消えるのを防ぐ。
-        position_.y = *flightHeight_;
-        const float speed = std::sqrt(velocity_.x*velocity_.x+velocity_.y*velocity_.y+velocity_.z*velocity_.z);
-        const Vector3 horizontal = Normalize(Vector3{ velocity_.x,0.0f,velocity_.z });
-        velocity_ = { horizontal.x*speed,0.0f,horizontal.z*speed };
-    }
-
-    // 移動区間へ、ごく短く薄い軌跡を作る。
-    EmitTrail(previousPosition, position_);
-
-    // Blender JSON の壁コライダーに入ったら弾を消す
+    // 一覧の順序に関係なく、移動区間で最初に触れる壁を探す。
+    movementEnd_ = position_;
+    float nearestTime = 1.0f;
     if (wallColliders_) {
         for (const LevelColliderData& collider : *wallColliders_) {
-            // BOX collider だけ使う
-            if (!collider.hasCollider || collider.type != "BOX") {
-                continue;
-            }
-
-            float halfX = collider.size.x * 0.5f;
-            float halfY = collider.size.y * 0.5f;
-            float halfZ = collider.size.z * 0.5f;
-
-            float minX = collider.center.x - halfX;
-            float maxX = collider.center.x + halfX;
-            float minY = collider.center.y - halfY;
-            float maxY = collider.center.y + halfY;
-            float minZ = collider.center.z - halfZ;
-            float maxZ = collider.center.z + halfZ;
-
-            // 弾の球コライダーと壁 AABB の最短距離を求める
-            float closestX = std::clamp(position_.x, minX, maxX);
-            float closestY = std::clamp(position_.y, minY, maxY);
-            float closestZ = std::clamp(position_.z, minZ, maxZ);
-
-            float diffX = position_.x - closestX;
-            float diffY = position_.y - closestY;
-            float diffZ = position_.z - closestZ;
-
-            float distanceSq =
-                diffX * diffX +
-                diffY * diffY +
-                diffZ * diffZ;
-
-            // 壁に重なったら消す
-            if (distanceSq <= colliderRadius_ * colliderRadius_) {
-                if (particleSystem_) {
-                    // Emit sparks in the direction opposite to the bullet travel.
-                    Vector3 impactDirection = Normalize(Vector3{
-                        -velocity_.x,
-                        0.35f,
-                        -velocity_.z
-                    });
-
-                    // Alternate yellow and orange colors for the impact sparks.
-                    for (int index = 0; index < 10; ++index) {
-                        const float sideOffset =
-                            (static_cast<float>(index % 5) - 2.0f) * 0.35f;
-
-                        particleSystem_->Emit(
-                            position_,
-                            { 0.12f, 0.12f, 0.12f },
-                            {
-                                impactDirection.x * 2.5f + sideOffset,
-                                impactDirection.y * 2.5f + index * 0.08f,
-                                impactDirection.z * 2.5f - sideOffset
-                            },
-                            index % 2 == 0
-                                ? Vector4{ 1.0f, 0.75f, 0.20f, 0.90f }
-                                : Vector4{ 1.0f, 0.30f, 0.04f, 0.80f },
-                            0.18f);
-                    }
-
-                    // Add a short-lived flash at the impact position.
-                    particleSystem_->Emit(
-                        position_,
-                        { 0.55f, 0.55f, 0.55f },
-                        { 0.0f, 0.0f, 0.0f },
-                        { 1.0f, 0.90f, 0.50f, 0.85f },
-                        0.08f);
-                }
-
-                isDead_ = true;
-                return;
+            if (!collider.hasCollider || collider.type != "BOX") { continue; }
+            const Vector3 minimum{
+                collider.center.x-collider.size.x*0.5f,
+                collider.center.y-collider.size.y*0.5f,
+                collider.center.z-collider.size.z*0.5f };
+            const Vector3 maximum{
+                collider.center.x+collider.size.x*0.5f,
+                collider.center.y+collider.size.y*0.5f,
+                collider.center.z+collider.size.z*0.5f };
+            float hitTime = 0.0f;
+            if (Collision::SweepSphereAabb(previousPosition_, position_, colliderRadius_,
+                minimum, maximum, hitTime) && hitTime <= nearestTime) {
+                nearestTime = hitTime;
+                wallHitPending_ = true;
             }
         }
     }
-
-    // 位置を更新する
+    // 壁より向こう側の敵は判定せず、手前の敵への命中を先に調べられるようにする。
+    wallHitTime_ = nearestTime;
+    if (wallHitPending_) { position_ = Lerp(previousPosition_, movementEnd_, wallHitTime_); }
     object_->SetTranslate(position_);
     object_->Update();
+    if (!deferEffects) { FinishUpdate(); }
+}
 
-    // 生存時間を減らす
-    lifeTime_--;
-
-    // 時間切れで消す
-    if (lifeTime_ <= 0) {
+void PlayerBullet::FinishUpdate()
+{
+    if (!effectsPending_) { return; }
+    effectsPending_ = false;
+    // 敵への命中で位置が短縮された場合も、軌跡をその位置までに収める。
+    EmitTrail(previousPosition_, position_);
+    if (!isDead_ && wallHitPending_) {
+        EmitWallImpact();
         isDead_ = true;
     }
+    // 最終フレームの当たり判定と軌跡を処理してから、寿命で消す。
+    if (--lifeTime_ <= 0) { isDead_ = true; }
+}
+
+void PlayerBullet::EmitWallImpact()
+{
+    if (!particleSystem_) { return; }
+    // 弾の進行方向と反対側へ着弾の火花を飛ばす。
+    Vector3 impactDirection = Normalize(Vector3{
+        -velocity_.x,
+        0.35f,
+        -velocity_.z
+    });
+
+    // 火花の色を黄色とオレンジで交互に変える。
+    for (int index = 0; index < 10; ++index) {
+        const float sideOffset =
+            (static_cast<float>(index % 5) - 2.0f) * 0.35f;
+
+        particleSystem_->Emit(
+            position_,
+            { 0.12f, 0.12f, 0.12f },
+            {
+                impactDirection.x * 2.5f + sideOffset,
+                impactDirection.y * 2.5f + index * 0.08f,
+                impactDirection.z * 2.5f - sideOffset
+            },
+            index % 2 == 0
+                ? Vector4{ 1.0f, 0.75f, 0.20f, 0.90f }
+                : Vector4{ 1.0f, 0.30f, 0.04f, 0.80f },
+            0.18f);
+    }
+
+    // 命中した位置へ短い閃光を出す。
+    particleSystem_->Emit(
+        position_,
+        { 0.55f, 0.55f, 0.55f },
+        { 0.0f, 0.0f, 0.0f },
+        { 1.0f, 0.90f, 0.50f, 0.85f },
+        0.08f);
 }
 
 void PlayerBullet::Draw()
@@ -322,10 +306,32 @@ SphereCollider PlayerBullet::GetCollider() const
     return { position_, colliderRadius_ };
 }
 
-void PlayerBullet::OnHit()
+bool PlayerBullet::CheckHit(const SphereCollider& target, float& hitTime) const
 {
-    // 当たった弾は消す
+    // 壁と同じフレーム時刻で判定し、壁より後の命中は除外する。
+    return Collision::SweepSphere(previousPosition_, movementEnd_, colliderRadius_, target, hitTime)
+        && hitTime <= wallHitTime_;
+}
+
+void PlayerBullet::OnHit(float hitTime)
+{
+    // 移動途中の命中位置へ戻し、軌跡が敵を通り抜けないようにする。
+    position_ = Lerp(previousPosition_, movementEnd_, std::clamp(hitTime, 0.0f, wallHitTime_));
+    if (object_) { object_->SetTranslate(position_); }
     isDead_ = true;
+}
+
+bool PlayerBullet::CheckHit(const BoxCollider& target, float& hitTime) const
+{
+    // 止まっている箱は、移動前と移動後の中心を同じ位置として判定する。
+    return CheckHit(target, target.center, hitTime);
+}
+
+bool PlayerBullet::CheckHit(const BoxCollider& target, const Vector3& previousCenter, float& hitTime) const
+{
+    // 弾と敵の移動を同じ時間軸で調べ、壁より手前での命中だけを採用する。
+    return Collision::SweepMovingSphereBox(previousPosition_, movementEnd_, colliderRadius_,
+        target, previousCenter, hitTime) && hitTime <= wallHitTime_;
 }
 
 Vector3 PlayerBullet::CalcDirectionToMouseGround(
@@ -355,49 +361,20 @@ Vector3 PlayerBullet::CalcDirectionToMouseAtHeight(
 {
     if (!camera || !input) { return { 0.0f, 0.0f, 0.0f }; }
 
-    // マウスが指している地面の位置を取得する。
-    Vector3 targetPosition = GetMousePositionOnGround(camera, input);
-
-    // 体の回転と同じく、プレイヤーの中心からマウスへの方向を求める。
-    const float dx = targetPosition.x - playerPosition.x;
-    const float dz = targetPosition.z - playerPosition.z;
-    const float targetDistance = std::sqrt(dx * dx + dz * dz);
-
-    // 中心と完全に重なる場合は方向を決められないので発射しない。
-    if (targetDistance <= 0.0001f) {
-        return { 0.0f, 0.0f, 0.0f };
-    }
-
-    // プレイヤーの中心から銃口までの水平距離を求める。
-    const float muzzleX = startPosition.x - playerPosition.x;
-    const float muzzleZ = startPosition.z - playerPosition.z;
-    const float muzzleDistance = std::sqrt(muzzleX * muzzleX + muzzleZ * muzzleZ);
-
-    // 近くを狙う時も、目標を銃口より十分先へ置く。
-    // この値を大きくすると、近距離で弾が横や下へ急に曲がりにくくなる。
-    constexpr float kAimClearance = 2.0f;
-    const float minimumDistance = muzzleDistance + kAimClearance;
-
-    if (targetDistance < minimumDistance) {
-        // 狙った方角を保ちながら、近すぎる目標だけ前方へ延ばす。
-        targetPosition.x = playerPosition.x + dx / targetDistance * minimumDistance;
-        targetPosition.z = playerPosition.z + dz / targetDistance * minimumDistance;
-    }
-
-    // 実際の銃口から、補正した目標と敵に当たる高さへ向けて撃つ。
-    return Normalize(Vector3{
-        targetPosition.x - startPosition.x,
-        targetHeight - startPosition.y,
-        targetPosition.z - startPosition.z
-    });
+    // マウス位置を狙う高さへ投影し、床への投影による近距離のずれを防ぐ。
+    const Vector3 targetPosition = GetMousePositionOnPlane(camera, input, targetHeight);
+    return CalculateBulletAimDirection(startPosition, playerPosition, targetPosition, targetHeight);
 }
 
 Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
 {
-    if (!camera || !input) {
-        return { 0.0f, 0.0f, 0.0f };
-    }
+    // 移動方向やグレネードは、これまで通り床の位置を使う。
+    return GetMousePositionOnPlane(camera, input, 0.0f);
+}
 
+bool PlayerBullet::GetMouseRay(Camera* camera, Input* input, Vector3& start, Vector3& end)
+{
+    if (!camera || !input) { return false; }
     // マウス座標を取得する
     Vector2 mousePosition = input->GetMousePosition();
 
@@ -441,27 +418,21 @@ Vector3 PlayerBullet::GetMousePositionOnGround(Camera* camera, Input* input)
     };
 
     // 画面上の点をワールド座標へ戻す
-    Vector3 worldNear = TransformPoint(nearPoint, inverseViewProjection);
-    Vector3 worldFar = TransformPoint(farPoint, inverseViewProjection);
+    start = TransformPoint(nearPoint, inverseViewProjection);
+    end = TransformPoint(farPoint, inverseViewProjection);
 
-    // レイの向きを求める
-    Vector3 rayVector = {
-        worldFar.x - worldNear.x,
-        worldFar.y - worldNear.y,
-        worldFar.z - worldNear.z
-    };
+    // 不正な投影座標を当たり判定へ渡さない。
+    return std::isfinite(start.x) && std::isfinite(start.y) && std::isfinite(start.z)
+        && std::isfinite(end.x) && std::isfinite(end.y) && std::isfinite(end.z);
+}
 
-    Vector3 rayDirection = Normalize(rayVector);
-
-    // 地面 y = 0 と交差する位置を求める
-    float t = 0.0f;
-    if (rayDirection.y != 0.0f) {
-        t = -worldNear.y / rayDirection.y;
-    }
-
-    return {
-        worldNear.x + rayDirection.x * t,
-        0.0f,
-        worldNear.z + rayDirection.z * t
-    };
+Vector3 PlayerBullet::GetMousePositionOnPlane(Camera* camera, Input* input, float height)
+{
+    Vector3 start{}, end{};
+    if (!GetMouseRay(camera, input, start, end)) { return { 0, height, 0 }; }
+    const Vector3 delta{ end.x-start.x, end.y-start.y, end.z-start.z };
+    // 指定した高さの平面へ、マウスから伸ばした線を交差させる。
+    if (std::abs(delta.y) <= 0.00001f) { return { start.x, height, start.z }; }
+    const float t = (height-start.y)/delta.y;
+    return { start.x+delta.x*t, height, start.z+delta.z*t };
 }

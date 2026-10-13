@@ -436,6 +436,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\particle\Ring.h" />
     <ClInclude Include="engine\3d\obj3d\Line3DCommon.h" />
     <ClInclude Include="game\player\PlayerBullet.h" />
+    <ClInclude Include="game\player\BulletAim.h" />
+    <ClInclude Include="game\player\BulletFlight.h" />
     <ClInclude Include="game\player\PlayerGrenade.h" />
     <ClInclude Include="engine\utils\LevelHotReload.h" />
     <ClInclude Include="scene\LevelLoader.h" />

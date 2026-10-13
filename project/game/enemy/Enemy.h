@@ -36,6 +36,11 @@ public:
     // 当たり判定を取得する
     SphereCollider GetCollider() const;
 
+    // 弾には、球からはみ出す立方体の角も含めた箱の判定を使う。
+    BoxCollider GetBulletCollider(float frameTime = 1.0f) const;
+    // 弾と敵が同時に動く場合の判定へ、移動前の位置を渡す。
+    const Vector3& GetPreviousPosition() const { return prevPosition_; }
+
     // 被弾時の処理を行う
     void OnHit(const Vector3& hitPosition, const Vector3& hitDirection);
 

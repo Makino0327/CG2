@@ -138,7 +138,7 @@ void ScreenShatter::CreateShards() {
     constexpr size_t kRings = std::size(radii);
     const size_t count = angles.size();
     std::vector<std::array<Vector2, kRings>> rings(count);
-    // 外側のリングでは放射状のヒビを途中で止め、隣の破片とつなげて大きな破片にする。
+    // 各リングの分割線を残し、隣り合う破片の境界を一致させる。
     std::vector<std::array<bool, kRings>> active(count);
     for (size_t i = 0; i < count; ++i) {
         const Vector2 ray{ std::cos(angles[i].first) / aspect, std::sin(angles[i].first) };
@@ -150,9 +150,8 @@ void ScreenShatter::CreateShards() {
         for (size_t ring = 0; ring < kRings; ++ring) {
             const float radius = radii[ring] * (ring == kRings-1 ? 1.0f : 0.85f + unit(random) * 0.30f);
             rings[i][ring] = { impactUV_.x + ray.x * boundary * radius, impactUV_.y + ray.y * boundary * radius };
-            const bool inner = ring == 0 || active[i][ring-1];
-            const float dropChance = ring < 4 ? 0.0f : 0.25f + 0.12f * static_cast<float>(ring - 4);
-            active[i][ring] = angles[i].second || (inner && unit(random) >= dropChance);
+            // 放射状の亀裂を外周まで残し、破片を重ならない三角形・四角形にする。
+            active[i][ring] = true;
         }
     }
     auto AddShard = [&](std::vector<Vector2> points) {

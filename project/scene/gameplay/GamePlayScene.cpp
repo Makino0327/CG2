@@ -657,6 +657,18 @@ void GamePlayScene::Update()
     }
 
     if (player_) {
+        // 発射する瞬間に描画されている敵の位置で、マウスの狙い先を調べる。
+        std::vector<BoxCollider> aimBoxes;
+        std::vector<SphereCollider> aimSpheres;
+        aimBoxes.reserve(enemies_.size());
+        aimSpheres.reserve(bosses_.size());
+        for (const auto& enemy : enemies_) {
+            if (!enemy->IsDead()) { aimBoxes.push_back(enemy->GetBulletCollider()); }
+        }
+        for (const auto& boss : bosses_) {
+            if (!boss->IsDead()) { aimSpheres.push_back(boss->GetCollider()); }
+        }
+        player_->SetBulletAimTargets(aimBoxes, aimSpheres);
         player_->Update(GetContext().camera);
 
         // Player更新中に発生したグレネード爆発を敵へ反映する
@@ -2083,49 +2095,45 @@ void GamePlayScene::CheckCollisions()
 
     const auto& bullets = player_->GetBullets();
     for (const auto& bullet : bullets) {
-        if (bullet->IsDead()) {
-            continue;
-        }
-
+        if (bullet->IsDead()) { continue; }
+        float nearestTime = 1.0f;
+        Enemy* hitEnemy = nullptr;
+        Boss* hitBoss = nullptr;
+        // 壁までの区間で敵とボスをまとめて調べ、最も手前の対象にだけ当てる。
         for (auto& enemy : enemies_) {
-            if (enemy->IsDead()) {
-                continue;
-            }
-
-            if (Collision::IsHit(bullet->GetCollider(), enemy->GetCollider())) {
-                Vector3 hitDirection = Normalize(bullet->GetVelocity());
-                SphereCollider enemyCollider = enemy->GetCollider();
-                SphereCollider bulletCollider = bullet->GetCollider();
-
-                // 弾が入ってきた側の敵コライダー表面を命中位置にする
-                Vector3 hitPosition = {
-                    enemyCollider.center.x - hitDirection.x * enemyCollider.radius,
-                    bulletCollider.center.y,
-                    enemyCollider.center.z - hitDirection.z * enemyCollider.radius
-                };
-
-                bullet->OnHit();
-                enemy->OnHit(hitPosition, hitDirection);
-                break;
+            if (enemy->IsDead()) { continue; }
+            float hitTime = 0.0f;
+            if (bullet->CheckHit(enemy->GetBulletCollider(), enemy->GetPreviousPosition(), hitTime) &&
+                ((!hitEnemy && !hitBoss) || hitTime < nearestTime)) {
+                nearestTime = hitTime;
+                hitEnemy = enemy.get();
             }
         }
-
-        if (bullet->IsDead()) {
-            continue;
-        }
-
         for (auto& boss : bosses_) {
-            if (boss->IsDead()) {
-                continue;
-            }
-
-            if (Collision::IsHit(bullet->GetCollider(), boss->GetCollider())) {
-                // ボスに弾が当たったら弾を消して、ボスHPを1減らす
-                bullet->OnHit();
-                boss->OnHit();
-                break;
+            if (boss->IsDead()) { continue; }
+            float hitTime = 0.0f;
+            if (bullet->CheckHit(boss->GetCollider(), hitTime) &&
+                ((!hitEnemy && !hitBoss) || hitTime < nearestTime)) {
+                nearestTime = hitTime;
+                hitEnemy = nullptr;
+                hitBoss = boss.get();
             }
         }
+        if (hitEnemy) {
+            bullet->OnHit(nearestTime);
+            const Vector3 hitDirection = Normalize(bullet->GetVelocity());
+            const BoxCollider enemyCollider = hitEnemy->GetBulletCollider(nearestTime);
+            const Vector3 bulletPosition = bullet->GetCollider().center;
+            // 球の表面ではなく、実際に当たった敵の箱の表面から血しぶきを出す。
+            const Vector3 hitPosition = Collision::ClosestPointOnBox(bulletPosition, enemyCollider);
+            hitEnemy->OnHit(hitPosition, hitDirection);
+        } else if (hitBoss) {
+            // ボスへの命中位置で止めて、HPを1減らす。
+            bullet->OnHit(nearestTime);
+            hitBoss->OnHit();
+        }
+        // 敵に当たらなかった場合は壁への命中を確定し、軌跡を生成する。
+        bullet->FinishUpdate();
     }
 
     // 弾によるボス撃破を先に処理し、生きているボスの着地攻撃だけを当てる
