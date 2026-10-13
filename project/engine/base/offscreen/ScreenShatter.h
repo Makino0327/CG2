@@ -10,7 +10,7 @@
 // タイトルを一枚のガラスとして保存し、シーンをまたいで破片を描く。
 class ScreenShatter {
 public:
-    // 弾痕とヒビを見せてから画面を割るまでの時間。ガラス音の開始にも共通で使う。
+    // 弾痕とヒビを見せてから画面を割るまでの時間。
     static constexpr float kBreakDelay = 0.40f;
     // 撃ってから弾が画面の着弾点へ届くまでの時間。ヒビや割れる時刻はこの後から数える。
     static constexpr float kBulletFlightTime = 0.12f;

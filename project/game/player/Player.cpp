@@ -266,6 +266,8 @@ void Player::Update(Camera* camera)
 
     // 発砲検知用フラグを毎フレーム下ろす
     firedThisFrame_ = false;
+    // ポーズの再開に使った左クリックが離れるまでは、連射を再開しない。
+    if (!input_->PushMouseLeft()) { suppressFireUntilRelease_ = false; }
 
     // 発射後の短い光を減衰させ、撃っていない時は消す。
     if (muzzleLightFrames_ > 0) {
@@ -371,12 +373,12 @@ void Player::Update(Camera* camera)
     muzzleLightPosition_ = GetPlayerMuzzlePosition(*object_);
 
     // ハンドガンは左クリックした瞬間に1発撃つ
-    if (attackMode_ == AttackMode::Gun && input_->TriggerMouseLeft()) {
+    if (attackMode_ == AttackMode::Gun && !suppressFireUntilRelease_ && input_->TriggerMouseLeft()) {
         FireBullet(camera);
     }
 
     // ショットガンは1クリックで複数の弾を扇状に撃つ
-    if (attackMode_ == AttackMode::Shotgun && input_->TriggerMouseLeft()) {
+    if (attackMode_ == AttackMode::Shotgun && !suppressFireUntilRelease_ && input_->TriggerMouseLeft()) {
         FireShotgun(camera);
     }
 
@@ -386,7 +388,7 @@ void Player::Update(Camera* camera)
             assaultFireTimer_--;
         }
 
-        if (input_->PushMouseLeft() && assaultFireTimer_ <= 0) {
+        if (!suppressFireUntilRelease_ && input_->PushMouseLeft() && assaultFireTimer_ <= 0) {
             // 連射するほど少しずつ弾をばらけさせる
             float spreadAngle = std::min(
                 assaultMaxSpreadAngle_,

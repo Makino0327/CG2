@@ -79,9 +79,6 @@ void Game::Initialize() {
     input_ = std::make_unique<Input>();
     input_->Initialize(winApp_.get());
 
-    sound_ = std::make_unique<SoundManager>();
-    bool ok = sound_->Initialize();
-    assert(ok);
     // Game::Initialize() の後半
     offscreenRenderer_ = std::make_unique<OffscreenRenderer>();
     offscreenRenderer_->Initialize(dxCommon_.get(), srvManager_.get());
@@ -98,7 +95,8 @@ void Game::Initialize() {
     context.particleCommon = particleCommon_.get();
     context.camera = camera_.get();
     context.input = input_.get();
-    context.sound = sound_.get();
+    // ゲーム内の音をすべて消すため、音声再生の管理を作成・接続しない。
+    context.sound = nullptr;
     context.offscreenRenderer = offscreenRenderer_.get();
 #ifdef USE_IMGUI
     context.isDebugMode = &isDebugMode_;
@@ -132,7 +130,8 @@ void Game::Update() {
 
     if (offscreenRenderer_ && input_) {
         offscreenRenderer_->Update(
-            1.0f / 60.0f,
+            // ポーズ中は衝撃波などの画面エフェクトも同じ状態で止める。
+            sceneManager_ && sceneManager_->IsPaused() ? 0.0f : 1.0f / 60.0f,
             input_->GetMousePosition(),
             input_->PushMouseRight());
     }
@@ -140,7 +139,7 @@ void Game::Update() {
 
 #ifdef USE_IMGUI
     // F1を押した瞬間にデバッグモードを切り替える
-    if (input_->TriggerKey(DIK_F1)) {
+    if (input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
         isDebugMode_ = !isDebugMode_;
     }
 #endif
@@ -218,12 +217,6 @@ void Game::Finalize() {
 
     // シーンを先に落とす
     sceneManager_.reset();
-
-    // ★サウンドをここで確実に止める（再生中でも落ちにくくなる）
-    if (sound_) {
-        sound_->Finalize();
-        sound_.reset();
-    }
 
     ModelManager::GetInstance()->Finalize();
     TextureManager::GetInstance()->Finalize();

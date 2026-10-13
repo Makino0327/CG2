@@ -55,6 +55,7 @@
     <ClCompile Include="engine\audio\SoundManager.cpp" />
     <ClCompile Include="app\Framework.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
     <ClCompile Include="scene\title\TitleScene.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
@@ -119,6 +120,7 @@
     <ClInclude Include="engine\audio\SoundManager.h" />
     <ClInclude Include="app\Framework.h" />
     <ClInclude Include="scene\gameplay\GamePlayScene.h" />
+    <ClInclude Include="scene\gameplay\PauseState.h" />
     <ClInclude Include="scene\title\TitleScene.h" />
     <ClInclude Include="scene\BaseScene.h" />
     <ClInclude Include="scene\SceneManager.h" />

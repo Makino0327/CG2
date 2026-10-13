@@ -40,7 +40,6 @@ using Microsoft::WRL::ComPtr;
 #include "../app/Framework.h"
 #include "../scene/BaseScene.h"    // ★追加
 #include "../scene/SceneManager.h"
-#include "../engine/audio/SoundManager.h"
 #include "../engine/base/winapp/WinApp.h"
 #include "../engine/base/offscreen/OffscreenRenderer.h"
 
@@ -70,7 +69,6 @@ private:
 
     std::unique_ptr<WinApp> winApp_;
     std::unique_ptr<Input> input_;
-    std::unique_ptr<SoundManager> sound_;
     std::unique_ptr<DirectXCommon> dxCommon_;
     std::unique_ptr<SrvManager> srvManager_;
     std::unique_ptr<SpriteCommon> spriteCommon_;

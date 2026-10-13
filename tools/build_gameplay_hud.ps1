@@ -1,4 +1,4 @@
-# 目的表示と操作説明を、ゲーム内のSpriteで使える透過画像へ描画する
+﻿# 目的表示と操作説明を、ゲーム内のSpriteで使える透過画像へ描画する
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $hudDirectory = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../project/Resources/hud'))
@@ -64,12 +64,12 @@ try {
     }
 
     # 操作説明も2倍解像度で作り、半透明の背景で明るい床の上でも読めるようにする
-    Save-HudImage 'controls_guide.png' 648 464 {
+    Save-HudImage 'controls_guide.png' 648 512 {
         param($graphics)
         $graphics.ScaleTransform(2, 2)
         $panelBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(185, 5, 6, 8))
         try {
-            $graphics.FillRectangle($panelBrush, 0, 0, 324, 232)
+            $graphics.FillRectangle($panelBrush, 0, 0, 324, 256)
         } finally {
             $panelBrush.Dispose()
         }
@@ -83,7 +83,8 @@ try {
             @('Q / R', '銃の切替 / リロード'),
             @('G', 'グレネード'),
             @('E', '起動（近づいて押す）'),
-            @('M', 'マップ拡大 / 縮小')
+            @('M', 'マップ拡大 / 縮小'),
+            @('TAB', 'ポーズ / 再開')
         )
         for ($row = 0; $row -lt $rows.Count; $row++) {
             Draw-HudText $graphics $rows[$row][0] 14 14 (32 + $row * 24) 24 ([System.Drawing.Color]::White) $true

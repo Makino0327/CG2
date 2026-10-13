@@ -7,7 +7,6 @@
 #include <cmath>
 #include <random>
 #include <unordered_map>
-#include <cstring>
 #include <cstdint>
 
 #include "../engine/base/directX/DirectXCommon.h"
@@ -50,33 +49,8 @@ namespace {
     // 起動が完了した後、満タンのメーターを表示しておく秒数
     constexpr double kGeneratorCompleteNoticeSeconds = 3.0;
 
-    // 発電機の音を聞き取れる距離と、プレイヤーに聞こえる最大音量
+    // 音声の再生とは独立した、敵の聴覚AIが発電機へ反応する距離。
     constexpr float kGeneratorSoundRadius = 25.0f;
-    constexpr float kGeneratorMotorVolume = 0.35f;
-
-    // 1秒の周期がつながる仮モーター音を作る。後から録音した音へ差し替え可能
-    SoundData MakeGeneratorMotorSound()
-    {
-        SoundData sound;
-        sound.wfex.wFormatTag = WAVE_FORMAT_PCM;
-        sound.wfex.nChannels = 1;
-        sound.wfex.nSamplesPerSec = 22050;
-        sound.wfex.wBitsPerSample = 16;
-        sound.wfex.nBlockAlign = 2;
-        sound.wfex.nAvgBytesPerSec = sound.wfex.nSamplesPerSec * sound.wfex.nBlockAlign;
-        sound.buffer.resize(sound.wfex.nAvgBytesPerSec);
-        for (uint32_t index = 0; index < sound.wfex.nSamplesPerSec; ++index) {
-            const double t = static_cast<double>(index) / sound.wfex.nSamplesPerSec;
-            const double phase = t * 6.283185307179586;
-            const double pulse = 0.75 + 0.25 * std::sin(phase * 12.0);
-            const double wave = (std::sin(phase * 60.0) + 0.45 * std::sin(phase * 120.0) +
-                0.2 * std::sin(phase * 240.0)) * pulse;
-            const int16_t sample = static_cast<int16_t>(wave * 7000.0);
-            std::memcpy(sound.buffer.data() + index * sizeof(sample), &sample, sizeof(sample));
-        }
-        return sound;
-    }
-
     // レベルオブジェクトの階層をワールド座標の一覧に変換する
     void FlattenLevelObjectsRecursive(
         const LevelObjectData& objectData,
@@ -319,7 +293,6 @@ void GamePlayScene::Initialize()
     assert(GetContext().particleCommon);
     assert(GetContext().camera);
     assert(GetContext().input);
-    assert(GetContext().sound);
     assert(GetSceneManager());
 
     object3d_ = std::make_unique<Object3d>();
@@ -367,7 +340,8 @@ void GamePlayScene::Initialize()
     InitializeGeneratorUi();
     // 通常のSpriteで案内を作り、Releaseでも同じ説明を表示する
     InitializeGuideUi();
-    generatorMotorSound_ = MakeGeneratorMotorSound();
+    // ポーズ画面の文字・暗転用Spriteも、描画前に読み込んでおく。
+    InitializePauseUi();
 
     // 近接攻撃可能な敵の頭上へ表示するマークを作る
     meleeMarker_ = std::make_unique<Sprite>();
@@ -558,6 +532,11 @@ void GamePlayScene::Initialize()
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
+    if (UpdatePauseMenu(dt)) {
+        // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
+        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
+        return;
+    }
 
     // 発電機の15秒は描画フレーム数に依存させず、実際の経過時間で測る
     const auto generatorNow = std::chrono::steady_clock::now();
@@ -642,13 +621,6 @@ void GamePlayScene::Update()
 
         if (skybox_) {
             skybox_->Update();
-        }
-
-        // デバッグカメラ中は進行を止めている発電機の音も消す
-        for (auto& generator : generators_) {
-            if (generator.motorSound) {
-                generator.motorSound->SetVolume(0.0f);
-            }
         }
 
         // デバッグカメラ中は近接攻撃マークを表示しない
@@ -1084,12 +1056,7 @@ void GamePlayScene::InitializeGuideUi()
     objectiveLabel_->SetSize({ 320.0f, 64.0f });
     objectiveCountSprites_.clear();
 
-    // 右上のミニマップ・左下の残弾・下中央の起動メーターと重ならない位置にする
-    controlsGuide_ = createSprite("Resources/hud/controls_guide.png");
-    controlsGuide_->SetPosition({ static_cast<float>(WinApp::kClientWidth) - 344.0f,
-        static_cast<float>(WinApp::kClientHeight) - 252.0f });
-    controlsGuide_->SetSize({ 324.0f, 232.0f });
-    controlsGuide_->Update();
+
 }
 
 void GamePlayScene::DrawGuideUi()
@@ -1099,7 +1066,6 @@ void GamePlayScene::DrawGuideUi()
         return;
     }
     GetContext().spriteCommon->CommonDrawSetting();
-    controlsGuide_->Draw();
 
     // 起動途中は数に含めず、メーターが満タンになった発電機だけを数える
     const size_t activeCount = static_cast<size_t>(std::count_if(generators_.begin(), generators_.end(),
@@ -1240,25 +1206,12 @@ void GamePlayScene::UpdateGeneratorInteraction(double deltaSeconds)
 
 void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
 {
+    // 起動済みの発電機を数え、全台起動したときのドア開放へ渡す。
     size_t activeCount = 0;
-    for (auto& generator : generators_) {
+    for (const auto& generator : generators_) {
         const auto state = generator.activation.GetState();
         if (state == GeneratorActivation::State::Active) {
             ++activeCount;
-        }
-        if (state == GeneratorActivation::State::Idle) {
-            continue;
-        }
-        // 起動開始から稼働音をループし、プレイヤーとの距離で音量を落とす
-        if (!generator.motorSound && GetContext().sound) {
-            generator.motorSound = GetContext().sound->CreateLoopingSound(generatorMotorSound_);
-        }
-        if (generator.motorSound && player_) {
-            const Vector3 listener = player_->GetWorldPosition();
-            const float dx = listener.x - generator.collider.center.x;
-            const float dz = listener.z - generator.collider.center.z;
-            const float attenuation = std::clamp(1.0f - std::hypot(dx, dz) / kGeneratorSoundRadius, 0.0f, 1.0f);
-            generator.motorSound->SetVolume(kGeneratorMotorVolume * attenuation);
         }
     }
 
@@ -1953,11 +1906,19 @@ void GamePlayScene::UpdateMeleeAttack()
 
 void GamePlayScene::Finalize()
 {
+    // ポーズのSpriteも、参照先のライト用リソースより先に解放する。
+    pause_.Reset();
+    pauseDim_.reset();
+    pauseShade_.reset();
+    pausePanel_.reset();
+    pauseBlackout_.reset();
+    for (auto& label : pauseLabels_) { label.reset(); }
+    for (auto& row : pauseRows_) { row.reset(); }
+    for (auto& marker : pauseMarkers_) { marker.reset(); }
     // 案内用Spriteも、参照しているライト用リソースより先に解放する
     objectivePanel_.reset();
     objectiveLabel_.reset();
     objectiveCountSprites_.clear();
-    controlsGuide_.reset();
     // 発電機のUIをライト用リソースより先に解放する
     generatorUiPanel_.reset();
     generatorUiLabel_.reset();
@@ -2158,6 +2119,8 @@ void GamePlayScene::CheckCollisions()
 void GamePlayScene::DrawImGui()
 {
 #ifdef USE_IMGUI
+    // ポーズ中にデバッグUIからカメラやゲームの状態を変更しない。
+    if (pause_.IsPaused()) { return; }
     if (!GetContext().camera) {
         return;
     }

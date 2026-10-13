@@ -20,6 +20,8 @@ public:
 
     // ポストエフェクトの影響を受けないUIを最後に重ねる。必要なシーンだけ実装する
     virtual void DrawOverlay() {}
+    // メニュー表示中は、共通の画面エフェクトの時間も止める。
+    virtual bool IsPaused() const { return false; }
 
     // ★ ImGui用の仮想関数を追加（必要ないシーンは空でOK）
     virtual void DrawImGui() {}

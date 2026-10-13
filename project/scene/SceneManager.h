@@ -5,6 +5,8 @@
 class SceneManager
 {
 public:
+    // 現在のシーンのポーズ状態を、アプリ共通の更新処理へ伝える。
+    bool IsPaused() const { return scene_ && scene_->IsPaused(); }
 	void Update();
 	void Draw();
     // 通常画面を描く前に、現在のシーンの影を更新する。

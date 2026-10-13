@@ -33,6 +33,8 @@ public:
         ParticleSystem* particleSystem);
 
     void Update(Camera* camera);
+    // 再開のクリックを射撃へ持ち越さず、ボタンを離してから次の発砲を受け付ける。
+    void SuppressFireUntilRelease() { suppressFireUntilRelease_ = input_ && input_->PushMouseLeft(); }
 
     void Draw();
 
@@ -388,6 +390,7 @@ private:
 
     // 弾の速度
     float bulletSpeed_ = 1.4f;
+    bool suppressFireUntilRelease_ = false;
 
     // マウスの地面座標に対する狙いの高さ。発射位置は銃口の実頂点から求める。
     float bulletAimHeight_ = 0.7f;

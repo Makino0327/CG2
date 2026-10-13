@@ -2,8 +2,6 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstring>
-#include "../../engine/audio/SoundManager.h"
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../../engine/3d/model/ModelManager.h"
@@ -62,49 +60,6 @@ namespace {
         return angle;
     }
     constexpr float kEnemyStopDistance = 2.3f;
-
-    // 銃声の低い衝撃と、少し遅れて砕けるガラスの高音を合成する。
-    // staticで保持し、タイトル破棄後も再生中のPCMデータが消えないようにする。
-    const SoundData& GetStartGunshotSound() {
-        static const SoundData sound = [] {
-            SoundData result;
-            result.wfex.wFormatTag = WAVE_FORMAT_PCM;
-            result.wfex.nChannels = 1;
-            result.wfex.nSamplesPerSec = 44100;
-            result.wfex.wBitsPerSample = 16;
-            result.wfex.nBlockAlign = 2;
-            result.wfex.nAvgBytesPerSec = 88200;
-            constexpr uint32_t kSamples = 44100;
-            result.buffer.resize(kSamples*sizeof(int16_t));
-            std::mt19937 random(2417);
-            std::uniform_real_distribution<float> noise(-1.0f,1.0f);
-            for (uint32_t i = 0; i < kSamples; ++i) {
-                const float t = static_cast<float>(i)/44100.0f;
-                const float attack = std::min(t/0.0008f,1.0f);
-                // 鋭い破裂音と低い衝撃を重ね、ガラス音より先に一発の銃声を聞かせる。
-                float value = attack*(0.58f*noise(random)*std::exp(-t*65.0f)
-                    + 0.34f*std::sin(2.0f*kPi*(105.0f*t-95.0f*t*t))*std::exp(-t*29.0f));
-                // 弾が届いて溜めを見せた後、画面が割れる瞬間にガラス音を鳴らす。
-                constexpr float kGlassStart = ScreenShatter::kBulletFlightTime+ScreenShatter::kBreakDelay;
-                if (t >= kGlassStart) {
-                    const float glassTime = t-kGlassStart;
-                    value += 0.18f*noise(random)*std::exp(-glassTime*16.0f);
-                    // 時間差のある短い高音で、複数の小さな破片を表現する。
-                    for (int piece = 0; piece < 9; ++piece) {
-                        const float age = glassTime-static_cast<float>(piece)*0.038f;
-                        if (age >= 0.0f) {
-                            const float frequency = 2100.0f+static_cast<float>(piece)*379.0f;
-                            value += 0.038f*std::sin(2.0f*kPi*frequency*age)*std::exp(-age*32.0f);
-                        }
-                    }
-                }
-                const int16_t sample = static_cast<int16_t>(std::clamp(value,-0.95f,0.95f)*32767.0f);
-                std::memcpy(result.buffer.data()+i*sizeof(sample), &sample, sizeof(sample));
-            }
-            return result;
-        }();
-        return sound;
-    }
 
     // 本編Playerと同じ射撃パラメータ
     constexpr float kBulletSpeed = 1.4f;
@@ -187,8 +142,6 @@ void TitleScene::Initialize() {
     selectedButton_ = 0;
     buttonSelection_.fill(0.0f);
     isStarting_ = false;
-    // スタート時に音の生成待ちが入らないよう、タイトル初期化時に用意する。
-    (void)GetStartGunshotSound();
     weapon_ = DemoWeapon::AssaultRifle;
     playerYaw_ = 0.0f;
     assaultContinuousShotCount_ = 0;
@@ -320,7 +273,6 @@ void TitleScene::UpdateMenu() {
                     GetContext().offscreenRenderer->StopShockwave();
                     GetContext().offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
                 }
-                if (GetContext().sound) { GetContext().sound->SoundPlayWave(GetStartGunshotSound()); }
             } else {
                 // 強制終了せず、通常の終了メッセージで後片付けを行う
                 PostQuitMessage(0);

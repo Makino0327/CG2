@@ -10,7 +10,6 @@
 
 #include "../engine/math/Math.h"
 #include "../BaseScene.h"
-#include "../engine/audio/SoundManager.h"
 #include "../engine/3d/skybox/Skybox.h"
 #include "../engine/3d/skybox/SkyboxCommon.h"
 #include "../engine/animation/Animation.h"
@@ -28,6 +27,7 @@
 #include "../../game/minimap/Minimap.h"
 #include "../../game/generator/GeneratorActivation.h"
 #include "../../game/generator/GeneratorDoorLink.h"
+#include "PauseState.h"
 
 #include "../LevelLoader.h"
 
@@ -48,10 +48,27 @@ public:
     void Draw() override;
     void DrawShadow() override; // 人や壁の形を、影用の深度画像へ描く。
     void DrawBloom() override;
+    void DrawOverlay() override;
+    bool IsPaused() const override { return pause_.IsPaused(); }
     void Finalize() override;
     void DrawImGui() override;
 
 private:
+    // 画面の暗転と緑の選択表示を使うポーズメニュー。
+    void InitializePauseUi();
+    bool UpdatePauseMenu(float seconds);
+    void UpdatePauseVisuals();
+    PauseState pause_;
+    int pauseSelection_ = 0;
+    std::array<float, 2> pauseSelectionAmounts_{};
+    std::unique_ptr<Sprite> pauseDim_;
+    std::unique_ptr<Sprite> pauseShade_;
+    std::unique_ptr<Sprite> pausePanel_;
+    std::unique_ptr<Sprite> pauseBlackout_;
+    std::array<std::unique_ptr<Sprite>, 3> pauseLabels_;
+    std::array<std::unique_ptr<Sprite>, 2> pauseRows_;
+    std::array<std::unique_ptr<Sprite>, 2> pauseMarkers_;
+
     // 開始時に上下へ開くシャッターの位置を進め、HUDより手前に描く
     void UpdateIntroTransition();
     void DrawIntroTransition();
@@ -99,10 +116,10 @@ private:
     void InitializeGeneratorUi();
     void UpdateGeneratorInteraction(double deltaSeconds);
     void DrawGeneratorUi();
-    // 左上の目的・起動数と、右下の操作説明を表示する
+    // 左上の目的と発電機の起動数を表示する。
     void InitializeGuideUi();
     void DrawGuideUi();
-    // 発電機の稼働音、敵の誘導、全台起動後のドアを更新する
+    // 敵の誘導と、全台起動後のドアを更新する。
     void UpdateGeneratorWorld(double deltaSeconds);
     // ドアが開いてテレポーターを踏めるようになったか
     bool IsBossTeleportUsable() const;
@@ -251,14 +268,12 @@ private:
     struct GeneratorData {
         LevelColliderData collider{};
         GeneratorActivation activation;
-        std::unique_ptr<LoopingSound> motorSound; // 発電機ごとに所有する稼働音
     };
     std::vector<GeneratorData> generators_;
     int interactingGeneratorIndex_ = -1; // 現在起動中、または完了通知中の発電機
     int generatorUiIndex_ = -1; // 今フレームに操作案内を表示する発電機
     double generatorCompleteNoticeSeconds_ = 0.0;
     std::chrono::steady_clock::time_point generatorPreviousUpdate_{};
-    SoundData generatorMotorSound_; // 外部素材不要の仮モーター音
 
     // 描画オブジェクトと壁コライダーの対応を保ったまま、ドアを上へ動かす
     struct DoorData {
@@ -282,7 +297,6 @@ private:
     std::unique_ptr<Sprite> objectivePanel_;
     std::unique_ptr<Sprite> objectiveLabel_;
     std::vector<std::unique_ptr<Sprite>> objectiveCountSprites_;
-    std::unique_ptr<Sprite> controlsGuide_;
 
     // 本編開始時のシャッター。黒い扉と、合わせ目を光らせる緑の線
     std::array<std::unique_ptr<Sprite>, 2> introDoors_;

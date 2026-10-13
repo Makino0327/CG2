@@ -195,6 +195,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="app\Framework.cpp" />
     <ClCompile Include="app\Game.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
     <ClCompile Include="engine\base\imgui\ImGuiManager.cpp" />
     <ClCompile Include="engine\input\Input.cpp" />
     <ClCompile Include="engine\utils\Logger.cpp" />
@@ -448,6 +449,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="app\Framework.h" />
     <ClInclude Include="app\Game.h" />
     <ClInclude Include="scene\gameplay\GamePlayScene.h" />
+    <ClInclude Include="scene\gameplay\PauseState.h" />
     <ClInclude Include="engine\base\imgui\ImGuiManager.h" />
     <ClInclude Include="engine\input\Input.h" />
     <ClInclude Include="engine\utils\Logger.h" />
@@ -490,6 +492,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
+    <None Include="Resources\hud\pause_labels.png" />
     <None Include="Resources\shaders\Bloom.hlsli" />
     <None Include="Resources\shaders\ShadowMap.hlsli" />
     <None Include="Resources\shaders\ShadowDepth.VS.hlsl" />
@@ -501,6 +504,12 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <None Include="Resources\shaders\Skybox.hlsli" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- ポーズの文字を、実行ファイル側にもコピーする。 -->
+  <Target Name="CopyPauseUiTextures" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)Resources\hud" />
+    <Copy SourceFiles="$(ProjectDir)Resources\hud\pause_labels.png"
+          DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
