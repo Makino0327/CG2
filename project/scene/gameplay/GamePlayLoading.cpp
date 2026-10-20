@@ -212,6 +212,19 @@ void GamePlayScene::BeginInitialize()
         introScan_.Initialize(GetContext().spriteCommon, directionalLightResource_.Get());
     });
     loadQueue_.Add([this] {
+        // 作戦開始の文字と赤い線は先に作り、演出中のリソース生成を避ける。
+        missionStartLabel_ = std::make_unique<Sprite>();
+        missionStartLabel_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/hud/mission_start.png");
+        missionStartLabel_->SetAnchorPoint({ 0.5f, 0.5f });
+        missionStartLabel_->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
+        missionStartLabel_->Update();
+        missionStartLine_ = std::make_unique<Sprite>();
+        missionStartLine_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+        missionStartLine_->SetAnchorPoint({ 0.5f, 0.5f });
+        missionStartLine_->SetColor({ 0.70f, 0.12f, 0.12f, 0.0f });
+        missionStartLine_->Update();
+    });
+    loadQueue_.Add([this] {
         UpdateIntroTransition();
     });
     loadQueue_.Add([this] {
@@ -311,6 +324,19 @@ void GamePlayScene::OnActivated(float transitionFrame)
     player_->SuppressFireUntilRelease();
     followCamera_->SetTarget(player_->GetWorldPosition());
     followCamera_->Update();
+    // 通常の追従位置を終点として保存し、同じ角度のままプレイヤーへ寄る。
+    missionCameraTo_ = GetContext().camera->GetTranslate();
+    missionCameraRotate_ = GetContext().camera->GetRotate();
+    const Matrix4x4 cameraRotation = MakeAffineMatrix({ 1.0f, 1.0f, 1.0f }, missionCameraRotate_, { 0.0f, 0.0f, 0.0f });
+    const Vector3 position = player_->GetWorldPosition();
+    const Vector3 focus{ position.x, position.y + 0.7f, position.z };
+    const Vector3 forward{ cameraRotation.m[2][0], cameraRotation.m[2][1], cameraRotation.m[2][2] };
+    missionCameraFrom_ = { focus.x - forward.x * 10.0f,
+        focus.y - forward.y * 10.0f, focus.z - forward.z * 10.0f };
+    GetContext().camera->SetTranslate(missionCameraFrom_);
+    GetContext().camera->Update();
+    missionStartFrame_ = 0;
+    missionStartActive_ = true;
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);

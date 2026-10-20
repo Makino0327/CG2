@@ -139,7 +139,8 @@ void GamePlayScene::UpdatePauseVisuals()
 
 void GamePlayScene::DrawOverlay()
 {
-    if (!pause_.IsPaused() || !pauseDim_) { return; }
+    const bool showMissionStart = missionStartActive_ && missionStartLabel_ && missionStartLine_;
+    if (!showMissionStart && (!pause_.IsPaused() || !pauseDim_)) { return; }
     // 衝撃波やBloomの後に描画し、ポーズの文字を歪ませたり発光させたりしない。
     auto* list = GetContext().dxCommon->GetCommandList();
     const auto rtv = GetContext().dxCommon->GetCurrentBackBufferRTVHandle();
@@ -147,6 +148,12 @@ void GamePlayScene::DrawOverlay()
     list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     GetContext().spriteCommon->CommonDrawSetting();
+    // 作戦開始の文字はBloomや衝撃波の後に重ね、輪郭をくっきり保つ。
+    if (showMissionStart) {
+        missionStartLine_->Draw();
+        missionStartLabel_->Draw();
+    }
+    if (!pause_.IsPaused() || !pauseDim_) { return; }
     pauseDim_->Draw();
     pauseShade_->Draw();
     pausePanel_->Draw();

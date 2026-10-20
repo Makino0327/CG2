@@ -299,6 +299,15 @@ void GamePlayScene::Update()
         return;
     }
 
+    if (missionStartActive_) {
+        // カメラ演出中は入力・敵AI・ダメージ判定を進めず、見た目だけを更新する。
+        UpdateIntroTransition();
+        UpdateMissionStart();
+        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
+        // 引き終わったフレームは通常更新へ進み、HUDも整えてから操作を始める。
+        if (missionStartActive_) { return; }
+    }
+
     // 発電機の15秒は描画フレーム数に依存させず、実際の経過時間で測る
     const auto generatorNow = std::chrono::steady_clock::now();
     const double generatorDeltaSeconds =
@@ -721,6 +730,12 @@ void GamePlayScene::Draw()
         }
     }
 
+    // 作戦開始中はHUDを隠し、プレイヤーとカメラの動きを見せる。
+    if (missionStartActive_) {
+        DrawIntroTransition();
+        return;
+    }
+
     // 3Dオブジェクトより手前へミニマップを描画する
     if (minimap_) {
         minimap_->Draw();
@@ -744,6 +759,51 @@ namespace {
     // 合わせ目の緑の線が左右へ伸びる時間と、扉が開き切るまでの時間（60FPS）
     constexpr int kIntroSeamFrames = 8;
     constexpr int kIntroOpenFrames = 28;
+    // シャッターが開き始めてから少し接写を見せ、その後90フレームで引く。
+    constexpr int kMissionPullbackStart = 24;
+    constexpr int kMissionPullbackFrames = 90;
+    constexpr int kMissionEndFrame = kMissionPullbackStart + kMissionPullbackFrames;
+}
+
+void GamePlayScene::UpdateMissionStart()
+{
+    ++missionStartFrame_;
+    const float progress = std::clamp(
+        static_cast<float>(missionStartFrame_ - kMissionPullbackStart) / kMissionPullbackFrames, 0.0f, 1.0f);
+    // 最初は速く引き、通常のカメラ位置へ近づくほどゆっくり止まる。
+    const float ease = 1.0f - std::pow(1.0f - progress, 3.0f);
+    GetContext().camera->SetTranslate(Lerp(missionCameraFrom_, missionCameraTo_, ease));
+    GetContext().camera->SetRotate(missionCameraRotate_);
+    GetContext().camera->Update();
+
+    // 文字はカメラが引き始める頃に現れ、引き終わる前に消える。
+    const float fadeIn = std::clamp(static_cast<float>(missionStartFrame_ - kMissionPullbackStart) / 16.0f, 0.0f, 1.0f);
+    const float fadeOut = std::clamp(static_cast<float>(kMissionEndFrame - missionStartFrame_) / 24.0f, 0.0f, 1.0f);
+    const float alpha = fadeIn * fadeOut;
+    const float scale = 1.04f - 0.04f * ease;
+    missionStartLabel_->SetPosition({ WinApp::kClientWidth * 0.5f, 225.0f });
+    missionStartLabel_->SetSize({ 640.0f * scale, 100.0f * scale });
+    missionStartLabel_->SetColor({ 0.96f, 0.96f, 0.94f, alpha });
+    missionStartLabel_->Update();
+    missionStartLine_->SetPosition({ WinApp::kClientWidth * 0.5f, 267.0f });
+    missionStartLine_->SetSize({ 480.0f * (1.0f - std::pow(1.0f - fadeIn, 3.0f)), 2.0f });
+    missionStartLine_->SetColor({ 0.70f, 0.12f, 0.12f, alpha * 0.85f });
+    missionStartLine_->Update();
+
+    // カメラ行列だけは全モデルへ反映し、位置やAIの時間は動かさない。
+    player_->SuppressFireUntilRelease();
+    player_->UpdateRenderOnly();
+    for (auto& enemy : enemies_) { enemy->UpdateRenderOnly(); }
+    for (auto& boss : bosses_) { boss->UpdateRenderOnly(); }
+    for (auto& floor : floorObjects_) { floor->Update(); }
+    for (auto& wall : wallObjects_) { wall->Update(); }
+    if (skybox_) { skybox_->Update(); }
+    constexpr float dt = 1.0f / 60.0f;
+    if (particleSystem_) { particleSystem_->Update(dt); }
+    if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
+    if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
+    // 通常の追従位置へ完全に到着してから、操作と敵の更新を始める。
+    if (missionStartFrame_ >= kMissionEndFrame) { missionStartActive_ = false; }
 }
 
 void GamePlayScene::DrawBloom()
@@ -1699,6 +1759,10 @@ void GamePlayScene::Finalize()
     for (auto& glow : introDoorGlows_) { glow.reset(); }
     introScan_.Reset();
     introFlash_.reset();
+    missionStartLabel_.reset();
+    missionStartLine_.reset();
+    missionStartActive_ = false;
+    missionStartFrame_ = 0;
     for (auto& label : pauseLabels_) { label.reset(); }
     for (auto& row : pauseRows_) { row.reset(); }
     for (auto& marker : pauseMarkers_) { marker.reset(); }

@@ -496,6 +496,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
     <None Include="Resources\hud\pause_labels.png" />
+    <None Include="Resources\hud\mission_start.png" />
     <None Include="Resources\shaders\Bloom.hlsli" />
     <None Include="Resources\shaders\ShadowMap.hlsli" />
     <None Include="Resources\shaders\ShadowDepth.VS.hlsl" />
@@ -515,6 +516,12 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <!-- 作戦開始の文字を、実行ファイル側にもコピーする。 -->
+  <Target Name="CopyMissionStartTexture" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)Resources\hud" />
+    <Copy SourceFiles="$(ProjectDir)Resources\hud\mission_start.png"
+          DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
+  </Target>
   <!-- 実行時にコンパイルする画面破壊シェーダーを、実行ファイル側でも最新にする。 -->
   <Target Name="CopyTitleTransitionShaders" AfterTargets="Build">
     <MakeDir Directories="$(OutDir)Resources\shaders" />

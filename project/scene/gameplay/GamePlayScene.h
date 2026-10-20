@@ -94,6 +94,8 @@ private:
     // 開始時に上下へ開くシャッターの位置を進め、HUDより手前に描く
     void UpdateIntroTransition();
     void DrawIntroTransition();
+    // 接写から通常の追従位置までカメラを引き、作戦開始の文字を表示する。
+    void UpdateMissionStart();
 
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
@@ -330,6 +332,14 @@ private:
     float introScanFrameOffset_ = 0.0f;
     std::unique_ptr<Sprite> introFlash_;
     int introFrame_ = 0;
+    // 初期化中は進めず、実際に本編へ切り替わったフレームから開始する。
+    bool missionStartActive_ = false;
+    int missionStartFrame_ = 0;
+    Vector3 missionCameraFrom_{};
+    Vector3 missionCameraTo_{};
+    Vector3 missionCameraRotate_{};
+    std::unique_ptr<Sprite> missionStartLabel_;
+    std::unique_ptr<Sprite> missionStartLine_;
 
     // ボスステージへ移動するテレポーター情報
     struct BossTeleportData {
