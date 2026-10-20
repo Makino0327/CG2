@@ -152,6 +152,11 @@ void Game::Update() {
 
 void Game::Draw() {
     if (!dxCommon_) { return; }
+    // 初期化の重い処理を、発砲・破壊・フェードの演出中に見せない。
+    if (sceneManager_ && sceneManager_->IsLoading()) {
+        DrawLoadingScreen();
+        return;
+    }
 
     // 前のフレームや別シーンの銃口の光を消し、現在のシーンで再設定する。
     if (object3dCommon_) { object3dCommon_->ClearMuzzleLight(); }
@@ -212,6 +217,17 @@ void Game::Draw() {
     dxCommon_->PostDraw();
 }
 
+
+void Game::DrawLoadingScreen() {
+    // 通常の描画と同じ経路でコマンドを送信し、準備したGPUデータも反映する。
+    dxCommon_->PreDraw();
+    auto* commandList = dxCommon_->GetCommandList();
+    const auto rtv = dxCommon_->GetCurrentBackBufferRTVHandle();
+    // 読み込みが終わるまでは文字を出さず、タイトルの登場につながる黒画面にする。
+    const float background[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    commandList->ClearRenderTargetView(rtv, background, 0, nullptr);
+    dxCommon_->PostDraw();
+}
 
 void Game::Finalize() {
 

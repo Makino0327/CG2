@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <thread>
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../../engine/3d/model/ModelManager.h"
@@ -10,6 +11,7 @@
 #include "../../engine/particle/Particle.h"
 #include "../../engine/input/Input.h"
 #include "../../engine/base/offscreen/OffscreenRenderer.h"
+#include "../../engine/base/winapp/WinApp.h"
 #include "../../game/camera/Camera.h"
 #include "../../game/enemy/Enemy.h"
 #include "../../game/player/PlayerBullet.h"
@@ -31,6 +33,8 @@ namespace {
     constexpr float kButtonWidth = 280.0f;
     constexpr float kButtonHeight = 44.0f;
     constexpr float kButtonY[] = { 470.0f, 524.0f };
+    // 読み込み完了後、約1.5秒かけて黒画面からタイトル全体を浮かび上がらせる。
+    constexpr int kTitleFadeFrames = 90;
 
     // 演出の始まりと終わりを滑らかにする補間曲線
     float SmoothStep01(float value) {
@@ -134,6 +138,31 @@ Sprite* TitleScene::CreateUiLabel(int row, const Vector2& position, const Vector
 }
 
 void TitleScene::Initialize() {
+    // 即時初期化でも、本編を準備してからタイトルを作る順序を守る。
+    BeginInitialize();
+    while (!ContinueInitialize()) { std::this_thread::yield(); }
+}
+
+void TitleScene::BeginInitialize() {
+    if (initialized_ || preparedGamePlay_) { return; }
+    // 本編のモデル・モーション・UI・配置物を、タイトル表示前に作っておく。
+    preparedGamePlay_ = std::make_unique<GamePlayScene>();
+    preparedGamePlay_->SetSceneManager(GetSceneManager());
+    preparedGamePlay_->SetContext(GetContext());
+    preparedGamePlay_->BeginInitialize();
+}
+
+bool TitleScene::ContinueInitialize() {
+    if (initialized_) { return true; }
+    if (!preparedGamePlay_) { BeginInitialize(); }
+    // 準備中は待機で止めず、Loading画面の描画とウィンドウの操作へ戻る。
+    if (!preparedGamePlay_->ContinueInitialize()) { return false; }
+    // 本編の準備で使ったカメラ設定などは、この後のタイトル初期化で設定し直す。
+    InitializeTitle();
+    return true;
+}
+
+void TitleScene::InitializeTitle() {
     if (initialized_) { return; }
     initialized_ = true;
     assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
@@ -215,6 +244,15 @@ void TitleScene::Initialize() {
     for (int i = 0; i < kInitialEnemies; ++i) { SpawnEnemy(kEnemySpawnRadiusMin + static_cast<float>(i) * 2.0f); }
     spawnTimer_ = kSpawnInterval;
     CreateMenu();
+    // 読み込み中の黒画面とつながるよう、初期状態ではタイトルを完全に覆う。
+    titleFade_ = std::make_unique<Sprite>();
+    titleFade_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+    titleFade_->SetPosition({ 0.0f, 0.0f });
+    titleFade_->SetSize({ static_cast<float>(WinApp::kClientWidth), static_cast<float>(WinApp::kClientHeight) });
+    titleFade_->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+    titleFade_->Update();
+    transitionScan_.Initialize(GetContext().spriteCommon, directionalLightResource_.Get());
+    transitionFrame_ = 0;
     UpdateMenu();
 }
 
@@ -256,8 +294,8 @@ void TitleScene::UpdateMenu() {
         if (mouse.x >= position.x && mouse.x <= position.x+kButtonWidth &&
             mouse.y >= position.y && mouse.y <= position.y+kButtonHeight) { hovered = i; }
     }
-    // 見えない文字への誤入力を防ぐため、最初の短いフェードだけ待つ
-    if (!isStarting_ && frame_ >= 40) {
+    // 黒画面の下で開始されないよう、タイトルが完全に見えてから入力を受け付ける。
+    if (!isStarting_ && frame_ > kTitleFadeFrames + 1) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_DOWN) ||
             GetContext().input->TriggerKey(DIK_W) || GetContext().input->TriggerKey(DIK_S)) {
@@ -268,6 +306,10 @@ void TitleScene::UpdateMenu() {
         if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
             if (selectedButton_ == 0) {
                 isStarting_ = true;
+                transitionFrame_ = 0;
+                // Space入力後は読み込まず、タイトル表示前に準備した本編を渡す。
+                assert(preparedGamePlay_);
+                GetSceneManager()->SetNextInitializedScene(std::move(preparedGamePlay_));
                 // 背景の銃の歪みを止め、画面中央への一発でタイトルを割る。
                 if (GetContext().offscreenRenderer) {
                     GetContext().offscreenRenderer->StopShockwave();
@@ -327,6 +369,10 @@ void TitleScene::UpdateMenuAnimation() {
         buttonUnderlines_[i]->SetColor({ 0.70f,0.63f,0.61f,menuFade*selected*0.65f });
     }
     for (auto& sprite : uiSprites_) { sprite->Update(); }
+    // 最初の表示フレームは黒のままにし、準備が終わってからだけ明るさを進める。
+    const float reveal = SmoothStep01(std::max(0.0f, age - 1.0f) / static_cast<float>(kTitleFadeFrames));
+    titleFade_->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f - reveal });
+    titleFade_->Update();
 }
 
 void TitleScene::SpawnEnemy(float radius) {
@@ -606,13 +652,26 @@ void TitleScene::UpdateDemo() {
     bloodParticleSystem_->Update(dt);
 }
 
+bool TitleScene::CanLeaveScene() const {
+    // 準備完了と破壊演出の完了の両方がそろってから本編へ渡す。
+    return !isStarting_ || !GetContext().offscreenRenderer ||
+        !GetContext().offscreenRenderer->IsScreenShatterPlaying();
+}
+
+float TitleScene::GetTransitionFrame() const {
+    // 読み込み待ちの間も進んだ緑の走査線を、開放側へ途切れず引き継ぐ。
+    const int breakFrame = static_cast<int>(std::ceil((ScreenShatter::kBulletFlightTime+ScreenShatter::kBreakDelay)*60.0f));
+    return static_cast<float>(std::max(0, transitionFrame_-breakFrame));
+}
+
 void TitleScene::Update() {
-    // 破片が飛び終わるまではタイトルに留まり、重い本編の初期化を始めない。
+    // 本編の準備中も、破片と緑の演出の時計を進める。
     if (isStarting_) {
-        if (!GetContext().offscreenRenderer || !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
-            // このフレームで黒画面を表示してから、次の更新で本編を読み込む。
-            GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
-        }
+        ++transitionFrame_;
+        const int breakFrame = static_cast<int>(std::ceil((ScreenShatter::kBulletFlightTime+ScreenShatter::kBreakDelay)*60.0f));
+        const float scanFrame = static_cast<float>(std::max(0, transitionFrame_-breakFrame));
+        // 開放時と同じ緑の演出を、割れた後から黒いフェード中まで描き続ける。
+        transitionScan_.Update(scanFrame, static_cast<float>(transitionFrame_ >= breakFrame));
         return;
     }
 
@@ -687,8 +746,7 @@ void TitleScene::DrawBloom() {
 }
 
 void TitleScene::DrawOverlay() {
-    // 破壊中は保存した画面に文字が含まれるため、上から重ね直さない
-    if (isStarting_ || !GetContext().offscreenRenderer) { return; }
+    if (!GetContext().offscreenRenderer) { return; }
 
     // エフェクト後の画面を消さず、スプライト用の深度バッファだけを設定し直す
     auto* commandList = GetContext().dxCommon->GetCommandList();
@@ -696,21 +754,37 @@ void TitleScene::DrawOverlay() {
     const auto dsv = GetContext().dxCommon->GetDSVHandle();
     commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-    DrawTitleUi();
+    if (isStarting_) {
+        // 保存したタイトルの文字は描き直さず、緑の演出だけを最後に重ねる。
+        GetContext().spriteCommon->CommonDrawSetting();
+        transitionScan_.Draw();
+    } else {
+        DrawTitleUi();
+    }
 }
 
 void TitleScene::DrawTitleUi() {
     // ロゴ・メニュー・霧を同じ順序で重ね、文字を波動で歪ませない
     GetContext().spriteCommon->CommonDrawSetting();
     for (auto& sprite : uiSprites_) { sprite->Draw(); }
+    // 波動やBloom、ロゴやメニューも含め、最後に黒い膜を薄くして全体を見せる。
+    if (titleFade_ && titleFade_->GetColor().w > 0.0f) { titleFade_->Draw(); }
 }
 
 void TitleScene::Finalize() {
+    // ゲームを始めずタイトルを閉じる場合だけ、未使用の本編を片付ける。
+    if (preparedGamePlay_) {
+        preparedGamePlay_->Finalize();
+        preparedGamePlay_.reset();
+    }
     muzzleLightFrames_ = 0; // 次のシーンへ発射光の寿命を持ち越さない。
     // デモのリソースを解放してから、ゲームプレイ側に引き渡す
     if (initialized_) {
         ModelManager::GetInstance()->FindModel("cube.obj")->SetTextureIndex(originalCubeTextureIndex_);
     }
+    transitionScan_.Reset();
+    transitionFrame_ = 0;
+    titleFade_.reset();
     uiSprites_.clear();
     menuVisuals_.clear();
     buttonHitAreas_.fill(nullptr);

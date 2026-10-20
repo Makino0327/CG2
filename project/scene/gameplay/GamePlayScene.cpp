@@ -280,253 +280,14 @@ void GamePlayScene::ReloadLevel(bool isManualReload)
     reloadNoticeFrameCount_ = 180;
 }
 
-void GamePlayScene::Initialize()
+GamePlayScene::PreparedLevel GamePlayScene::ReadInitialLevel(const std::string& path)
 {
-    if (initialized_) { return; }
-    initialized_ = true;
-
-    assert(GetContext().dxCommon);
-    assert(GetContext().srvManager);
-    assert(GetContext().spriteCommon);
-    assert(GetContext().object3dCommon);
-    assert(GetContext().modelCommon);
-    assert(GetContext().particleCommon);
-    assert(GetContext().camera);
-    assert(GetContext().input);
-    assert(GetSceneManager());
-
-    object3d_ = std::make_unique<Object3d>();
-    object3d_->Initialize(GetContext().object3dCommon);
-
-    ModelManager::GetInstance()->LoadModel("fence.obj");
-    ModelManager::GetInstance()->LoadModel("plane.obj");
-    ModelManager::GetInstance()->LoadModel("cube.obj");
-    // プレイヤー用に銃付きのスキンメッシュを事前に読み込む。
-    ModelManager::GetInstance()->LoadModel("player_modular/Swat.gltf");
-    ModelManager::GetInstance()->LoadModel("bullet/bullet.obj");
-    // Gキーで投げるグレネードモデルを読み込む
-    ModelManager::GetInstance()->LoadModel("grenade/grenade.obj");
-    ModelManager::GetInstance()->LoadModel("enemy/enemy.obj");
-    ModelManager::GetInstance()->LoadModel("boss/boss.obj");
-    ModelManager::GetInstance()->LoadModel("block/block.obj");
-
-    auto texMan = TextureManager::GetInstance();
-    texMan->LoadTexture("Resources/uvChecker.png");
-    texMan->LoadTexture("Resources/monsterBall.png");
-    texMan->LoadTexture("Resources/checkerBoard.png");
-    texMan->LoadTexture("Resources/circle2.png");
-    texMan->LoadTexture("Resources/fence.png");
-    texMan->LoadTexture("Resources/Cube.png");
-    texMan->LoadTexture("Resources/skybox.dds");
-    texMan->LoadTexture("Resources/gradationLine.png");
-    texMan->LoadTexture("Resources/white2x2.png");
-
-    materialResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(Material));
-    Material* materialData = nullptr;
-    materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-    materialData->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    materialData->lightingType = 0;
-    materialData->environmentCoefficient = 0.0f;
-    materialData->uvTransform = MakeIdentity4x4();
-
-    directionalLightResource_ = GetContext().dxCommon->CreateBufferResource(sizeof(DirectionalLight));
-    DirectionalLight* light = nullptr;
-    directionalLightResource_->Map(0, nullptr, reinterpret_cast<void**>(&light));
-    light->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    light->direction = Vector3(0.0f, -1.0f, 0.0f);
-    light->intensity = 4.0f;
-
-    // 発電機用の操作案内と起動メーターを準備する
-    InitializeGeneratorUi();
-    // 通常のSpriteで案内を作り、Releaseでも同じ説明を表示する
-    InitializeGuideUi();
-    // ポーズ画面の文字・暗転用Spriteも、描画前に読み込んでおく。
-    InitializePauseUi();
-
-    // 近接攻撃可能な敵の頭上へ表示するマークを作る
-    meleeMarker_ = std::make_unique<Sprite>();
-    meleeMarker_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/circle2.png");
-
-    // ミニマップを初期化する
-    minimap_ = std::make_unique<Minimap>();
-    minimap_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/level/minimap.json");
-
-    // マークの中心が敵の頭上に合うように設定する
-    meleeMarker_->SetAnchorPoint({ 0.5f, 0.5f });
-    meleeMarker_->SetSize({ 42.0f, 42.0f });
-    meleeMarker_->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
-    meleeMarker_->Update();
-    // 残弾UI用に最大30個分の黄色い四角Spriteを作っておく
-    ammoSprites_.clear();
-    for (int index = 0; index < 30; ++index) {
-        auto ammoSprite = std::make_unique<Sprite>();
-        ammoSprite->Initialize(
-            GetContext().spriteCommon,
-            directionalLightResource_.Get(),
-            "Resources/white2x2.png");
-        ammoSprite->SetAnchorPoint({ 0.0f, 0.5f });
-        ammoSprite->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
-        ammoSprite->Update();
-        ammoSprites_.push_back(std::move(ammoSprite));
-    }
-    // 残弾UIの後ろに敷く黒い半透明パネルを作っておく
-    ammoBackgroundSprite_ = std::make_unique<Sprite>();
-    ammoBackgroundSprite_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/white2x2.png");
-    ammoBackgroundSprite_->SetAnchorPoint({ 0.0f, 0.0f });
-    ammoBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.35f });
-    ammoBackgroundSprite_->Update();
-    // 発射演出用のSpriteを作っておく(中心を基準に動かす)
-    ammoFireEffectSprites_.clear();
-    for (int index = 0; index < 8; ++index) {
-        auto effectSprite = std::make_unique<Sprite>();
-        effectSprite->Initialize(
-            GetContext().spriteCommon,
-            directionalLightResource_.Get(),
-            "Resources/white2x2.png");
-        effectSprite->SetAnchorPoint({ 0.5f, 0.5f });
-        effectSprite->SetColor({ 1.0f, 0.9f, 0.35f, 0.0f });
-        effectSprite->Update();
-        ammoFireEffectSprites_.push_back(std::move(effectSprite));
-    }
-    ammoFireEffects_.assign(ammoFireEffectSprites_.size(), AmmoFireEffect{});
-    ammoBulletAnims_.assign(ammoSprites_.size(), AmmoBulletAnim{});
-    ammoUiPrevAmmo_ = -1;
-    ammoUiPrevMaxAmmo_ = -1;
-    ammoUiPrevMode_ = Player::AttackMode::Knife;
-
-    // ボスHPバーの背景を作る
-    bossHpBackgroundSprite_ = std::make_unique<Sprite>();
-    bossHpBackgroundSprite_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/white2x2.png");
-    bossHpBackgroundSprite_->SetAnchorPoint({ 0.5f, 0.0f });
-    bossHpBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.0f });
-    bossHpBackgroundSprite_->Update();
-
-    // ボスHPバーの残量を作る
-    bossHpFillSprite_ = std::make_unique<Sprite>();
-    bossHpFillSprite_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/white2x2.png");
-    bossHpFillSprite_->SetAnchorPoint({ 0.0f, 0.0f });
-    bossHpFillSprite_->SetColor({ 0.95f, 0.05f, 0.03f, 0.0f });
-    bossHpFillSprite_->Update();
-
-    // ボスHPバーの外枠を作る
-    bossHpFrameSprite_ = std::make_unique<Sprite>();
-    bossHpFrameSprite_->Initialize(
-        GetContext().spriteCommon,
-        directionalLightResource_.Get(),
-        "Resources/white2x2.png");
-    bossHpFrameSprite_->SetAnchorPoint({ 0.5f, 0.0f });
-    bossHpFrameSprite_->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
-    bossHpFrameSprite_->Update();
-
-    // タイトルの暗転から、上下へ開くシャッターで本編を見せる
-    introFrame_ = 0;
-    for (size_t i = 0; i < introDoors_.size(); ++i) {
-        introDoors_[i] = std::make_unique<Sprite>();
-        introDoors_[i]->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
-        // 上の扉は下端、下の扉は上端を合わせ目に合わせる
-        introDoors_[i]->SetAnchorPoint({ 0.0f, i == 0 ? 1.0f : 0.0f });
-        introDoors_[i]->SetSize({ static_cast<float>(WinApp::kClientWidth), WinApp::kClientHeight * 0.5f });
-        introDoors_[i]->SetColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        introDoorEdges_[i] = std::make_unique<Sprite>();
-        introDoorEdges_[i]->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
-        introDoorEdges_[i]->SetAnchorPoint({ 0.5f, i == 0 ? 1.0f : 0.0f });
-    }
-    UpdateIntroTransition();
-
-    skyboxCommon_ = std::make_unique<SkyboxCommon>();
-    skyboxCommon_->Initialize(GetContext().dxCommon, GetContext().srvManager);
-    skyboxCommon_->SetDefaultCamera(GetContext().camera);
-
-    skybox_ = std::make_unique<Skybox>();
-    skybox_->Initialize(skyboxCommon_.get());
-    skybox_->SetCamera(GetContext().camera);
-
-    // 敵の視界範囲をデバッグ線で描画するための準備をする
-    line3dCommon_ = std::make_unique<Line3DCommon>();
-    line3dCommon_->Initialize(GetContext().dxCommon, GetContext().srvManager);
-    enemyVisionDebug_.Initialize(GetContext().dxCommon, line3dCommon_.get());
-
-    debugCamera_ = std::make_unique<DebugCamera>();
-
-    // 全プレイヤー弾で共有する軌跡用パーティクルを作る
-    particleSystem_ = std::make_unique<ParticleSystem>();
-    particleSystem_->Initialize(
-        GetContext().dxCommon,
-        GetContext().particleCommon,
-        GetContext().camera,
-        GetContext().srvManager,
-        ParticleType::CircleBurst);
-
-    // 血しぶきは発光しない通常アルファ合成で描画する
-    bloodParticleSystem_ = std::make_unique<ParticleSystem>();
-    bloodParticleSystem_->Initialize(
-        GetContext().dxCommon,
-        GetContext().particleCommon,
-        GetContext().camera,
-        GetContext().srvManager,
-        ParticleType::CircleBurst);
-    bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
-
-    // 爆発後の煙は発光させず、通常アルファ合成で長く残す
-    grenadeSmokeParticleSystem_ = std::make_unique<ParticleSystem>();
-    grenadeSmokeParticleSystem_->Initialize(
-        GetContext().dxCommon,
-        GetContext().particleCommon,
-        GetContext().camera,
-        GetContext().srvManager,
-        ParticleType::Smoke);
-    grenadeSmokeParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
-
-    player_ = std::make_unique<Player>();
-
-    // 開始位置は後半のReloadLevelで設定し、Respawnで描画にも反映する。
-    player_->Initialize(
-        GetContext().object3dCommon,
-        GetContext().input,
-        particleSystem_.get());
-
-    // グレネード爆発後の煙用パーティクルをPlayerへ渡す
-    player_->SetGrenadeSmokeParticleSystem(grenadeSmokeParticleSystem_.get());
-
-    followCamera_ = std::make_unique<FollowCamera>();
-    followCamera_->Initialize(GetContext().camera);
-    followCamera_->SetTarget(player_->GetWorldPosition());
-
-    if (GetContext().offscreenRenderer) {
-        GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
-        // 本編では銃口の短い発射炎を中心にBloomをかける。
-        GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);
-        // タイトルの衝撃波を本編へ持ち越さない
-        GetContext().offscreenRenderer->StopShockwave();
-        // ゲームシーン側で通常の衝撃波サイズを調整する
-        GetContext().offscreenRenderer->SetShockwaveMaxRadius(0.10f);
-    }
-
-    mapField_.LoadFromCsv("Resources/map.csv");
-    player_->SetMap(&mapField_, tileSize_);
-
-    // Initialize hot reload watching for the level JSON file.
-    levelHotReload_.Initialize(levelFilePath_);
-    // Load the level JSON and rebuild the player spawn, map objects, and enemies.
-    ReloadLevel(false);
-
-    // 初期化にかかった時間を発電機の進捗へ加算しない
-    generatorPreviousUpdate_ = std::chrono::steady_clock::now();
+    // この処理はCPU側のJSON解析だけを行い、DirectXや共有カメラには触れない。
+    PreparedLevel result;
+    result.level = LevelLoader::LoadFile(path);
+    result.objects = FlattenAllLevelObjects(result.level);
+    result.level.navMesh.BuildLinks();
+    return result;
 }
 
 void GamePlayScene::Update()
@@ -981,8 +742,8 @@ void GamePlayScene::Draw()
 
 namespace {
     // 合わせ目の緑の線が左右へ伸びる時間と、扉が開き切るまでの時間（60FPS）
-    constexpr int kIntroSeamFrames = 10;
-    constexpr int kIntroOpenFrames = 32;
+    constexpr int kIntroSeamFrames = 8;
+    constexpr int kIntroOpenFrames = 28;
 }
 
 void GamePlayScene::DrawBloom()
@@ -1010,18 +771,31 @@ void GamePlayScene::UpdateIntroTransition()
     const float centerY = WinApp::kClientHeight * 0.5f;
     // 線の太さぶん余分に開き、最後に画面へ線が残らないようにする
     const float gap = openEase * (centerY + 4.0f);
-    // 開き始めは線を明るくし、扉が画面外へ出る頃には消す
-    const float edgeAlpha = 1.0f - std::clamp((open - 0.6f) / 0.4f, 0.0f, 1.0f);
+    // 中央の線は扉を開く時点から出し、扉が画面外へ出る頃には消す。
+    const float edgeAlpha = introFrame_ >= kIntroSeamFrames
+        ? 1.0f-std::clamp((open-0.6f)/0.4f, 0.0f, 1.0f) : 0.0f;
     for (size_t i = 0; i < introDoors_.size(); ++i) {
         const float y = i == 0 ? centerY - gap : centerY + gap;
         introDoors_[i]->SetPosition({ 0.0f, y });
         introDoors_[i]->Update();
         introDoorEdges_[i]->SetPosition({ WinApp::kClientWidth * 0.5f, y });
-        introDoorEdges_[i]->SetSize({ WinApp::kClientWidth * seamEase, 2.0f });
+        introDoorEdges_[i]->SetSize({ WinApp::kClientWidth * seamEase, 3.0f });
         // 発電機の起動完了と同じ緑で、合わせ目を光らせる
         introDoorEdges_[i]->SetColor({ 0.3f, 1.0f, 0.45f, edgeAlpha });
         introDoorEdges_[i]->Update();
+        // 細い芯の周囲へ薄い緑を重ね、重い扉の縁が発光しているように見せる。
+        introDoorGlows_[i]->SetPosition({ WinApp::kClientWidth*0.5f, y });
+        introDoorGlows_[i]->SetSize({ WinApp::kClientWidth*seamEase, 22.0f });
+        introDoorGlows_[i]->SetColor({ 0.12f, 0.8f, 0.3f, edgeAlpha*0.18f });
+        introDoorGlows_[i]->Update();
     }
+    // 開放直後だけ白緑の閃光を重ね、続く走査線でゲーム画面を勢いよく見せる。
+    const float openAge = static_cast<float>(std::max(0, introFrame_-kIntroSeamFrames));
+    const float flash = introFrame_ >= kIntroSeamFrames ? 0.24f*std::exp(-openAge*0.32f) : 0.0f;
+    introFlash_->SetColor({ 0.65f, 1.0f, 0.76f, flash });
+    introFlash_->Update();
+    // フェード中と同じ演出・同じ時刻を使い、開くときに別の見た目へ切り替えない。
+    introScan_.Update(introScanFrameOffset_+static_cast<float>(introFrame_), 1.0f-openEase);
 }
 
 void GamePlayScene::DrawIntroTransition()
@@ -1031,7 +805,10 @@ void GamePlayScene::DrawIntroTransition()
     }
     GetContext().spriteCommon->CommonDrawSetting();
     for (auto& door : introDoors_) { door->Draw(); }
+    for (auto& glow : introDoorGlows_) { glow->Draw(); }
     for (auto& edge : introDoorEdges_) { edge->Draw(); }
+    introScan_.Draw();
+    introFlash_->Draw();
 }
 
 void GamePlayScene::InitializeGuideUi()
@@ -1907,11 +1684,21 @@ void GamePlayScene::UpdateMeleeAttack()
 void GamePlayScene::Finalize()
 {
     // ポーズのSpriteも、参照先のライト用リソースより先に解放する。
+    loadQueue_.Clear();
+    initializing_ = false;
+    preparedLevel_ = PreparedLevel{};
+    loadingMinimapObjects_.clear();
     pause_.Reset();
     pauseDim_.reset();
     pauseShade_.reset();
     pausePanel_.reset();
     pauseBlackout_.reset();
+    // 開始演出のSpriteも、参照先のライト用リソースより先に解放する。
+    for (auto& door : introDoors_) { door.reset(); }
+    for (auto& edge : introDoorEdges_) { edge.reset(); }
+    for (auto& glow : introDoorGlows_) { glow.reset(); }
+    introScan_.Reset();
+    introFlash_.reset();
     for (auto& label : pauseLabels_) { label.reset(); }
     for (auto& row : pauseRows_) { row.reset(); }
     for (auto& marker : pauseMarkers_) { marker.reset(); }
@@ -1946,7 +1733,8 @@ void GamePlayScene::Finalize()
     grenadeSmokeParticleSystem_.reset();
     skybox_.reset();
     skyboxCommon_.reset();
-    line3dCommon_.reset();
+    // 借用した共通設定は解放せず、参照だけを外す。
+    line3dCommon_ = nullptr;
 
     materialResource_.Reset();
     directionalLightResource_.Reset();
@@ -2262,7 +2050,7 @@ void GamePlayScene::ResolveEnemyOverlap()
     }
 }
 
-void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObjects)
+void GamePlayScene::ResetMapObjects()
 {
     floorObjects_.clear();
     wallObjects_.clear();
@@ -2280,166 +2068,170 @@ void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObje
     doors_.clear();
     generatorDoorLink_ = GeneratorDoorLink{};
 
-    // ReloadLevelから受け取った一覧を使い、ここではJSONを読み直さない。
+}
 
-    // ミニマップ用JSONに依存せず、実際に配置する設置物からマーカーを作る
-    std::vector<MinimapObjectData> minimapObjects;
+void GamePlayScene::CreateMapObject(const LevelObjectData& objectData,
+    std::vector<MinimapObjectData>& minimapObjects)
+{
+    // 初回の分割読み込みと、F5での再読み込みで同じ1個分の生成処理を使う。
 
-    for (const LevelObjectData& objectData : allObjects) {
-        if (objectData.type != "MESH") {
-            continue;
-        }
+    if (objectData.type != "MESH") {
+        return;
+    }
 
-        if (objectData.name.rfind("Enemy_", 0) == 0 || objectData.name.rfind("enemy_", 0) == 0) {
-            continue;
-        }
-        // PlayerモデルはPlayerクラスが管理するため、マップ側では作らない
-        if (objectData.objectKind == "player" || objectData.name == "Player") {
-            continue;
-        }
+    if (objectData.name.rfind("Enemy_", 0) == 0 || objectData.name.rfind("enemy_", 0) == 0) {
+        return;
+    }
+    // PlayerモデルはPlayerクラスが管理するため、マップ側では作らない
+    if (objectData.objectKind == "player" || objectData.name == "Player") {
+        return;
+    }
 
 
-        if (objectData.fileName.empty()) {
-            continue;
-        }
+    if (objectData.fileName.empty()) {
+        return;
+    }
 
-        ModelManager::GetInstance()->LoadModel(objectData.fileName);
+    ModelManager::GetInstance()->LoadModel(objectData.fileName);
 
-        auto mapObject = std::make_unique<Object3d>();
-        mapObject->Initialize(GetContext().object3dCommon);
-        mapObject->SetModel(objectData.fileName);
-        mapObject->SetScale(objectData.scaling);
-        mapObject->SetRotate(objectData.rotation);
-        mapObject->SetTranslate(objectData.translation);
-        mapObject->Update();
+    auto mapObject = std::make_unique<Object3d>();
+    mapObject->Initialize(GetContext().object3dCommon);
+    mapObject->SetModel(objectData.fileName);
+    mapObject->SetScale(objectData.scaling);
+    mapObject->SetRotate(objectData.rotation);
+    mapObject->SetTranslate(objectData.translation);
+    mapObject->Update();
 
-        if (objectData.objectKind == "boss_teleport" || objectData.name.rfind("BossTeleport", 0) == 0) {
-            BossTeleportData teleport{};
-
-            if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
-                teleport.center.x =
-                    objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
-                teleport.center.y =
-                    objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
-                teleport.center.z =
-                    objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
-
-                teleport.size.x = objectData.collider.size.x * objectData.scaling.x;
-                teleport.size.y = objectData.collider.size.y * objectData.scaling.y;
-                teleport.size.z = objectData.collider.size.z * objectData.scaling.z;
-            } else {
-                // コライダーが無い場合は、BlenderのCube基準で見た目と同じくらいの範囲を使う
-                teleport.center = objectData.translation;
-                teleport.size = {
-                    objectData.scaling.x * 2.0f,
-                    objectData.scaling.y * 2.0f,
-                    objectData.scaling.z * 2.0f
-                };
-            }
-
-            // JSONに移動先が無い場合でも、ボステレポーターは標準のボスステージへ飛ばす
-            teleport.targetLevel = objectData.targetLevel.empty()
-                ? "Resources/level/bossStage.json"
-                : objectData.targetLevel;
-            bossTeleports_.push_back(teleport);
-
-            // ミニマップにも登録する。表示は踏めるようになってから青い丸で行う
-            MinimapObjectData marker;
-            marker.kind = MinimapObjectData::Kind::Teleporter;
-            marker.position = teleport.center;
-            marker.size = { teleport.size.x, teleport.size.z };
-            minimapObjects.push_back(marker);
-
-            // テレポーターは床や壁の移動コライダーに混ぜず、見た目だけ描画する
-            floorObjects_.push_back(std::move(mapObject));
-            continue;
-        }
+    if (objectData.objectKind == "boss_teleport" || objectData.name.rfind("BossTeleport", 0) == 0) {
+        BossTeleportData teleport{};
 
         if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
-            LevelColliderData worldCollider = objectData.collider;
-
-            worldCollider.center.x =
+            teleport.center.x =
                 objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
-            worldCollider.center.y =
+            teleport.center.y =
                 objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
-            worldCollider.center.z =
+            teleport.center.z =
                 objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
 
-            worldCollider.size.x = objectData.collider.size.x * objectData.scaling.x;
-            worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
-            worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
-
-            // 発電機とドアは、通り抜けできない設置物として壁側へ登録する
-            const bool isPlacedObstacle =
-                objectData.objectKind == "generator" || objectData.objectKind == "door";
-            if (isPlacedObstacle) {
-                // 回転・拡縮した設置物を囲むBOXを作り、Blenderでの配置に合わせる
-                const Matrix4x4 world = MakeAffineMatrix(
-                    objectData.scaling, objectData.rotation, objectData.translation);
-                const Vector3& center = objectData.collider.center;
-                const Vector3& size = objectData.collider.size;
-                const float localCenter[] = { center.x, center.y, center.z };
-                const float localSize[] = { size.x, size.y, size.z };
-                float worldCenter[3]{};
-                float worldSize[3]{};
-                for (int axis = 0; axis < 3; ++axis) {
-                    worldCenter[axis] = world.m[3][axis];
-                    for (int localAxis = 0; localAxis < 3; ++localAxis) {
-                        worldCenter[axis] += localCenter[localAxis] * world.m[localAxis][axis];
-                        worldSize[axis] += std::fabs(localSize[localAxis] * world.m[localAxis][axis]);
-                    }
-                }
-                worldCollider.center = { worldCenter[0], worldCenter[1], worldCenter[2] };
-                worldCollider.size = { worldSize[0], worldSize[1], worldSize[2] };
-
-                // 実際に配置した発電機のBOXと、個別の起動状態を登録する
-                if (objectData.objectKind == "generator") {
-                    GeneratorData generator;
-                    generator.collider = worldCollider;
-                    generators_.push_back(std::move(generator));
-                }
-
-                // モデルの横軸を上から見た方向へ投影し、ドアの向きも合わせる
-                MinimapObjectData marker;
-                marker.kind = objectData.objectKind == "generator"
-                    ? MinimapObjectData::Kind::Generator : MinimapObjectData::Kind::Door;
-                marker.position = worldCollider.center;
-                marker.size = {
-                    std::fabs(size.x) * std::hypot(world.m[0][0], world.m[0][2]),
-                    std::fabs(size.z) * std::hypot(world.m[2][0], world.m[2][2])
-                };
-                // ミニマップではゲームのZ方向が画面の上方向になる
-                marker.rotation = std::atan2(-world.m[0][2], world.m[0][0]);
-                minimapObjects.push_back(marker);
-            }
-
-            if (isPlacedObstacle || objectData.name.find("Wall") != std::string::npos ||
-                objectData.name.find("wall") != std::string::npos) {
-                // ドアの閉じた位置と壁配列の番号を記憶し、後で両方を動かす
-                if (objectData.objectKind == "door") {
-                    DoorData door;
-                    door.object = mapObject.get();
-                    door.colliderIndex = wallColliders_.size();
-                    door.closedPosition = objectData.translation;
-                    door.closedColliderCenter = worldCollider.center;
-                    door.liftDistance = worldCollider.size.y + 0.5f;
-                    doors_.push_back(door);
-                }
-                wallColliders_.push_back(worldCollider);
-                wallObjects_.push_back(std::move(mapObject));
-            } else {
-                floorColliders_.push_back(worldCollider);
-                floorObjects_.push_back(std::move(mapObject));
-            }
+            teleport.size.x = objectData.collider.size.x * objectData.scaling.x;
+            teleport.size.y = objectData.collider.size.y * objectData.scaling.y;
+            teleport.size.z = objectData.collider.size.z * objectData.scaling.z;
         } else {
+            // コライダーが無い場合は、BlenderのCube基準で見た目と同じくらいの範囲を使う
+            teleport.center = objectData.translation;
+            teleport.size = {
+                objectData.scaling.x * 2.0f,
+                objectData.scaling.y * 2.0f,
+                objectData.scaling.z * 2.0f
+            };
+        }
+
+        // JSONに移動先が無い場合でも、ボステレポーターは標準のボスステージへ飛ばす
+        teleport.targetLevel = objectData.targetLevel.empty()
+            ? "Resources/level/bossStage.json"
+            : objectData.targetLevel;
+        bossTeleports_.push_back(teleport);
+
+        // ミニマップにも登録する。表示は踏めるようになってから青い丸で行う
+        MinimapObjectData marker;
+        marker.kind = MinimapObjectData::Kind::Teleporter;
+        marker.position = teleport.center;
+        marker.size = { teleport.size.x, teleport.size.z };
+        minimapObjects.push_back(marker);
+
+        // テレポーターは床や壁の移動コライダーに混ぜず、見た目だけ描画する
+        floorObjects_.push_back(std::move(mapObject));
+        return;
+    }
+
+    if (objectData.collider.hasCollider && objectData.collider.type == "BOX") {
+        LevelColliderData worldCollider = objectData.collider;
+
+        worldCollider.center.x =
+            objectData.translation.x + objectData.collider.center.x * objectData.scaling.x;
+        worldCollider.center.y =
+            objectData.translation.y + objectData.collider.center.y * objectData.scaling.y;
+        worldCollider.center.z =
+            objectData.translation.z + objectData.collider.center.z * objectData.scaling.z;
+
+        worldCollider.size.x = objectData.collider.size.x * objectData.scaling.x;
+        worldCollider.size.y = objectData.collider.size.y * objectData.scaling.y;
+        worldCollider.size.z = objectData.collider.size.z * objectData.scaling.z;
+
+        // 発電機とドアは、通り抜けできない設置物として壁側へ登録する
+        const bool isPlacedObstacle =
+            objectData.objectKind == "generator" || objectData.objectKind == "door";
+        if (isPlacedObstacle) {
+            // 回転・拡縮した設置物を囲むBOXを作り、Blenderでの配置に合わせる
+            const Matrix4x4 world = MakeAffineMatrix(
+                objectData.scaling, objectData.rotation, objectData.translation);
+            const Vector3& center = objectData.collider.center;
+            const Vector3& size = objectData.collider.size;
+            const float localCenter[] = { center.x, center.y, center.z };
+            const float localSize[] = { size.x, size.y, size.z };
+            float worldCenter[3]{};
+            float worldSize[3]{};
+            for (int axis = 0; axis < 3; ++axis) {
+                worldCenter[axis] = world.m[3][axis];
+                for (int localAxis = 0; localAxis < 3; ++localAxis) {
+                    worldCenter[axis] += localCenter[localAxis] * world.m[localAxis][axis];
+                    worldSize[axis] += std::fabs(localSize[localAxis] * world.m[localAxis][axis]);
+                }
+            }
+            worldCollider.center = { worldCenter[0], worldCenter[1], worldCenter[2] };
+            worldCollider.size = { worldSize[0], worldSize[1], worldSize[2] };
+
+            // 実際に配置した発電機のBOXと、個別の起動状態を登録する
+            if (objectData.objectKind == "generator") {
+                GeneratorData generator;
+                generator.collider = worldCollider;
+                generators_.push_back(std::move(generator));
+            }
+
+            // モデルの横軸を上から見た方向へ投影し、ドアの向きも合わせる
+            MinimapObjectData marker;
+            marker.kind = objectData.objectKind == "generator"
+                ? MinimapObjectData::Kind::Generator : MinimapObjectData::Kind::Door;
+            marker.position = worldCollider.center;
+            marker.size = {
+                std::fabs(size.x) * std::hypot(world.m[0][0], world.m[0][2]),
+                std::fabs(size.z) * std::hypot(world.m[2][0], world.m[2][2])
+            };
+            // ミニマップではゲームのZ方向が画面の上方向になる
+            marker.rotation = std::atan2(-world.m[0][2], world.m[0][0]);
+            minimapObjects.push_back(marker);
+        }
+
+        if (isPlacedObstacle || objectData.name.find("Wall") != std::string::npos ||
+            objectData.name.find("wall") != std::string::npos) {
+            // ドアの閉じた位置と壁配列の番号を記憶し、後で両方を動かす
+            if (objectData.objectKind == "door") {
+                DoorData door;
+                door.object = mapObject.get();
+                door.colliderIndex = wallColliders_.size();
+                door.closedPosition = objectData.translation;
+                door.closedColliderCenter = worldCollider.center;
+                door.liftDistance = worldCollider.size.y + 0.5f;
+                doors_.push_back(door);
+            }
+            wallColliders_.push_back(worldCollider);
+            wallObjects_.push_back(std::move(mapObject));
+        } else {
+            floorColliders_.push_back(worldCollider);
             floorObjects_.push_back(std::move(mapObject));
         }
+    } else {
+        floorObjects_.push_back(std::move(mapObject));
     }
 
-    // 初回配置・F5再読み込み・ステージ移動のたびに設置物マーカーを更新する
-    if (minimap_) {
-        minimap_->SetObjectMarkers(minimapObjects);
-    }
+}
+
+void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObjects)
+{
+    ResetMapObjects();
+    std::vector<MinimapObjectData> markers;
+    for (const auto& object : allObjects) { CreateMapObject(object, markers); }
+    if (minimap_) { minimap_->SetObjectMarkers(markers); }
 }
 
 void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)

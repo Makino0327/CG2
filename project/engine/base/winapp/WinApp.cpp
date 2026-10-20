@@ -17,6 +17,8 @@ void WinApp::Initialize()
 	wc.hInstance = GetModuleHandle(nullptr);
 	wc.lpszClassName = L"MyWindowClass";
 	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    // DirectXの準備が終わる前も、ウィンドウの背景を黒にして白い点滅を防ぐ。
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
 	RegisterClass(&wc);
 
 	// クライアント領域サイズ調整

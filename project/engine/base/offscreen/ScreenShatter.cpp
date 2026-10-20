@@ -10,8 +10,8 @@ namespace {
     // 光るヒビの溜めを見せてから割り、破片がスローモーションで漂う時間を取る。
     constexpr float kDuration = ScreenShatter::kBulletFlightTime + ScreenShatter::kBreakDelay + 1.5f;
     constexpr float kPi = 3.14159265f;
-    // 大きな破片に加え、着弾時の火花と小片の頂点も確保する。
-    constexpr size_t kMaxVertices = 2048;
+    // 増やした破片と二段階の火花の頂点を確保する。
+    constexpr size_t kMaxVertices = 4096;
 
     // コピーと描画の切り替えでは、実際のリソース状態を必ず元へ戻す。
     void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource,
@@ -126,8 +126,9 @@ void ScreenShatter::CreateShards() {
     // 放射状の線に四隅へ向かう線も加え、画面全体を隙間なく分割する。
     // 四隅の線は外周まで必ず残し、破片が画面の角を覆えるようにする。
     std::vector<std::pair<float, bool>> angles;
-    for (int i = 0; i < 24; ++i) {
-        angles.push_back({ -kPi + (static_cast<float>(i) + unit(random) * 0.5f) * 2.0f * kPi / 24.0f, false });
+    constexpr int kRayCount = 32;
+    for (int i = 0; i < kRayCount; ++i) {
+        angles.push_back({ -kPi + (static_cast<float>(i) + unit(random) * 0.5f) * 2.0f * kPi / kRayCount, false });
     }
     for (Vector2 corner : { Vector2{0,0}, Vector2{1,0}, Vector2{1,1}, Vector2{0,1} }) {
         angles.push_back({ std::atan2(corner.y - impactUV_.y, (corner.x - impactUV_.x) * aspect), true });
@@ -173,19 +174,19 @@ void ScreenShatter::CreateShards() {
         const float dx = (center.x-impactUV_.x)*aspect;
         const float dy = impactUV_.y-center.y;
         const float distance = std::hypot(dx, dy);
-        // 弾け飛ばさず、割れ目が開くように着弾点から少しずつ離れていく。近いほどわずかに大きく動く。
+        // 中心から外へ勢いよく飛ばし、割れる瞬間の広がりを大きく見せる。
         const float closeness = std::exp(-distance*6.0f);
         const float direction = std::atan2(dy, dx)+(unit(random)-0.5f)*0.5f;
         // 外側の破片ほど画面の外へ向かって大きく広がるよう、距離に応じて速さを足す。
-        const float speed = (0.4f+0.55f*closeness+0.7f*distance)*(0.6f+unit(random)*0.8f);
-        // 重力はかけず、スローモーションのようにゆっくり奥へ沈みながら止まっていく。
+        const float speed = (0.75f+0.95f*closeness+1.2f*distance)*(0.8f+unit(random)*0.8f);
+        // 奥への移動は抑え、破片が小さくなる前に画面の外へ広がるようにする。
         shard.velocity = { std::cos(direction)*speed, std::sin(direction)*speed,
-            0.4f+1.0f*closeness+unit(random)*0.3f };
-        // 回転も控えめにし、破片が少し傾く程度にとどめる。
-        const float spinScale = std::clamp(0.35f/std::max(size, 0.001f), 0.3f, 1.0f)*(1.0f+2.0f*closeness);
+            0.25f+0.55f*closeness+unit(random)*0.22f };
+        // 回転を強め、光を反射しながら大きく舞うガラス片にする。
+        const float spinScale = std::clamp(0.65f/std::max(size, 0.001f), 0.6f, 1.8f)*(1.0f+2.4f*closeness);
         shard.spin = { (unit(random)-0.5f)*spinScale, (unit(random)-0.5f)*spinScale, (unit(random)-0.5f)*spinScale*0.8f };
         // 中心から外へ一気に弾けるよう、割れ始めの時間差は短めにする。
-        shard.delay = kBulletFlightTime + kBreakDelay + distance*0.12f + (distance > 0.1f ? unit(random)*0.04f : 0.0f);
+        shard.delay = kBulletFlightTime + kBreakDelay + distance*0.06f + (distance > 0.1f ? unit(random)*0.025f : 0.0f);
         shards_.push_back(std::move(shard));
     };
     size_t triangles = 0;
@@ -209,19 +210,20 @@ void ScreenShatter::CreateShards() {
             AddShard(std::move(points));
         }
     }
-    // 火花は短く鋭く、小片は少し遅く大きく飛ばして、着弾を二段階で見せる。
+    // 着弾と画面が砕ける瞬間に、それぞれ48個の火花と小片を出す。
     impactParticles_.clear();
-    for (int i = 0; i < 36; ++i) {
-        const bool spark = i < 22;
+    for (int i = 0; i < 96; ++i) {
+        const bool spark = i%48 < 32;
         const float angle = unit(random)*2.0f*kPi;
-        const float speed = spark ? 1.6f+unit(random)*3.4f : 0.6f+unit(random)*1.7f;
+        const float speed = spark ? 3.0f+unit(random)*5.0f : 1.0f+unit(random)*2.0f;
         impactParticles_.push_back({
             { std::cos(angle)*speed, std::sin(angle)*speed },
-            spark ? 0.10f+unit(random)*0.12f : 0.22f+unit(random)*0.16f,
-            spark ? 0.002f+unit(random)*0.003f : 0.008f+unit(random)*0.012f,
-            unit(random)*2.0f*kPi, spark });
+            spark ? 0.15f+unit(random)*0.14f : 0.32f+unit(random)*0.22f,
+            spark ? 0.0025f+unit(random)*0.0045f : 0.008f+unit(random)*0.014f,
+            unit(random)*2.0f*kPi, spark,
+            i < 48 ? 0.012f : kBreakDelay+unit(random)*0.03f });
     }
-    // 最後の6頂点は、着弾点へ飛んでいく弾の曳光に使う。
+    // 弾の曳光に使う6頂点も予約する。
     assert(triangles*3+impactParticles_.size()*6+6 <= kMaxVertices);
     (void)triangles;
 }
@@ -254,16 +256,19 @@ void ScreenShatter::UpdateVertices() {
     const float kick = kickAge*std::exp(1.0f-kickAge);
     const float reboundAge = (time_-0.085f)/0.024f;
     const float rebound = std::exp(-reboundAge*reboundAge);
-    const float shakeX = 0.012f*kick-0.004f*rebound;
-    const float shakeY = -0.052f*kick+0.014f*rebound;
+    // 割れる瞬間にも短い振動を足し、画面全体へ衝撃が伝わるようにする。
+    const float breakAge = std::max(0.0f, impactTime-kBreakDelay);
+    const float breakShake = impactTime >= kBreakDelay ? std::exp(-breakAge*14.0f) : 0.0f;
+    const float shakeX = 0.012f*kick-0.004f*rebound+0.020f*std::sin(breakAge*85.0f)*breakShake;
+    const float shakeY = -0.052f*kick+0.014f*rebound+0.026f*std::sin(breakAge*68.0f)*breakShake;
     // 着弾直後の拡大で揺れの隙間を隠し、溜めの間はじわじわ寄って緊張感を出す。
     // 割れる瞬間には画面を前へ打ち出すように一度だけ大きく拡大する。
     // 弾が当たった瞬間にも小さく打ち込む。
     auto Punch = [](float age) { return age > 0.0f ? age*std::exp(1.0f-age) : 0.0f; };
     const float punch = Punch((impactTime-kBreakDelay)/0.045f);
     const float hitPunch = Punch(impactTime/0.03f);
-    const float zoom = 1.0f+0.07f*std::exp(-time_*13.0f)+0.03f*hitPunch
-        +0.03f*std::clamp(impactTime/kBreakDelay,0.0f,1.0f)+0.08f*punch;
+    const float zoom = 1.0f+0.10f*std::exp(-time_*13.0f)+0.05f*hitPunch
+        +0.04f*std::clamp(impactTime/kBreakDelay,0.0f,1.0f)+0.16f*punch;
     // 演出の終わりに残った破片を消し、本編の読み込み前の黒画面へつなぐ。
     const float fadeOut = std::clamp((kDuration-time_)/0.3f,0.0f,1.0f);
     size_t index = 0;
@@ -312,14 +317,14 @@ void ScreenShatter::UpdateVertices() {
     // 火花と小片はガラスより後に描き、割れる前から着弾点の手前へ飛ばす。
     const Vector2 corners[] = { {-1,-1}, {-1,1}, {1,-1}, {1,-1}, {-1,1}, {1,1} };
     for (const ImpactParticle& particle : impactParticles_) {
-        const float age = std::max(0.0f, impactTime-0.012f);
-        if (impactTime < 0.012f || age >= particle.lifetime) { continue; }
+        const float age = impactTime-particle.delay;
+        if (age < 0.0f || age >= particle.lifetime) { continue; }
         const float progress = age/particle.lifetime;
         const float alpha = (1.0f-progress)*(1.0f-progress);
         const float angle = particle.spark ? std::atan2(particle.velocity.y,particle.velocity.x)
             : particle.rotation+age*13.0f;
         const float c = std::cos(angle), s = std::sin(angle);
-        const float halfLength = particle.spark ? 0.018f+0.045f*(1.0f-progress)
+        const float halfLength = particle.spark ? 0.026f+0.060f*(1.0f-progress)
             : particle.size*(1.0f+age*3.0f);
         const float halfWidth = particle.size*(particle.spark ? 1.0f : 1.0f+age*3.0f);
         const float centerX = (impactUV_.x-0.5f)*2.0f*aspect+particle.velocity.x*age;
@@ -379,6 +384,7 @@ void ScreenShatter::UpdateVertices() {
             vertex.appearance = { -4.0f, 1.0f };
         }
     }
+    assert(index <= kMaxVertices);
     vertexCount_ = static_cast<UINT>(index);
 }
 

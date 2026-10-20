@@ -9,7 +9,14 @@
 #include <random>
 #include "../../engine/particle/Particle.h"
 
-void Player::Initialize(
+void Player::Initialize(Object3dCommon* common, Input* input, ParticleSystem* particles)
+{
+    // 一度で初期化する呼び出しにも、分割読み込みと同じ処理を使う。
+    BeginInitialize(common, input, particles);
+    while (!ContinueInitialize()) {}
+}
+
+void Player::BeginInitialize(
     Object3dCommon* object3dCommon,
     Input* input,
     ParticleSystem* particleSystem)
@@ -35,7 +42,10 @@ void Player::Initialize(
     // 銃と骨が含まれるQuaterniusのSWATモデルを使う。
     object_->SetModel("player_modular/Swat.gltf");
     object_->SetSkeletonVisible(false);
-    InitializeAnimations();
+    animationLoadStep_ = 0;
+    loadingAnimations_ = true;
+    currentMotion_ = Motion::Count;
+    suppressFireUntilRelease_ = false;
 
     // プレイヤーの大きさを設定する
     object_->SetScale(scale_);
@@ -51,71 +61,84 @@ void Player::Initialize(
 
 }
 
-void Player::InitializeAnimations()
+bool Player::IsUpperBodyJoint(const std::string& name) const
 {
-    // 番号を決め打ちせず、配布ファイルのアニメーション名から検索する。
-    const std::string directory = "Resources/player_modular";
-    const std::string file = "Swat.gltf";
-    const auto names = GetAnimationNames(directory, file);
-    const auto load = [&](const std::string& name) {
-        const auto found = std::find(names.begin(), names.end(), name);
-        assert(found != names.end());
-        return LoadAnimationFile(directory, file, static_cast<uint32_t>(found - names.begin()));
-    };
-    const auto index = [](Motion motion) { return static_cast<size_t>(motion); };
-    animations_[index(Motion::Idle)] = load("Idle_Gun");
-    animations_[index(Motion::Run)] = load("Run");
-    animations_[index(Motion::RunBack)] = load("Run_Back");
-    animations_[index(Motion::RunLeft)] = load("Run_Left");
-    animations_[index(Motion::RunRight)] = load("Run_Right");
-    // 両手構えと反動は、このゲーム向けに調整した専用のモーションを読む。
-    animations_[index(Motion::AimIdle)] = LoadAnimationFile(directory, "SwatTwoHand.gltf", 0);
-    shootingOverlay_ = LoadAnimationFile(directory, "SwatTwoHand.gltf", 1);
-
-    // 構え中は移動速度が半分になるので、足のモーションも半分の速さにする。
-    // 上半身だけを構え姿勢に固定し、前後左右の足運びは元の走行から残す。
-    const Animation& aiming = animations_[index(Motion::AimIdle)];
-    object_->SetAnimationParentReference("Abdomen", aiming);
     const Skeleton& skeleton = object_->GetSkeleton();
-    const auto isUpperBody = [&](const std::string& name) {
-        const auto found = skeleton.jointMap.find(name);
-        if (found == skeleton.jointMap.end()) { return false; }
-        std::optional<int32_t> jointIndex = found->second;
-        while (jointIndex) {
-            const Joint& joint = skeleton.joints[*jointIndex];
-            if (joint.name == "Abdomen") { return true; }
-            jointIndex = joint.parent;
-        }
-        return false;
-    };
-    // 射撃で脚や足を上書きしないよう、上半身以外のキーを取り除く。
-    std::erase_if(shootingOverlay_.nodeAnimations,
-        [&](const auto& node) { return !isUpperBody(node.first); });
-    for (size_t direction = 0; direction < 4; ++direction) {
-        Animation aimed = animations_[index(Motion::Run) + direction];
-        aimed.duration *= 2.0f;
-        for (auto& [name, node] : aimed.nodeAnimations) {
-            for (auto& key : node.translate.keyframes) { key.time *= 2.0f; }
-            for (auto& key : node.rotate.keyframes) { key.time *= 2.0f; }
-            for (auto& key : node.scale.keyframes) { key.time *= 2.0f; }
-
-            // 腹部より上の骨だけを対象にし、腰・脚・足は移動アニメーションに任せる。
-            const auto foundPose = aiming.nodeAnimations.find(name);
-            if (!isUpperBody(name) || foundPose == aiming.nodeAnimations.end()) { continue; }
-            const NodeAnimation& pose = foundPose->second;
-            if (!pose.translate.keyframes.empty()) {
-                node.translate.keyframes = { { 0.0f, CalculateValue(pose.translate.keyframes, 0.0f) } };
-            }
-            if (!pose.rotate.keyframes.empty()) {
-                node.rotate.keyframes = { { 0.0f, CalculateValue(pose.rotate.keyframes, 0.0f) } };
-            }
-            if (!pose.scale.keyframes.empty()) {
-                node.scale.keyframes = { { 0.0f, CalculateValue(pose.scale.keyframes, 0.0f) } };
-            }
-        }
-        animations_[index(Motion::AimRun) + direction] = std::move(aimed);
+    const auto found = skeleton.jointMap.find(name);
+    if (found == skeleton.jointMap.end()) { return false; }
+    std::optional<int32_t> joint = found->second;
+    while (joint) {
+        if (skeleton.joints[*joint].name == "Abdomen") { return true; }
+        joint = skeleton.joints[*joint].parent;
     }
-    PlayMotion(Motion::Idle, true);
+    return false;
+}
+
+void Player::PrepareAimingAnimations()
+{
+    // 上半身の姿勢を構えモーションへ固定し、射撃反動から脚のキーを除く。
+    const Animation& aiming = animations_[static_cast<size_t>(Motion::AimIdle)];
+    object_->SetAnimationParentReference("Abdomen", aiming);
+    std::erase_if(shootingOverlay_.nodeAnimations,
+        [this](const auto& node) { return !IsUpperBodyJoint(node.first); });
+}
+
+void Player::CreateAimedLocomotion(size_t direction)
+{
+    const auto index = [](Motion motion) { return static_cast<size_t>(motion); };
+    const Animation& aiming = animations_[index(Motion::AimIdle)];
+    Animation aimed = animations_[index(Motion::Run) + direction];
+    aimed.duration *= 2.0f;
+    for (auto& [name, node] : aimed.nodeAnimations) {
+        for (auto& key : node.translate.keyframes) { key.time *= 2.0f; }
+        for (auto& key : node.rotate.keyframes) { key.time *= 2.0f; }
+        for (auto& key : node.scale.keyframes) { key.time *= 2.0f; }
+
+        // 腹部より上の骨だけを対象にし、腰・脚・足は移動アニメーションに任せる。
+        const auto foundPose = aiming.nodeAnimations.find(name);
+        if (!IsUpperBodyJoint(name) || foundPose == aiming.nodeAnimations.end()) { continue; }
+        const NodeAnimation& pose = foundPose->second;
+        if (!pose.translate.keyframes.empty()) {
+            node.translate.keyframes = { { 0.0f, CalculateValue(pose.translate.keyframes, 0.0f) } };
+        }
+        if (!pose.rotate.keyframes.empty()) {
+            node.rotate.keyframes = { { 0.0f, CalculateValue(pose.rotate.keyframes, 0.0f) } };
+        }
+        if (!pose.scale.keyframes.empty()) {
+            node.scale.keyframes = { { 0.0f, CalculateValue(pose.scale.keyframes, 0.0f) } };
+        }
+    }
+    animations_[index(Motion::AimRun) + direction] = std::move(aimed);
+}
+
+bool Player::ContinueInitialize()
+{
+    if (!loadingAnimations_) { return true; }
+    // 1回の呼び出しで1クリップまたは1方向だけを作り、連続して読み込まない。
+    const std::string directory = "Resources/player_modular";
+    if (animationLoadStep_ == 0) {
+        loadingAnimationNames_ = GetAnimationNames(directory, "Swat.gltf");
+    } else if (animationLoadStep_ <= 5) {
+        const char* names[] = { "Idle_Gun", "Run", "Run_Back", "Run_Left", "Run_Right" };
+        const auto found = std::find(loadingAnimationNames_.begin(), loadingAnimationNames_.end(), names[animationLoadStep_-1]);
+        assert(found != loadingAnimationNames_.end());
+        animations_[animationLoadStep_-1] = LoadAnimationFile(directory, "Swat.gltf",
+            static_cast<uint32_t>(found-loadingAnimationNames_.begin()));
+    } else if (animationLoadStep_ == 6) {
+        animations_[static_cast<size_t>(Motion::AimIdle)] = LoadAnimationFile(directory, "SwatTwoHand.gltf", 0);
+    } else if (animationLoadStep_ == 7) {
+        shootingOverlay_ = LoadAnimationFile(directory, "SwatTwoHand.gltf", 1);
+    } else if (animationLoadStep_ == 8) {
+        PrepareAimingAnimations();
+    } else if (animationLoadStep_ <= 12) {
+        CreateAimedLocomotion(animationLoadStep_-9);
+    } else {
+        PlayMotion(Motion::Idle, true);
+        loadingAnimationNames_.clear();
+        loadingAnimations_ = false;
+    }
+    ++animationLoadStep_;
+    return !loadingAnimations_;
 }
 
 void Player::PlayMotion(Motion motion, bool restart)

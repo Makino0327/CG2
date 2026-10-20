@@ -56,6 +56,7 @@
     <ClCompile Include="app\Framework.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayLoading.cpp" />
     <ClCompile Include="scene\title\TitleScene.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
     <ClCompile Include="scene\SceneManager.cpp" />
@@ -123,6 +124,8 @@
     <ClInclude Include="scene\gameplay\PauseState.h" />
     <ClInclude Include="scene\title\TitleScene.h" />
     <ClInclude Include="scene\BaseScene.h" />
+    <ClInclude Include="scene\TransitionScanEffect.h" />
+    <ClInclude Include="scene\FrameLoadQueue.h" />
     <ClInclude Include="scene\SceneManager.h" />
     <ClInclude Include="scene\SceneContext.h" />
     <ClInclude Include="engine\3d\skybox\SkyboxCommon.h" />

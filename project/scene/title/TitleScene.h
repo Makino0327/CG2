@@ -11,12 +11,14 @@
 #include "../BaseScene.h"
 #include "../../engine/math/Math.h"
 #include "../LevelLoader.h"
+#include "../TransitionScanEffect.h"
 
 class Object3d;
 class Sprite;
 class ParticleSystem;
 class Enemy;
 class PlayerBullet;
+class GamePlayScene;
 
 class TitleScene : public BaseScene {
 public:
@@ -24,6 +26,12 @@ public:
     TitleScene();
     ~TitleScene() override;
     void Initialize() override;
+    // 本編を先に準備し、Space入力後の演出から読み込み処理をなくす。
+    void BeginInitialize() override;
+    bool ContinueInitialize() override;
+    // 準備が早く終わっても、画面が割れる演出の完了を待つ。
+    bool CanLeaveScene() const override;
+    float GetTransitionFrame() const override;
     void Update() override;
     void Draw() override;
     void DrawShadow() override; // タイトルの背景モデルにも同じ影を付ける。
@@ -33,6 +41,10 @@ public:
     void Finalize() override;
 
 private:
+    // 初期化済みの本編を、ゲーム開始が選ばれるまで保持する。
+    std::unique_ptr<GamePlayScene> preparedGamePlay_;
+    void InitializeTitle();
+
     // 発射間隔と散らばり方で、2種類の銃を表現する
     enum class DemoWeapon { AssaultRifle, Shotgun };
 
@@ -65,6 +77,9 @@ private:
 
     bool initialized_ = false;
     bool isStarting_ = false;
+    // 開放時と同じ緑の演出を、割れた瞬間から暗転中まで出し続ける。
+    TransitionScanEffect transitionScan_;
+    int transitionFrame_ = 0;
     int selectedButton_ = 0;
     int frame_ = 0;
     int spawnTimer_ = 0;
@@ -104,6 +119,8 @@ private:
     std::array<Sprite*, 2> titleMist_{};
     Sprite* titleLogo_ = nullptr;
     Sprite* titleShade_ = nullptr;
+    // 背景・発光・文字の上を黒で覆い、準備完了後に画面全体を明るくする。
+    std::unique_ptr<Sprite> titleFade_;
     // 元の位置と色を保存し、毎フレームの移動や透明度を累積させない
     struct MenuVisual {
         Sprite* sprite = nullptr;

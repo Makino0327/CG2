@@ -52,6 +52,8 @@ private:
         float size;
         float rotation;
         bool spark;
+        // 着弾時と画面が割れる瞬間で、火花の発生時刻を分ける。
+        float delay;
     };
 
     void CreatePipeline();

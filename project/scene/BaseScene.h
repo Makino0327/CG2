@@ -10,6 +10,12 @@ public:
     virtual ~BaseScene() = default;
 
     virtual void Initialize() = 0;
+    // 通常のシーンは一度で準備し、重いシーンだけフレーム分割へ差し替える。
+    virtual void BeginInitialize() { Initialize(); }
+    virtual bool ContinueInitialize() { return true; }
+    virtual bool CanLeaveScene() const { return true; }
+    virtual float GetTransitionFrame() const { return 0.0f; }
+    virtual void OnActivated(float) {}
     virtual void Finalize() = 0;
     virtual void Update() = 0;
     virtual void Draw() = 0;

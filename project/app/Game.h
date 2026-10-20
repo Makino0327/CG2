@@ -66,6 +66,8 @@ public:
     void Finalize()override;
 
 private:
+    // シーンの準備中は、画像や文字を出さずに黒画面を描く。
+    void DrawLoadingScreen();
 
     std::unique_ptr<WinApp> winApp_;
     std::unique_ptr<Input> input_;

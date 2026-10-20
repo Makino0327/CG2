@@ -31,6 +31,9 @@ public:
         Object3dCommon* object3dCommon,
         Input* input,
         ParticleSystem* particleSystem);
+    // 本編の読み込みでは、アニメーションを1段階ずつ準備して描画へ戻る。
+    void BeginInitialize(Object3dCommon* common, Input* input, ParticleSystem* particles);
+    bool ContinueInitialize();
 
     void Update(Camera* camera);
     // 再開のクリックを射撃へ持ち越さず、ボタンを離してから次の発砲を受け付ける。
@@ -148,7 +151,12 @@ private:
     };
 
     // モーションは初期化時に読み込み、毎フレームのファイルアクセスを避ける。
-    void InitializeAnimations();
+    void PrepareAimingAnimations();
+    void CreateAimedLocomotion(size_t direction);
+    bool IsUpperBodyJoint(const std::string& name) const;
+    size_t animationLoadStep_ = 0;
+    std::vector<std::string> loadingAnimationNames_;
+    bool loadingAnimations_ = false;
     void UpdateAnimation(const Vector3& movement, bool isAiming);
     void PlayMotion(Motion motion, bool restart = false);
 

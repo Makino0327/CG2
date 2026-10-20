@@ -7,6 +7,7 @@
 #include <d3d12.h>
 #include <array>
 #include <chrono>
+#include <future>
 
 #include "../engine/math/Math.h"
 #include "../BaseScene.h"
@@ -28,6 +29,8 @@
 #include "../../game/generator/GeneratorActivation.h"
 #include "../../game/generator/GeneratorDoorLink.h"
 #include "PauseState.h"
+#include "../TransitionScanEffect.h"
+#include "../FrameLoadQueue.h"
 
 #include "../LevelLoader.h"
 
@@ -44,16 +47,35 @@ class GamePlayScene : public BaseScene
 {
 public:
     void Initialize() override;
+    void BeginInitialize() override;
+    bool ContinueInitialize() override;
+    void OnActivated(float transitionFrame) override;
     void Update() override;
     void Draw() override;
     void DrawShadow() override; // 人や壁の形を、影用の深度画像へ描く。
     void DrawBloom() override;
     void DrawOverlay() override;
     bool IsPaused() const override { return pause_.IsPaused(); }
+    // タイトルのフェードから、緑の演出の動きを途切れず引き継ぐ。
+    void SetIntroScanFrameOffset(float frame) { introScanFrameOffset_ = frame; }
     void Finalize() override;
     void DrawImGui() override;
 
 private:
+    // 読み込み中のデータと仕事は本編自身が所有し、完成まで表示しない。
+    struct PreparedLevel {
+        LevelData level;
+        std::vector<LevelObjectData> objects;
+    };
+    static PreparedLevel ReadInitialLevel(const std::string& path);
+    FrameLoadQueue loadQueue_;
+    std::future<PreparedLevel> levelFuture_;
+    PreparedLevel preparedLevel_;
+    std::vector<MinimapObjectData> loadingMinimapObjects_;
+    bool initializing_ = false;
+    void ResetMapObjects();
+    void CreateMapObject(const LevelObjectData& object, std::vector<MinimapObjectData>& markers);
+    void QueueInitialLevelObjects();
     // 画面の暗転と緑の選択表示を使うポーズメニュー。
     void InitializePauseUi();
     bool UpdatePauseMenu(float seconds);
@@ -147,7 +169,8 @@ private:
 
     std::unique_ptr<DebugCamera> debugCamera_;
     std::unique_ptr<FollowCamera> followCamera_;
-    std::unique_ptr<Line3DCommon> line3dCommon_;
+    // Gameが所有する線描画の共通設定を借りる。シーン側では解放しない。
+    Line3DCommon* line3dCommon_ = nullptr;
     DebugLine3D enemyVisionDebug_;
 
 private:
@@ -301,6 +324,11 @@ private:
     // 本編開始時のシャッター。黒い扉と、合わせ目を光らせる緑の線
     std::array<std::unique_ptr<Sprite>, 2> introDoors_;
     std::array<std::unique_ptr<Sprite>, 2> introDoorEdges_;
+    // シャッターの緑の光を広げ、開放時に短い閃光と走査線を加える。
+    std::array<std::unique_ptr<Sprite>, 2> introDoorGlows_;
+    TransitionScanEffect introScan_;
+    float introScanFrameOffset_ = 0.0f;
+    std::unique_ptr<Sprite> introFlash_;
     int introFrame_ = 0;
 
     // ボスステージへ移動するテレポーター情報

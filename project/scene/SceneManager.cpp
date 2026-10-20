@@ -5,17 +5,21 @@
 void SceneManager::Update()
 {
     if (nextScene_) {
-        if (scene_) {
-            scene_->Finalize();
+        if (!preparingNext_) {
+            nextScene_->SetSceneManager(this);
+            nextScene_->SetContext(context_);
+            nextScene_->BeginInitialize();
+            preparingNext_ = true;
         }
-
-        scene_ = std::move(nextScene_);
-        scene_->SetSceneManager(this);
-
-        // ★ ここで SceneManager が保持している Context を自動で渡す！
-        scene_->SetContext(context_);
-
-        scene_->Initialize();
+        if (!nextReady_) { nextReady_ = nextScene_->ContinueInitialize(); }
+        // 読み込み中は元のシーンを保持し、遷移演出と描画を動かし続ける。
+        if (nextReady_ && (!scene_ || scene_->CanLeaveScene())) {
+            const float transitionFrame = scene_ ? scene_->GetTransitionFrame() : 0.0f;
+            if (scene_) { scene_->Finalize(); }
+            scene_ = std::move(nextScene_);
+            preparingNext_ = nextReady_ = false;
+            scene_->OnActivated(transitionFrame);
+        }
     }
 
     if (scene_) {

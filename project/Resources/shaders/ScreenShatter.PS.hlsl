@@ -15,6 +15,8 @@ struct Input {
 
 // 着弾点は弾の熱を感じる黄・橙・赤、それ以外の光は白でそろえる。
 static const float3 kWhite = float3(1.0, 1.0, 1.0);
+// シャッターの緑を、砕けた破片の縁の反射にも使う。
+static const float3 kEnergyGreen = float3(0.16, 1.0, 0.42);
 static const float3 kHotYellow = float3(1.0, 0.9, 0.35);
 static const float3 kHotOrange = float3(1.0, 0.42, 0.05);
 static const float3 kHotRed = float3(0.75, 0.06, 0.02);
@@ -69,7 +71,9 @@ float4 main(Input input) : SV_TARGET {
     // 溜めの間はヒビを細かく明滅させ、割れた後は破片の縁として白く光らせる。
     float flicker = 0.75 + 0.25 * sin(elapsed * 55.0);
     color = lerp(color, kWhite, crack * 0.9);
-    color += kWhite * (crack * lerp(0.6 * flicker, 0.5, broken) + tip * 1.5);
+    // ヒビの先端と割れた縁を、白と緑の強い光で浮かび上がらせる。
+    color += lerp(kWhite, kEnergyGreen, broken*0.45)
+        * (crack * lerp(0.9 * flicker, 0.7, broken) + tip * 2.0);
 
     // 黒い弾痕を大きめに残し、その周囲を白く砕いて着弾箇所を読み取りやすくする。
     float angle = atan2(offset.y,offset.x);
