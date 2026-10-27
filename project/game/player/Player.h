@@ -61,8 +61,11 @@ public:
     // プレイヤーの当たり判定を返す
     SphereCollider GetCollider() const;
 
-    // プレイヤーが何かに当たった時の処理
-    void OnHit();
+    // 攻撃元から離れる方向へ吹き飛ばし、実際に被弾した場合だけ真を返す。
+    bool OnHit(const Vector3& attackerPosition);
+
+    // 床と壁を確認しながらノックバックで移動する。
+    void MoveWithCollision(const Vector3& movement);
 
     // プレイヤーが持つ弾一覧を参照できるようにする
     const std::vector<std::unique_ptr<PlayerBullet>>& GetBullets() const { return bullets_; }
@@ -88,11 +91,21 @@ public:
         grenadeSmokeParticleSystem_ = particleSystem;
     }
 
+    // 敵と共有する、発光しない血しぶき用パーティクルを受け取る。
+    void SetBloodParticleSystem(ParticleSystem* particleSystem) {
+        bloodParticleSystem_ = particleSystem;
+    }
+
     // プレイヤーの現在HPを返す
     int GetHp() const { return hp_; }
+    // 体力の減り具合に応じた画面演出で使う最大HPを返す。
+    int GetMaxHp() const { return maxHp_; }
 
     // プレイヤーが消えたかを返す
     bool IsDead() const { return isDead_; }
+
+    // その場で倒れる動作を開始し、最後の姿勢を保持する。
+    void Die();
 
     // 現在の攻撃方法を返す
     AttackMode GetAttackMode() const { return attackMode_; }
@@ -147,6 +160,7 @@ private:
     enum class Motion : size_t {
         Idle, Run, RunBack, RunLeft, RunRight,
         AimIdle, AimRun, AimBack, AimLeft, AimRight,
+        Death,
         Count
     };
 
@@ -254,6 +268,9 @@ private:
     // プレイヤー弾が共有する軌跡用パーティクルシステム
     ParticleSystem* particleSystem_ = nullptr;
 
+    // 被弾演出は射撃の発光粒子と分け、通常のアルファ合成で描画する。
+    ParticleSystem* bloodParticleSystem_ = nullptr;
+
     // 現在選んでいる攻撃方法
     AttackMode attackMode_ = AttackMode::Knife;
     AttackMode selectedGunMode_ = AttackMode::Gun; // 右クリック中に使う銃の種類を保存する
@@ -359,6 +376,9 @@ private:
 
     // 被弾状態を保持する
     bool isHit_ = false;
+
+    // 被弾後に毎フレーム加える水平移動量。時間とともに減衰させる。
+    Vector3 knockbackVelocity_{};
 
     // プレイヤーの現在HP
     int hp_ = 3;

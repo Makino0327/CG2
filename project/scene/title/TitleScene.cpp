@@ -183,6 +183,7 @@ void TitleScene::InitializeTitle() {
     if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
     if (GetContext().offscreenRenderer) {
         // 前のシーンの死亡・構え演出をタイトルへ持ち越さない
+        GetContext().offscreenRenderer->ResetDamageFeedback();
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         for (int effect = 0; effect < static_cast<int>(PostEffectType::Count); ++effect) {
             GetContext().offscreenRenderer->SetPostEffectEnabled(static_cast<PostEffectType>(effect), false);

@@ -1,4 +1,4 @@
 #include "GameOverScene.h"
 
-// 見た目と操作はResultSceneで共通化し、ゲームオーバー用の見出しとボタンを選ぶ
+// 操作と遷移は共通化し、ゲームオーバー専用の背景と文字を選ぶ。
 GameOverScene::GameOverScene() : ResultScene(Type::GameOver) {}

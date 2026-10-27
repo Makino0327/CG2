@@ -49,6 +49,9 @@ public:
     // 画面上のマウスから、カメラの手前と奥を結ぶ線を取得する。
     static bool GetMouseRay(Camera* camera, Input* input, Vector3& start, Vector3& end);
 
+    // プレイヤーの向きと近距離の射撃判定で、同じ地面上のマウス位置を共有する。
+    static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
+
     static Vector3 CalcDirectionToMouseGround(
         const Vector3& startPosition,
         Camera* camera,
@@ -63,7 +66,6 @@ public:
         float targetHeight);
 
 private:
-    static Vector3 GetMousePositionOnGround(Camera* camera, Input* input);
     // 床ではなく、弾が狙う高さの平面へマウス位置を投影する。
     static Vector3 GetMousePositionOnPlane(Camera* camera, Input* input, float height);
 

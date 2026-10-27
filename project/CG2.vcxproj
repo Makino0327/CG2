@@ -167,6 +167,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <ClCompile Include="game\minimap\Minimap.cpp" />
     <ClCompile Include="scene\gameover\GameOverScene.cpp" />
+    <ClCompile Include="scene\gameover\GameOverEffect.cpp" />
     <ClCompile Include="scene\clear\ClearScene.cpp" />
     <ClCompile Include="scene\result\ResultScene.cpp" />
     <ClCompile Include="game\collision\Collision.cpp" />
@@ -419,9 +420,12 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <ClInclude Include="game\minimap\Minimap.h" />
     <ClInclude Include="scene\gameover\GameOverScene.h" />
+    <ClInclude Include="scene\gameover\GameOverEffect.h" />
     <ClInclude Include="scene\clear\ClearScene.h" />
     <ClInclude Include="scene\result\ResultScene.h" />
     <ClInclude Include="game\collision\Collision.h" />
+    <ClInclude Include="game\collision\BodyContact.h" />
+    <ClInclude Include="game\common\BloodSplatter.h" />
     <ClInclude Include="game\boss\Boss.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
@@ -503,6 +507,9 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <None Include="Resources\shaders\ShadowDepth.PS.hlsl" />
     <None Include="Resources\shaders\ScreenShatter.VS.hlsl" />
     <None Include="Resources\shaders\ScreenShatter.PS.hlsl" />
+    <None Include="Resources\shaders\GameOverEffect.VS.hlsl" />
+    <None Include="Resources\shaders\GameOverEffect.PS.hlsl" />
+    <None Include="Resources\shaders\DeathBlur.PS.hlsl" />
     <None Include="Resources\shaders\Particle.hlsli" />
     <None Include="Resources\shaders\Object3d.hlsli" />
     <None Include="Resources\shaders\Skybox.hlsli" />

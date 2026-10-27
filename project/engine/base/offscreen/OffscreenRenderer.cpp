@@ -1,7 +1,9 @@
 #include "OffscreenRenderer.h"
 #include <cassert>
+#include "../../utils/Logger.h"
 #include "../../2d/texture/TextureManager.h"
 #include <algorithm>
+#include <cmath>
 
 #ifdef USE_IMGUI
 #include "../../../externals/imgui/imgui.h"
@@ -44,6 +46,14 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     srvManager_->CreateSRVForDepthTexture(
         depthSrvIndex_,
         dxCommon_->GetDepthStencilResource()); // DepthBuffer繧単ixelShader縺九ｉ隱ｭ繧√ｋ繧医≧縺ｫ縺吶ｋ
+
+    // 背景の保存先と、徐々にピントを外すためのパラメータを準備する。
+    deathSceneTexture_ = std::make_unique<RenderTexture>();
+    deathSceneTexture_->Initialize(dxCommon_,srvManager_,WinApp::kClientWidth,WinApp::kClientHeight,
+        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,{0,0,0,1});
+    deathBlurResource_ = dxCommon_->CreateBufferResource(sizeof(DeathBlurData));
+    deathBlurResource_->Map(0,nullptr,reinterpret_cast<void**>(&deathBlurData_));
+    *deathBlurData_ = {};
 
     CreateRootSignature();
     CreateGraphicsPipelineState();
@@ -94,7 +104,9 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     vignetteResource_ = dxCommon_->CreateBufferResource(sizeof(VignetteData));
     vignetteResource_->Map(0, nullptr, reinterpret_cast<void**>(&vignetteData_));
     vignetteData_->intensity = 1.0f; // 既存のVignette単体表示は今まで通りの濃さにする
-    vignetteData_->padding = { 0.0f, 0.0f, 0.0f };
+    vignetteData_->lowHealth = 0.0f;
+    vignetteData_->time = 0.0f;
+    vignetteData_->damageNoise = 0.0f;
 
     // 衝撃波歪み用の定数バッファを作る
     shockwaveResource_ = dxCommon_->CreateBufferResource(sizeof(ShockwaveData));
@@ -181,6 +193,96 @@ void OffscreenRenderer::SetVignetteIntensity(float intensity)
 
     vignetteData_->intensity = std::clamp(intensity, 0.0f, 1.0f); // ビネットの濃さを0から1に収める
 }
+void OffscreenRenderer::SetLowHealthWarning(float amount)
+{
+    lowHealthTarget_ = std::clamp(amount,0.0f,1.0f);
+}
+
+void OffscreenRenderer::StartDamageNoise(float strength, float duration)
+{
+    if (!vignetteData_) { return; }
+    // 実際にダメージを受けたフレームから最大強度で表示する。
+    damageNoiseStrength_ = std::clamp(strength,0.0f,1.0f);
+    damageNoiseDuration_ = (std::max)(duration,0.01f);
+    damageNoiseRemaining_ = damageNoiseDuration_;
+    vignetteData_->damageNoise = damageNoiseStrength_;
+}
+
+void OffscreenRenderer::ResetDamageFeedback()
+{
+    // タイトル・復帰・ゲームオーバーへ、赤い縁や被弾ノイズを持ち越さない。
+    lowHealthTarget_ = 0.0f;
+    damageNoiseRemaining_ = 0.0f;
+    if (vignetteData_) {
+        vignetteData_->lowHealth = 0.0f;
+        vignetteData_->damageNoise = 0.0f;
+        vignetteData_->time = 0.0f;
+    }
+}
+
+void OffscreenRenderer::SetDeathBlur(float progress)
+{
+    if (!deathBlurData_) { return; }
+    progress = std::clamp(progress,0.0f,1.0f);
+    deathBlurData_->radius = progress*11.0f;
+    deathBlurData_->darkness = progress*0.20f;
+    deathBlurData_->vignette = progress*0.30f;
+}
+
+void OffscreenRenderer::ResetDeathSceneCapture()
+{
+    // 画像の状態遷移は保持し、次の死亡で古い背景を表示しないようにする。
+    deathCaptureRequested_ = false;
+    hasDeathCapture_ = false;
+    SetDeathBlur(0.0f);
+}
+
+void OffscreenRenderer::CaptureDeathScene()
+{
+    if (!deathCaptureRequested_) { return; }
+    auto* list = dxCommon_->GetCommandList();
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    for (auto& barrier : barriers) {
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    }
+    barriers[0].Transition = { renderTexture_->GetResource(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+        D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE };
+    barriers[1].Transition = { deathSceneTexture_->GetResource(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+        deathSceneState_,D3D12_RESOURCE_STATE_COPY_DEST };
+    list->ResourceBarrier(2,barriers);
+    list->CopyResource(deathSceneTexture_->GetResource(),renderTexture_->GetResource());
+    // 保存した場面は読み取り専用に戻し、本編の描画先も元へ戻す。
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    list->ResourceBarrier(2,barriers);
+    deathSceneState_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    hasDeathCapture_ = true;
+    deathCaptureRequested_ = false;
+    Logger::Log("[DeathSequence] Scene captured.");
+}
+
+void OffscreenRenderer::DrawDeathBackground()
+{
+    if (!hasDeathCapture_) { return; }
+    auto* list = dxCommon_->GetCommandList();
+    const auto rtv = renderTexture_->GetRTVHandle();
+    list->OMSetRenderTargets(1,&rtv,FALSE,nullptr);
+    list->SetGraphicsRootSignature(rootSignature_.Get());
+    list->SetPipelineState(deathBlurPipelineState_.Get());
+    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D12DescriptorHeap* heaps[]{srvManager_->GetDescriptorHeap()};
+    list->SetDescriptorHeaps(1,heaps);
+    srvManager_->SetGraphicsRootDescriptorTable(0,deathSceneTexture_->GetSRVIndex());
+    list->SetGraphicsRootConstantBufferView(3,deathBlurResource_->GetGPUVirtualAddress());
+    list->DrawInstanced(3,1,0,0);
+    // 後から描く文字と赤い筋には、このぼかしを適用しない。
+    const auto dsv = dxCommon_->GetDSVHandle();
+    list->OMSetRenderTargets(1,&rtv,FALSE,&dsv);
+}
+
 void OffscreenRenderer::DrawToBackBuffer()
 {
     ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
@@ -190,6 +292,7 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     // メニューまで描いたタイトルを、通常のポストエフェクトより先に保存する。
     screenShatter_->Capture(renderTexture_->GetResource());
+    CaptureDeathScene();
 
     ID3D12Resource* depthResource = dxCommon_->GetDepthStencilResource();
     D3D12_CPU_DESCRIPTOR_HANDLE backBufferRTVHandle = dxCommon_->GetCurrentBackBufferRTVHandle();
@@ -218,7 +321,10 @@ void OffscreenRenderer::DrawToBackBuffer()
     for (size_t index = 1; index < enabledPostEffects_.size(); ++index) {
         if (index == static_cast<size_t>(PostEffectType::Bloom)) { continue; }
         // Bloomと併用していても、死亡時などの主エフェクトを適用する。
-        if (enabledPostEffects_[index] || postEffectType_ == static_cast<PostEffectType>(index)) {
+        // 構え中の暗い縁が無効でも、瀕死の赤い縁と被弾ノイズは描画する。
+        const bool damageFeedback = index == static_cast<size_t>(PostEffectType::Vignette) &&
+            vignetteData_ && (vignetteData_->lowHealth > 0.0f || vignetteData_->damageNoise > 0.0f);
+        if (enabledPostEffects_[index] || postEffectType_ == static_cast<PostEffectType>(index) || damageFeedback) {
             activeEffects[activeEffectCount] = static_cast<PostEffectType>(index);
             ++activeEffectCount;
         }
@@ -259,6 +365,9 @@ void OffscreenRenderer::DrawToBackBuffer()
             break;
         case PostEffectType::Grayscale:
             commandList->SetPipelineState(grayscalePipelineState_.Get());
+            break;
+        case PostEffectType::DeathBlur:
+            commandList->SetPipelineState(deathBlurPipelineState_.Get());
             break;
         case PostEffectType::Sepia:
             commandList->SetPipelineState(sepiaPipelineState_.Get());
@@ -316,7 +425,9 @@ void OffscreenRenderer::DrawToBackBuffer()
         uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
         srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2: ディゾルブ用マスク
 
-        commandList->SetGraphicsRootConstantBufferView(3, radialBlurResource_->GetGPUVirtualAddress()); // b0
+        // 死亡時だけ専用のぼかし量を使い、通常のラジアルブラーと設定を分ける。
+        commandList->SetGraphicsRootConstantBufferView(3,
+            (type == PostEffectType::DeathBlur ? deathBlurResource_ : radialBlurResource_)->GetGPUVirtualAddress());
         commandList->SetGraphicsRootConstantBufferView(4, dissolveResource_->GetGPUVirtualAddress()); // b1
         commandList->SetGraphicsRootConstantBufferView(5, randomNoiseResource_->GetGPUVirtualAddress()); // b2
         commandList->SetGraphicsRootConstantBufferView(6, shockwaveResource_->GetGPUVirtualAddress()); // b3
@@ -538,6 +649,8 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     auto shockwavePixelShaderBlob = dxCommon_->CompileShader(
         L"Resources/shaders/Shockwave.PS.hlsl",
         L"ps_6_0");
+    auto deathBlurPixelShaderBlob = dxCommon_->CompileShader(
+        L"Resources/shaders/DeathBlur.PS.hlsl",L"ps_6_0");
 
     D3D12_INPUT_LAYOUT_DESC inputLayout{};
     inputLayout.pInputElementDescs = nullptr;
@@ -577,6 +690,11 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
     hr = device->CreateGraphicsPipelineState(
         &desc,
         IID_PPV_ARGS(copyPipelineState_.GetAddressOf()));
+    assert(SUCCEEDED(hr));
+
+    // 死亡中の視界と、ゲームオーバー背景で同じぼかしを使う。
+    desc.PS = { deathBlurPixelShaderBlob->GetBufferPointer(),deathBlurPixelShaderBlob->GetBufferSize() };
+    hr = device->CreateGraphicsPipelineState(&desc,IID_PPV_ARGS(deathBlurPipelineState_.GetAddressOf()));
     assert(SUCCEEDED(hr));
 
     desc.PS = {
@@ -691,6 +809,21 @@ void OffscreenRenderer::CreateGraphicsPipelineState()
 }
 void OffscreenRenderer::Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed)
 {
+    if (vignetteData_) {
+        // ポーズ中は時間を止め、HPが変わったときは赤い縁を滑らかに切り替える。
+        vignetteData_->lowHealth += (lowHealthTarget_-vignetteData_->lowHealth)*
+            std::clamp(deltaTime*8.0f,0.0f,1.0f);
+        if (std::abs(lowHealthTarget_-vignetteData_->lowHealth) < 0.001f) {
+            vignetteData_->lowHealth = lowHealthTarget_;
+        }
+        // 体力が減るほど鼓動を速める。位相を積み上げ、HP変化で脈拍が飛ばないようにする。
+        const float beatsPerSecond = 0.75f+0.75f*vignetteData_->lowHealth;
+        vignetteData_->time += deltaTime*beatsPerSecond;
+        // 最初の衝撃を強くし、約0.2秒で自然にノイズを消す。
+        damageNoiseRemaining_ = (std::max)(0.0f,damageNoiseRemaining_-deltaTime);
+        const float remaining = damageNoiseRemaining_/damageNoiseDuration_;
+        vignetteData_->damageNoise = damageNoiseStrength_*remaining*remaining;
+    }
     // 画面破壊の時間を進め、タイトル側が終了を判定できるようにする。
     if (screenShatter_) { screenShatter_->Update(deltaTime); }
     // 繝ｩ繝ｳ繝繝繝弱う繧ｺ縺ｮ譎る俣繧帝ｲ繧√ｋ
@@ -825,6 +958,7 @@ void OffscreenRenderer::DrawImGui()
         "Shockwave",
         "DepthOutline",
         "Bloom",
+        "DeathBlur",
     };
 
     ImGui::Text("Enabled Effects");

@@ -14,6 +14,8 @@ public:
     virtual void BeginInitialize() { Initialize(); }
     virtual bool ContinueInitialize() { return true; }
     virtual bool CanLeaveScene() const { return true; }
+    // 死亡場面など、次のシーンの準備中も映像を途切れさせたくない場合に使う。
+    virtual bool KeepDrawingWhileLoading() const { return false; }
     virtual float GetTransitionFrame() const { return 0.0f; }
     virtual void OnActivated(float) {}
     virtual void Finalize() = 0;

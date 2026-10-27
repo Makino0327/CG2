@@ -1,6 +1,8 @@
 #include "Game.h"
 #include "../scene/gameplay/GamePlayScene.h"
 #include "../scene/title/TitleScene.h"
+#include "../scene/gameover/GameOverScene.h"
+#include <string_view>
 
 #include <memory> // make_unique
 
@@ -106,8 +108,17 @@ void Game::Initialize() {
     sceneManager_ = std::make_unique<SceneManager>();
     sceneManager_->SetContext(context);
 
-    // 最初はタイトルシーンから始める
-    sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+    // 動作確認用の指定がある場合だけ、死亡を待たずゲームオーバー画面を開く。
+    const std::wstring_view commandLine = GetCommandLineW();
+    if (commandLine.find(L"--preview-death") != std::wstring_view::npos) {
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableDeathPreview();
+        sceneManager_->SetNextScene(std::move(scene));
+    } else if (commandLine.find(L"--preview-gameover") != std::wstring_view::npos) {
+        sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
+    } else {
+        sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+    }
 
 }
 
@@ -138,6 +149,11 @@ void Game::Update() {
 
 
 #ifdef USE_IMGUI
+    // 調整中の画面を、タイトルや本編からF8ですぐに確認できるようにする。
+    if (input_ && sceneManager_ && input_->TriggerKey(DIK_F8)) {
+        sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
+    }
+
     // F1を押した瞬間にデバッグモードを切り替える
     if (input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
         isDebugMode_ = !isDebugMode_;

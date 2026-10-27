@@ -56,6 +56,9 @@ public:
     void DrawBloom() override;
     void DrawOverlay() override;
     bool IsPaused() const override { return pause_.IsPaused(); }
+    bool KeepDrawingWhileLoading() const override { return player_ && player_->IsDead(); }
+    // 確認用の起動では、開始演出の後に死亡から遷移までを自動再生する。
+    void EnableDeathPreview() { deathPreviewFrames_ = 60; }
     // タイトルのフェードから、緑の演出の動きを途切れず引き継ぐ。
     void SetIntroScanFrameOffset(float frame) { introScanFrameOffset_ = frame; }
     void Finalize() override;
@@ -96,9 +99,13 @@ private:
     void DrawIntroTransition();
     // 接写から通常の追従位置までカメラを引き、作戦開始の文字を表示する。
     void UpdateMissionStart();
+    // 倒れる動作、視界のぼかし、背景保存を順番に進める。
+    void UpdateDeathSequence();
 
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
+    // ダメージが成立したときだけ、カメラ揺れと画面ノイズを発生させる。
+    void ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower = 0.30f, int shakeFrames = 10);
 
     // グレネード爆発範囲に入った敵を即死させる
     void CheckGrenadeExplosions();
@@ -183,6 +190,7 @@ private:
     Vector3 playerScale_ = { 1.0f, 1.0f, 1.0f };
     // プレイヤーが死亡してからの経過フレーム(一定時間でゲームオーバー画面へ移る)
     int playerDeadFrames_ = 0;
+    int deathPreviewFrames_ = -1;
 
     /// 敵
     // 現在出現している敵

@@ -1,6 +1,7 @@
 ﻿#include "GamePlayScene.h"
 
 #include <algorithm>
+#include "../../engine/utils/Logger.h"
 #include <cassert>
 #include <string>
 #include <memory>
@@ -20,6 +21,7 @@
 #include "../game/camera/Camera.h"
 #include "../../game/player/PlayerBullet.h"
 #include "../../game/player/ShootingBloom.h"
+#include "../../game/collision/BodyContact.h"
 
 #include "../engine/particle/ParticleCommon.h"
 #include "../engine/particle/Particle.h"
@@ -293,6 +295,11 @@ GamePlayScene::PreparedLevel GamePlayScene::ReadInitialLevel(const std::string& 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
+    if (player_ && player_->IsDead()) {
+        UpdateDeathSequence();
+        return;
+    }
+    playerDeadFrames_ = 0;
     if (UpdatePauseMenu(dt)) {
         // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
@@ -306,6 +313,25 @@ void GamePlayScene::Update()
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
         // 引き終わったフレームは通常更新へ進み、HUDも整えてから操作を始める。
         if (missionStartActive_) { return; }
+    }
+
+#ifdef USE_IMGUI
+    // F7で通常の被弾を確認できる。無敵時間中はダメージも演出も再発生しない。
+    if (GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
+        Vector3 attackerPosition = player_->GetWorldPosition();
+        attackerPosition.x += 2.0f;
+        ApplyPlayerDamage(attackerPosition);
+    }
+#endif
+    // 動作確認用の自動再生とF9からも、通常と同じ倒れる処理へ入る。
+    bool previewDeath = deathPreviewFrames_ > 0 && --deathPreviewFrames_ == 0;
+#ifdef USE_IMGUI
+    previewDeath = previewDeath || (GetContext().input && GetContext().input->TriggerKey(DIK_F9));
+#endif
+    if (previewDeath && player_) {
+        player_->Die();
+        UpdateDeathSequence();
+        return;
     }
 
     // 発電機の15秒は描画フレーム数に依存させず、実際の経過時間で測る
@@ -337,17 +363,6 @@ void GamePlayScene::Update()
     // Reload the level automatically after the file update becomes stable.
     if (levelHotReload_.Update()) {
         ReloadLevel(false);
-    }
-
-    // 死亡したら白黒の演出を少し見せてから、ゲームオーバー画面へ移る
-    constexpr int kGameOverDelayFrames = 90;
-    if (player_ && player_->IsDead()) {
-        if (++playerDeadFrames_ >= kGameOverDelayFrames) {
-            GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
-            return;
-        }
-    } else {
-        playerDeadFrames_ = 0;
     }
 
     if (skybox_) { skybox_->Update(); }
@@ -475,11 +490,9 @@ void GamePlayScene::Update()
 
         // 敵の移動と状態を更新する
         enemy->Update();
-
-
-        // 敵更新後に重なりを解消する
-        ResolveEnemyOverlap();
     }
+    // 全敵の移動が終わってから、一度だけ敵同士の重なりを解消する。
+    ResolveEnemyOverlap();
 
     for (auto& boss : bosses_) {
         // 巨大ゾンビが生存中のプレイヤーを追跡して攻撃する
@@ -571,6 +584,11 @@ void GamePlayScene::Update()
     UpdateTeleporterEffects();
 
     if (player_ && GetContext().offscreenRenderer) {
+        // HPが減るほど赤い縁を濃くする。現在の最大HP3では、残り2で半分、残り1で最大。
+        const float missingHp = static_cast<float>(player_->GetMaxHp()-player_->GetHp());
+        const float warningRange = static_cast<float>(std::max(1,player_->GetMaxHp()-1));
+        GetContext().offscreenRenderer->SetLowHealthWarning(
+            player_->IsDead() ? 0.0f : missingHp/warningRange);
         const bool isAimingGun =
             GetContext().input &&
             GetContext().input->PushMouseRight() &&
@@ -601,11 +619,45 @@ void GamePlayScene::Update()
             aimingVignetteIntensity_ = 0.0f;
             GetContext().offscreenRenderer->SetVignetteIntensity(0.0f);
             GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
-            GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Grayscale);
+            // 死亡した瞬間は通常の色を保ち、次の更新から徐々にぼかす。
+            GetContext().offscreenRenderer->SetDeathBlur(0.0f);
+            GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::DeathBlur);
         } else if (GetContext().offscreenRenderer->GetPostEffectType() != PostEffectType::Shockwave) {
             // 衝撃波の再生中はCopyへ戻さず、OffscreenRenderer側の終了処理に任せる
             GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         }
+    }
+}
+
+void GamePlayScene::UpdateDeathSequence()
+{
+    ++playerDeadFrames_;
+    // 確認時に、死亡演出へ一度だけ入ったことが分かるようにする。
+    if (playerDeadFrames_ == 1) { Logger::Log("[DeathSequence] Collapse started."); }
+    // 敵とカメラはその場所に止め、プレイヤーが倒れる動作だけを進める。
+    player_->Update(GetContext().camera);
+    constexpr float dt = 1.0f/60.0f;
+    if (particleSystem_) { particleSystem_->Update(dt); }
+    if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
+    if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
+    generatorPreviousUpdate_ = std::chrono::steady_clock::now();
+    auto* renderer = GetContext().offscreenRenderer;
+    if (renderer) {
+        // 倒れる動作へ入ったら赤い縁を徐々に消し、視界のぼかしへつなぐ。
+        renderer->SetLowHealthWarning(0.0f);
+        const float progress = std::clamp((static_cast<float>(playerDeadFrames_)-18.0f)/108.0f,0.0f,1.0f);
+        renderer->SetDeathBlur(progress*progress*(3.0f-2.0f*progress));
+        renderer->SetPostEffectType(PostEffectType::DeathBlur);
+        renderer->SetVignetteIntensity(0.0f);
+        renderer->SetPostEffectEnabled(PostEffectType::Vignette,false);
+        renderer->StopShockwave();
+        // 倒れ終わった画面を描画してから保存し、保存完了の次フレームで遷移する。
+        if (playerDeadFrames_ >= 149 && !renderer->HasDeathSceneCapture()) {
+            renderer->RequestDeathSceneCapture();
+        }
+    }
+    if (playerDeadFrames_ >= 150 && (!renderer || renderer->HasDeathSceneCapture())) {
+        GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
     }
 }
 
@@ -676,6 +728,9 @@ void GamePlayScene::Draw()
     if (particleSystem_) {
         particleSystem_->Draw();
     }
+
+    // 死亡後の背景には、ミニマップや残弾などのHUDを残さない。
+    if (player_ && player_->IsDead()) { return; }
 
     // 敵の視界範囲をデバッグ線で描画する
     if (GetContext().camera && line3dCommon_) {
@@ -1885,6 +1940,14 @@ void GamePlayScene::CheckGrenadeExplosions()
         }
     }
 }
+void GamePlayScene::ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower, int shakeFrames)
+{
+    if (!player_ || !player_->OnHit(attackerPosition)) { return; }
+    // 無敵時間で弾かれた接触では、画面エフェクトの時間を再開しない。
+    if (followCamera_) { followCamera_->StartShake(shakePower,shakeFrames); }
+    if (GetContext().offscreenRenderer) { GetContext().offscreenRenderer->StartDamageNoise(); }
+}
+
 void GamePlayScene::CheckCollisions()
 {
     if (!player_) {
@@ -1896,13 +1959,19 @@ void GamePlayScene::CheckCollisions()
         return;
     }
 
-    for (auto& enemy : enemies_) {
-        if (enemy->IsDead()) {
-            continue;
-        }
+    // 無敵時間中も接触補正を続け、複数の敵との重なりを反復して解消する。
+    for (int pass = 0; pass < 4; ++pass) {
+        for (auto& enemy : enemies_) {
+            if (enemy->IsDead() || player_->IsDead() || isMeleeAttacking_) { continue; }
+            SphereCollider playerCollider = player_->GetCollider();
+            SphereCollider enemyCollider = enemy->GetCollider();
+            if (!Collision::IsHit(playerCollider, enemyCollider)) { continue; }
 
-        if (!isMeleeAttacking_ && Collision::IsHit(player_->GetCollider(), enemy->GetCollider())) {
-            player_->OnHit();
+            // 実際にHPが減った接触だけ、揺れと短いノイズを開始する。
+            ApplyPlayerDamage(enemyCollider.center);
+            BodyContact::Separate(playerCollider, enemyCollider, &wallColliders_, &floorColliders_);
+            player_->SetPosition(playerCollider.center);
+            enemy->SetPosition(enemyCollider.center);
         }
     }
 
@@ -1952,8 +2021,8 @@ void GamePlayScene::CheckCollisions()
     // 弾によるボス撃破を先に処理し、生きているボスの着地攻撃だけを当てる
     for (const auto& boss : bosses_) {
         if (!isMeleeAttacking_ && !player_->IsDead() && boss->IsAttackHit(player_->GetCollider())) {
-            // 既存の無敵時間を使い、範囲内でも一撃につきHPを1だけ減らす
-            player_->OnHit();
+            // ボスの攻撃も、通常の被弾と同じノイズを使う。
+            ApplyPlayerDamage(boss->GetCollider().center,0.40f,12);
         }
     }
 

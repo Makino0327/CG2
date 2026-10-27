@@ -20,6 +20,7 @@ enum class PostEffectType {
     Shockwave,
     DepthOutline,
     Bloom,
+    DeathBlur,
     Count, // ポストエフェクトの配列サイズに使う。
 };
 
@@ -44,6 +45,17 @@ public:
     void SetPostEffectEnabled(PostEffectType type, bool enabled);
     bool IsPostEffectEnabled(PostEffectType type) const;
     void SetVignetteIntensity(float intensity);
+    // 瀕死時の赤い縁と、被弾した瞬間だけの短いノイズを制御する。
+    void SetLowHealthWarning(float amount);
+    void StartDamageNoise(float strength = 0.26f, float duration = 0.22f);
+    void ResetDamageFeedback();
+
+    // 死亡中は徐々に視界をぼかし、最後の場面をゲームオーバーへ引き継ぐ。
+    void SetDeathBlur(float progress);
+    void RequestDeathSceneCapture() { deathCaptureRequested_ = true; }
+    bool HasDeathSceneCapture() const { return hasDeathCapture_; }
+    void ResetDeathSceneCapture();
+    void DrawDeathBackground();
 
     // Input を受け取って Game View 上のマウス情報を毎フレーム更新する
     void Update(float deltaTime, const Vector2& mousePosition, bool isMouseRightPressed);
@@ -117,6 +129,13 @@ private:
         float padding;    // 16byte揃え
     };
 
+    struct DeathBlurData {
+        float radius = 0.0f;
+        float darkness = 0.0f;
+        float vignette = 0.0f;
+        float padding = 0.0f;
+    };
+
     struct DissolveData {
         float threshold;   // ディゾルブの進行度
         float edgeWidth;   // 境界の幅
@@ -133,7 +152,9 @@ private:
 
     struct VignetteData {
         float intensity; // ビネットの強さ
-        Vector3 padding; // 16byte境界に合わせる
+        float lowHealth; // 体力が少ないときの赤い縁の強さ
+        float time; // 鼓動の位相とノイズで使う連続時刻
+        float damageNoise; // 被弾直後だけ有効なノイズの強さ
     };
 
     struct ShockwaveData {
@@ -150,6 +171,8 @@ private:
 private:
     void CreateRootSignature();
     void CreateGraphicsPipelineState();
+    // 通常描画の完了後に一度だけ、HUDを除いた死亡場面を保存する。
+    void CaptureDeathScene();
 
     DirectXCommon* dxCommon_ = nullptr;
     SrvManager* srvManager_ = nullptr;
@@ -162,6 +185,14 @@ private:
     // 最後の加工結果を保存し、通常画面とデバッグのGame Viewへ同じ画像を表示する。
     std::unique_ptr<RenderTexture> processedRenderTexture_;
     D3D12_RESOURCE_STATES processedTextureState_ = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    // シーン破棄後も、倒れた場所の画像だけを保存しておく。
+    std::unique_ptr<RenderTexture> deathSceneTexture_;
+    D3D12_RESOURCE_STATES deathSceneState_ = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    bool deathCaptureRequested_ = false;
+    bool hasDeathCapture_ = false;
+    Microsoft::WRL::ComPtr<ID3D12Resource> deathBlurResource_;
+    DeathBlurData* deathBlurData_ = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> deathBlurPipelineState_;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
 
@@ -210,6 +241,10 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> vignetteResource_; // ビネット用定数バッファ
     VignetteData* vignetteData_ = nullptr; // ビネット用定数データ
+    float lowHealthTarget_ = 0.0f;
+    float damageNoiseRemaining_ = 0.0f;
+    float damageNoiseDuration_ = 0.22f;
+    float damageNoiseStrength_ = 0.26f;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> shockwaveResource_; // 衝撃波歪み用定数バッファ
     ShockwaveData* shockwaveData_ = nullptr; // 衝撃波歪み用定数データ

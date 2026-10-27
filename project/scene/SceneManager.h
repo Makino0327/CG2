@@ -8,7 +8,9 @@ public:
     // 現在のシーンのポーズ状態を、アプリ共通の更新処理へ伝える。
     bool IsPaused() const { return scene_ && scene_->IsPaused(); }
     // 未完成のシーンを準備している間は、動く演出ではなくLoading画面を表示する。
-    bool IsLoading() const { return nextScene_ && !nextReady_; }
+    bool IsLoading() const {
+        return nextScene_ && !nextReady_ && (!scene_ || !scene_->KeepDrawingWhileLoading());
+    }
 	void Update();
 	void Draw();
     // 通常画面を描く前に、現在のシーンの影を更新する。

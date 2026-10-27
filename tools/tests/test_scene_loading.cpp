@@ -12,6 +12,7 @@ struct State {
     int activations = 0;
     int requiredPolls = 1;
     bool canLeave = true;
+    bool keepDrawing = false;
     float transitionFrame = 0.0f;
     float receivedFrame = 0.0f;
 };
@@ -22,6 +23,7 @@ public:
     void Initialize() override { assert(GetSceneManager()); ++state_.begins; }
     bool ContinueInitialize() override { return ++state_.polls >= state_.requiredPolls; }
     bool CanLeaveScene() const override { return state_.canLeave; }
+    bool KeepDrawingWhileLoading() const override { return state_.keepDrawing; }
     float GetTransitionFrame() const override { return state_.transitionFrame; }
     void OnActivated(float frame) override { ++state_.activations; state_.receivedFrame = frame; }
     void Finalize() override { ++state_.finalizes; }
@@ -104,5 +106,23 @@ int main() {
     assert(manager.IsLoading());
     manager.Update();
     assert(!manager.IsLoading() && last.activations == 1);
+    // 死亡場面からの遷移は準備中も描画し、途中でLoadingの黒画面を挟まない。
+    SceneManager deathManager;
+    State dying;
+    dying.keepDrawing = true;
+    deathManager.SetNextScene(std::make_unique<TestScene>(dying));
+    deathManager.Update();
+    State gameOver;
+    gameOver.requiredPolls = 3;
+    deathManager.SetNextScene(std::make_unique<TestScene>(gameOver));
+    assert(!deathManager.IsLoading());
+    for (int frame = 0; frame < 2; ++frame) {
+        deathManager.Update();
+        deathManager.Draw();
+        assert(!deathManager.IsLoading());
+    }
+    assert(dying.draws == 2 && dying.finalizes == 0 && gameOver.activations == 0);
+    deathManager.Update();
+    assert(dying.finalizes == 1 && gameOver.activations == 1);
     std::cout << "Scene loading tests passed\n";
 }

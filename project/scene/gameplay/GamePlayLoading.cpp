@@ -24,6 +24,12 @@ void GamePlayScene::BeginInitialize()
     assert(GetContext().object3dCommon && GetContext().particleCommon && GetContext().camera);
     assert(GetContext().input && GetSceneManager());
     initializing_ = true;
+    playerDeadFrames_ = 0;
+    // 前回の死亡場所を、次のプレイへ持ち越さない。
+    if (GetContext().offscreenRenderer) {
+        GetContext().offscreenRenderer->ResetDeathSceneCapture();
+        GetContext().offscreenRenderer->ResetDamageFeedback();
+    }
     loadQueue_.Clear();
     // JSONの解析とNavMeshの接続計算だけを別スレッドへ渡す。GPU操作はここではしない。
     levelFuture_ = std::async(std::launch::async, &GamePlayScene::ReadInitialLevel, levelFilePath_);
@@ -287,6 +293,8 @@ void GamePlayScene::BeginInitialize()
     loadQueue_.Add([this] {
         // グレネード爆発後の煙用パーティクルをPlayerへ渡す
         player_->SetGrenadeSmokeParticleSystem(grenadeSmokeParticleSystem_.get());
+        // 敵と同じ通常アルファ合成の血しぶきを、プレイヤーの被弾にも使う。
+        player_->SetBloodParticleSystem(bloodParticleSystem_.get());
     
         followCamera_ = std::make_unique<FollowCamera>();
         followCamera_->Initialize(GetContext().camera);

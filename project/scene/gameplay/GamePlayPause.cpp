@@ -139,6 +139,8 @@ void GamePlayScene::UpdatePauseVisuals()
 
 void GamePlayScene::DrawOverlay()
 {
+    // 倒れている最中は、開始の文字やポーズ画面を重ねない。
+    if (player_ && player_->IsDead()) { return; }
     const bool showMissionStart = missionStartActive_ && missionStartLabel_ && missionStartLine_;
     if (!showMissionStart && (!pause_.IsPaused() || !pauseDim_)) { return; }
     // 衝撃波やBloomの後に描画し、ポーズの文字を歪ませたり発光させたりしない。

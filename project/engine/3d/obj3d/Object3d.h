@@ -42,6 +42,8 @@ public:
 	void Initialize(Object3dCommon* object3dCommon);
 
 	void Update();
+	// 接触補正ではアニメーションを進めず、描画用の位置だけ更新する。
+	void UpdateTransform();
 
 	void Draw();
 
@@ -106,6 +108,8 @@ public:
 	// 現在表示中の姿勢から次のモーションへつなぐ。移動同士なら足運びの周期も引き継ぐ。
 	void TransitionToAnimation(const Animation& animation, float seconds, bool preservePhase);
 	void SetIsAnimationPlaying(bool isPlaying) { isAnimationPlaying_ = isPlaying; }
+	// 倒れる動作は一度だけ再生し、最後の姿勢を保つ。
+	void SetAnimationLooping(bool looping) { isAnimationLooping_ = looping; }
 	void ResetAnimationTime() { animationTime_ = 0.0f; }
 	void ResetSkeletonPose(); // Skeletonをモデル読み込み時の姿勢に戻す
 	void SetAnimationNodeName(const std::string& nodeName) { animationNodeName_ = nodeName; }
@@ -145,6 +149,9 @@ private:
 		float padding;
 		Vector4 edgeColor;
 	};
+
+	// 通常更新と位置だけの更新で、同じ描画行列の計算を使う。
+	void UpdateTransformMatrix(Matrix4x4 worldMatrix);
 
 	// ComputeShader 用の定数バッファを初期化する
 	void InitializeSkinningInformation();
@@ -200,6 +207,7 @@ private:
 	bool isAnimationOverlayPlaying_ = false;
 	float animationTime_ = 0.0f;
 	bool isAnimationPlaying_ = false;
+	bool isAnimationLooping_ = true;
 	std::string animationNodeName_;
 
 	Skeleton skeleton_;              // この Object3d が持つ Skeleton

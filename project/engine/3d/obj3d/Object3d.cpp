@@ -2,6 +2,7 @@
 #include "Object3dCommon.h"
 #include "../model/Model.h"
 #include "../model/ModelManager.h"
+#include <algorithm>
 
 #ifdef USE_IMGUI
 #include "../../../externals/imgui/imgui.h"
@@ -39,8 +40,10 @@ void Object3d::Update()
         // ひとまず 60fps 前提で時刻を進める
         animationTime_ += 1.0f / 60.0f;
 
-        // 最後まで行ったら先頭に戻してループ再生する
-        animationTime_ = std::fmod(animationTime_, animation_.duration);
+        // 一度きりの動作は末尾で止め、歩行などだけを繰り返す。
+        animationTime_ = isAnimationLooping_
+            ? std::fmod(animationTime_, animation_.duration)
+            : (std::min)(animationTime_, animation_.duration);
     }
 
     if (hasSkeleton_ && isAnimationPlaying_ && !animation_.nodeAnimations.empty()) {
@@ -125,6 +128,18 @@ void Object3d::Update()
             MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
     }
 
+    UpdateTransformMatrix(worldMatrix);
+}
+
+void Object3d::UpdateTransform()
+{
+    // 押し戻しの反復回数によって、歩行や射撃の再生速度を変えない。
+    UpdateTransformMatrix(MakeAffineMatrix(transform.scale, transform.rotate, transform.translate));
+}
+
+void Object3d::UpdateTransformMatrix(Matrix4x4 worldMatrix)
+{
+    assert(transformationMatrixData_);
     // モデルの拡大時も足元を合わせ、当たり判定が使うtransformは維持する。
     worldMatrix = Multiply(MakeTranslateMatrix(modelOffset_), worldMatrix);
 

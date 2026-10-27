@@ -2,6 +2,8 @@
 #include "PlayerMuzzle.h"
 #include "ShootingBloom.h"
 #include "BulletAim.h"
+#include "../collision/BodyContact.h"
+#include "../common/BloodSplatter.h"
 #include "../../engine/3d/model/ModelManager.h" // 薬莢のモデルを読み込む。
 #include <cfloat>   // FLT_MAX
 #include <algorithm>
@@ -32,6 +34,7 @@ void Player::BeginInitialize(
     ModelManager::GetInstance()->LoadModel("casing/casing.obj");
     casings_.clear();
     muzzleLightFrames_ = 0; // 初期化時に発射光を消す。
+    knockbackVelocity_ = {}; // 初期化前の被弾移動を残さない。
 
     // プレイヤーのモデルを作る
     object_ = std::make_unique<Object3d>();
@@ -132,6 +135,12 @@ bool Player::ContinueInitialize()
         PrepareAimingAnimations();
     } else if (animationLoadStep_ <= 12) {
         CreateAimedLocomotion(animationLoadStep_-9);
+    } else if (animationLoadStep_ == 13) {
+        // 死亡時にファイル読み込みで止まらないよう、倒れる動作も先に準備する。
+        const auto found = std::find(loadingAnimationNames_.begin(), loadingAnimationNames_.end(), "Death");
+        assert(found != loadingAnimationNames_.end());
+        animations_[static_cast<size_t>(Motion::Death)] = LoadAnimationFile(directory, "Swat.gltf",
+            static_cast<uint32_t>(found-loadingAnimationNames_.begin()));
     } else {
         PlayMotion(Motion::Idle, true);
         loadingAnimationNames_.clear();
@@ -145,6 +154,7 @@ void Player::PlayMotion(Motion motion, bool restart)
 {
     // 同じモーションを毎フレーム先頭へ戻さず、切り替え時だけリセットする。
     if (currentMotion_ == motion && !restart) { return; }
+    object_->SetAnimationLooping(motion != Motion::Death);
     const auto isLocomotion = [](Motion value) {
         return (value >= Motion::Run && value <= Motion::RunRight) ||
             (value >= Motion::AimRun && value <= Motion::AimRight);
@@ -297,12 +307,26 @@ void Player::Update(Camera* camera)
         --muzzleLightFrames_;
     }
 
-    // 死亡中にRキーで復活する
-        // 死亡中の復活処理はシーン側でまとめて行う
+    // 死亡後も倒れる動作を進め、姿を消さずにその場へ残す。
     if (isDead_) {
+        object_->Update();
+        UpdateBullets();
+        UpdateGrenades();
+        UpdateCasings();
         return;
     }
 
+
+    // 被弾後は壁と床を確認して吹き飛ばし、勢いを徐々に弱める。
+    const float knockbackSpeedSq = knockbackVelocity_.x * knockbackVelocity_.x +
+        knockbackVelocity_.z * knockbackVelocity_.z;
+    if (knockbackSpeedSq > 0.0001f) {
+        MoveWithCollision(knockbackVelocity_);
+        knockbackVelocity_.x *= 0.82f;
+        knockbackVelocity_.z *= 0.82f;
+    } else {
+        knockbackVelocity_ = {};
+    }
 
     const bool isAimingGun = input_->PushMouseRight();
     const float currentMoveSpeed = isAimingGun ? aimingMoveSpeed_ : moveSpeed_; // 構え中はゆっくり歩く
@@ -459,13 +483,13 @@ void Player::Update(Camera* camera)
 
 void Player::Draw()
 {
-    // 死んでいたら描画しない
-    if (!object_ || isDead_) {
+    // 死亡後も、倒れたプレイヤーを背景へ残す。
+    if (!object_) {
         return;
     }
 
     // 無敵中は赤く点滅させる
-    if (invincibleTimer_ > 0) {
+    if (!isDead_ && invincibleTimer_ > 0) {
         // 一定フレームごとに表示色を切り替える
         if ((invincibleTimer_ / blinkInterval_) % 2 == 0) {
             object_->SetColor({ 1.0f, 0.2f, 0.2f, 1.0f });
@@ -502,34 +526,67 @@ SphereCollider Player::GetCollider() const
     return { GetWorldPosition(), colliderRadius_ };
 }
 
-void Player::OnHit()
+void Player::MoveWithCollision(const Vector3& movement)
 {
-    // すでに消えていたら何もしない
-    if (isDead_) {
-        return;
+    if (!object_) { return; }
+    // 描画位置と論理位置を一緒に補正し、アニメーションの時刻は維持する。
+    translate_ = BodyContact::Move(GetWorldPosition(), movement, colliderRadius_,
+        wallColliders_, floorColliders_);
+    object_->SetTranslate(translate_);
+    object_->UpdateTransform();
+}
+
+bool Player::OnHit(const Vector3& attackerPosition)
+{
+    // 無敵中の接触では、ダメージと被弾演出を繰り返さない。
+    if (!object_ || isDead_ || invincibleTimer_ > 0) { return false; }
+
+    const Vector3 position = GetWorldPosition();
+    Vector3 direction{ position.x - attackerPosition.x, 0.0f, position.z - attackerPosition.z };
+    const float lengthSq = direction.x * direction.x + direction.z * direction.z;
+    if (lengthSq > 0.0001f) {
+        const float length = std::sqrt(lengthSq);
+        direction.x /= length;
+        direction.z /= length;
+    } else {
+        // 中心が一致していても吹き飛ぶ方向を用意する。
+        direction = { 0.0f, 0.0f, -1.0f };
     }
 
-    // 無敵時間中はダメージを受けない
-    if (invincibleTimer_ > 0) {
-        return;
-    }
-
-    // 被弾状態を保存する
+    // 攻撃元から離れる方向へ吹き飛ばし、既存の無敵点滅を開始する。
     isHit_ = true;
-
-    // HPが残っている時だけ1減らす
-    if (hp_ > 0) {
-        hp_ -= 1;
-    }
-
-    // ダメージを受けたら無敵時間を開始する
+    hp_ = std::max(0, hp_ - 1);
     invincibleTimer_ = invincibleDuration_;
+    knockbackVelocity_ = { direction.x * 0.28f, 0.0f, direction.z * 0.28f };
+    object_->StopAnimationOverlay();
 
-    // HPが0以下になったら消す
-    if (hp_ <= 0) {
-        hp_ = 0;
-        isDead_ = true;
-    }
+    // 攻撃元に近い体の表面から、敵と同じ暗赤色の血しぶきを出す。
+    const Vector3 hitPosition{
+        position.x - direction.x * colliderRadius_,
+        position.y + 0.5f,
+        position.z - direction.z * colliderRadius_
+    };
+    HitEffects::EmitBloodSplatter(bloodParticleSystem_, hitPosition, direction);
+
+    // 最後の一撃でも血しぶきを出してから、倒れる動作へ切り替える。
+    if (hp_ <= 0) { Die(); }
+    return true;
+}
+
+void Player::Die()
+{
+    if (!object_ || isDead_) { return; }
+    hp_ = 0;
+    isDead_ = true;
+    isReloading_ = false;
+    invincibleTimer_ = 0;
+    muzzleLightFrames_ = 0;
+    knockbackVelocity_ = {};
+    // 射撃の姿勢補正を外し、今の姿勢から約0.15秒で倒れる動作へつなぐ。
+    object_->StopAnimationOverlay();
+    object_->SetAnimationParentCorrectionEnabled(false);
+    object_->SetColor({ 1,1,1,1 });
+    PlayMotion(Motion::Death);
 }
 
 // ----------------------------
@@ -794,7 +851,7 @@ void Player::SetPosition(const Vector3& position)
 
     // 近接攻撃演出の位置をモデルへ即座に反映する
     object_->SetTranslate(position);
-    object_->Update();
+    object_->UpdateTransform();
 }
 
 Vector3 Player::GetWorldPosition() const
@@ -810,6 +867,30 @@ Vector3 Player::GetWorldPosition() const
 Vector3 Player::CalcBulletDirection(Camera* camera, const Vector3& muzzle, float& flightHeight)
 {
     flightHeight = object_->GetTranslate().y+bulletAimHeight_;
+
+    // プレイヤーの回転と同じ、地面上のマウス位置を使う
+    const Vector3 playerPosition = object_->GetTranslate();
+    const Vector3 mousePosition = PlayerBullet::GetMousePositionOnGround(camera, input_);
+    const float mouseX = mousePosition.x - playerPosition.x;
+    const float mouseZ = mousePosition.z - playerPosition.z;
+
+    // 銃口までの距離に余裕を加え、近距離として扱う範囲を決める
+    const float muzzleX = muzzle.x - playerPosition.x;
+    const float muzzleZ = muzzle.z - playerPosition.z;
+    const float nearDistance = std::sqrt(muzzleX * muzzleX + muzzleZ * muzzleZ) + 1.0f;
+    if (mouseX * mouseX + mouseZ * mouseZ <= nearDistance * nearDistance) {
+        // マウスが近い場合は、プレイヤーの現在の正面へ撃つ
+        const float yaw = rotate_.y - frontAngleOffset_;
+
+        // 銃口から前方へ進みながら、通常の射撃の高さへ下げる
+        constexpr float kForwardDistance = 4.0f;
+        return Normalize(Vector3{
+            std::sin(yaw) * kForwardDistance,
+            flightHeight - muzzle.y,
+            std::cos(yaw) * kForwardDistance
+        });
+    }
+
     Vector3 rayStart{}, rayEnd{}, target{}, bodyCenter{};
     float targetTime = 1.0f;
     float rayRadius = 0.0f;
@@ -1523,6 +1604,7 @@ void Player::Respawn()
 
     // 被弾状態を解除する
     isHit_ = false;
+    knockbackVelocity_ = {}; // 復活時に被弾前の勢いを持ち越さない。
 
     // 無敵時間をリセットする
     invincibleTimer_ = 0;
