@@ -68,6 +68,8 @@ public:
 private:
     // シーンの準備中は、画像や文字を出さずに黒画面を描く。
     void DrawLoadingScreen();
+    // デモ中の案内は、読み込みやゲームオーバーでも右上へ重ねて表示する。
+    void DrawDemoStatus();
 
     std::unique_ptr<WinApp> winApp_;
     std::unique_ptr<Input> input_;
@@ -83,6 +85,10 @@ private:
     std::unique_ptr<ImGuiManager> imguiManager_;
     std::unique_ptr<SceneManager> sceneManager_;
     std::unique_ptr<OffscreenRenderer> offscreenRenderer_;
+    // プレイ会用の自動プレイは、F6から開始と終了を切り替える。
+    bool gameOverDemoActive_ = false;
+    std::unique_ptr<Sprite> demoStatusLabel_;
+    ComPtr<ID3D12Resource> demoStatusLight_;
 
 #ifdef USE_IMGUI
     // デバッグUIを表示するかどうか

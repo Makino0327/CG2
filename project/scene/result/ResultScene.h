@@ -3,6 +3,7 @@
 #define NOMINMAX
 #endif
 #include <memory>
+#include <array>
 #include <vector>
 #include <wrl.h>
 #include <d3d12.h>
@@ -25,6 +26,9 @@ public:
     void Update() override;
     void Draw() override;
     void Finalize() override;
+    // 自動プレイでは入力を受けず、表示と暗転の完了を本編へ通知する。
+    void SetDemoMode(bool enabled) { demoMode_ = enabled; }
+    bool IsDemoRestartReady() const { return demoRestartReady_; }
 
 private:
     // ボタンを決定したときの移動先
@@ -41,6 +45,8 @@ private:
 
     Type type_;
     bool initialized_ = false;
+    bool demoMode_ = false;
+    bool demoRestartReady_ = false;
     bool isLeaving_ = false;
     bool usesDeathBackground_ = false;
     int frame_ = 0;
@@ -64,5 +70,7 @@ private:
     // タイトルと同じ小さな赤い印と、滑らかな選択アニメーションを使う。
     std::vector<Sprite*> gameOverIndicators_;
     std::vector<float> gameOverSelection_;
+    // 決定した文字の周囲へ薄い赤を重ね、輪郭からにじむ光を作る。
+    std::vector<std::array<Sprite*, 16>> gameOverButtonGlows_;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

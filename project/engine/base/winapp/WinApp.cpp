@@ -72,6 +72,12 @@ bool WinApp::ProcessMessage()
 
 	// そのフレームで溜まっている Windows メッセージを全部処理する
 	while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        // 押下をWindowsメッセージで保存し、フレーム間の短い入力にも反応する。
+        // 押しっぱなしの自動リピートでは、開始と終了を連続で切り替えない。
+        if (msg.hwnd == hwnd && msg.message == WM_KEYDOWN && msg.wParam == VK_F6 &&
+            (msg.lParam & (static_cast<LPARAM>(1) << 30)) == 0) {
+            demoToggleRequested_ = true;
+        }
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 

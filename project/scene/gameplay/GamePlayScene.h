@@ -31,6 +31,7 @@
 #include "PauseState.h"
 #include "../TransitionScanEffect.h"
 #include "../FrameLoadQueue.h"
+#include "../gameover/GameOverScene.h"
 
 #include "../LevelLoader.h"
 
@@ -56,9 +57,12 @@ public:
     void DrawBloom() override;
     void DrawOverlay() override;
     bool IsPaused() const override { return pause_.IsPaused(); }
-    bool KeepDrawingWhileLoading() const override { return player_ && player_->IsDead(); }
+    // 展示を終了するときは読み込み画面へ切り替え、次のタイトルの描画設定を混ぜない。
+    bool KeepDrawingWhileLoading() const override { return !gameOverDemo_ && player_ && player_->IsDead(); }
     // 確認用の起動では、開始演出の後に死亡から遷移までを自動再生する。
     void EnableDeathPreview() { deathPreviewFrames_ = 60; }
+    // プレイ会用に、移動・敵の攻撃・ゲームオーバーを自動で繰り返す。
+    void EnableGameOverDemo() { gameOverDemo_ = true; }
     // タイトルのフェードから、緑の演出の動きを途切れず引き継ぐ。
     void SetIntroScanFrameOffset(float frame) { introScanFrameOffset_ = frame; }
     void Finalize() override;
@@ -101,6 +105,9 @@ private:
     void UpdateMissionStart();
     // 倒れる動作、視界のぼかし、背景保存を順番に進める。
     void UpdateDeathSequence();
+    void PrepareDemoRound();
+    Vector3 UpdateDemoMovement();
+    void RestartDemoRound();
 
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
@@ -191,6 +198,13 @@ private:
     // プレイヤーが死亡してからの経過フレーム(一定時間でゲームオーバー画面へ移る)
     int playerDeadFrames_ = 0;
     int deathPreviewFrames_ = -1;
+    // 本編の描画リソースを再利用し、長時間の展示でも周回ごとに増やさない。
+    bool gameOverDemo_ = false;
+    int demoFrames_ = 0;
+    int demoRound_ = 0;
+    Enemy* demoEnemy_ = nullptr;
+    std::unique_ptr<GameOverScene> demoGameOver_;
+    bool demoGameOverActive_ = false;
 
     /// 敵
     // 現在出現している敵

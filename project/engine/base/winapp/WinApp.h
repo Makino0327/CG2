@@ -24,11 +24,18 @@ public:
 
 	// メッセージ処理
 	bool ProcessMessage();
+    // 短く押したF6も取りこぼさず、展示切り替えの要求を一度だけ渡す。
+    bool ConsumeDemoToggleRequest() {
+        const bool requested = demoToggleRequested_;
+        demoToggleRequested_ = false;
+        return requested;
+    }
 
 	// ゲッター
 	HWND GetHwnd() const{ return hwnd; }
 	HINSTANCE GetHInstance() const { return wc.hInstance; }
 private:
+    bool demoToggleRequested_ = false;
 	// ウィンドウハンドル
 	HWND hwnd = nullptr;
 	// ウィンドウクラス

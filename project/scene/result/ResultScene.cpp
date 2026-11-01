@@ -20,6 +20,8 @@
 namespace {
     // タイトルと同じボタン配置・暗転時間
     constexpr int kFadeDuration = 30;
+    // デモのゲームオーバーは暗転を含めて3秒（60fpsで180フレーム）で再開する。
+    constexpr int kDemoRestartFrames = 3 * 60;
     constexpr float kButtonX = 480.0f;
     constexpr float kButtonWidth = 320.0f;
     constexpr float kButtonHeight = 54.0f;
@@ -89,6 +91,7 @@ void ResultScene::Initialize() {
     assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
     frame_ = transitionTimer_ = selectedButton_ = 0;
     isLeaving_ = false;
+    demoRestartReady_ = false; // 周回前の再開通知を持ち越さない。
     usesDeathBackground_ = type_ == Type::GameOver && GetContext().offscreenRenderer &&
         GetContext().offscreenRenderer->HasDeathSceneCapture();
     if (usesDeathBackground_) { Logger::Log("[DeathSequence] Game over background ready."); }
@@ -189,12 +192,20 @@ void ResultScene::CreateGameOverMenu() {
     buttonLabels_.clear();
     gameOverUnderlines_.clear();
     gameOverIndicators_.clear();
+    gameOverButtonGlows_.clear();
     gameOverSelection_.assign(buttonActions_.size(),0.0f);
     for (size_t i = 0; i < buttonActions_.size(); ++i) {
         const float y = kGameOverButtonY + kGameOverButtonSpacing * static_cast<float>(i);
         // 日本語の「リスタート」「タイトルへ戻る」を、タイトルと同じ文字サイズで出す。
         const Vector2 texturePosition = buttonActions_[i] == Action::Restart
             ? kRestartButtonLeftTop : kTitleButtonLeftTop;
+        // 文字より先に薄い輪郭を描き、中央の文字を読めるまま赤い光をにじませる。
+        std::array<Sprite*, 16> glows{};
+        for (auto& glow : glows) {
+            glow = CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36});
+            glow->SetColor({1.0f,0.015f,0.025f,0.0f});
+        }
+        gameOverButtonGlows_.push_back(glows);
         buttonLabels_.push_back(CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36}));
         gameOverIndicators_.push_back(CreateUiRect({576,y+17},{3,3},{0.61f,0.14f,0.14f,0}));
         gameOverUnderlines_.push_back(CreateUiRect({602,y+40},{76,1},{0.70f,0.63f,0.61f,0}));
@@ -215,13 +226,28 @@ void ResultScene::UpdateGameOverVisuals() {
         const float target = static_cast<int>(i) == selectedButton_ ? 1.0f : 0.0f;
         gameOverSelection_[i] += (target-gameOverSelection_[i])*0.16f;
         const float selected = gameOverSelection_[i];
-        buttonLabels_[i]->SetColor({1,1,1,menuAlpha*(0.42f+0.58f*selected)});
-        gameOverIndicators_[i]->SetColor({0.61f,0.14f,0.14f,menuAlpha*selected});
-        const float width = 26.0f+50.0f*selected;
+        // 決定した瞬間が最も明るくなり、約0.2秒で赤い発光を弱める。
+        const float flash = isLeaving_ && target > 0.0f
+            ? std::exp(-static_cast<float>(transitionTimer_)/11.0f) : 0.0f;
+        buttonLabels_[i]->SetColor({1.0f,1.0f-0.86f*flash,1.0f-0.82f*flash,
+            menuAlpha*(0.42f+0.58f*selected)});
+        gameOverIndicators_[i]->SetColor({0.61f+0.39f*flash,0.14f-0.12f*flash,
+            0.14f-0.10f*flash,menuAlpha*selected});
+        const float width = 26.0f+50.0f*selected+52.0f*flash;
         const float y = kGameOverButtonY+kGameOverButtonSpacing*static_cast<float>(i);
+        for (size_t j = 0; j < gameOverButtonGlows_[i].size(); ++j) {
+            // 内側を濃く、外側を薄く重ね、発光が文字の外へ少し広がるようにする。
+            const float angle = static_cast<float>(j%8)*0.78539816f;
+            const bool inner = j < 8;
+            const float radius = (inner ? 1.5f : 4.0f)+(1.0f-flash)*1.5f;
+            Sprite* glow = gameOverButtonGlows_[i][j];
+            glow->SetPosition({520.0f+std::cos(angle)*radius,y+2.0f+std::sin(angle)*radius});
+            glow->SetColor({1.0f,0.015f,0.025f,menuAlpha*flash*(inner ? 0.13f : 0.055f)});
+        }
         gameOverUnderlines_[i]->SetPosition({640.0f-width*0.5f,y+40.0f});
-        gameOverUnderlines_[i]->SetSize({width,1});
-        gameOverUnderlines_[i]->SetColor({0.70f,0.63f,0.61f,menuAlpha*selected*0.65f});
+        gameOverUnderlines_[i]->SetSize({width,1.0f+1.5f*flash});
+        gameOverUnderlines_[i]->SetColor({0.70f+0.30f*flash,0.63f-0.60f*flash,
+            0.61f-0.57f*flash,menuAlpha*selected*(0.65f+0.35f*flash)});
     }
     const float fadeAlpha = isLeaving_
         ? SmoothReveal(static_cast<float>(transitionTimer_) / kFadeDuration)
@@ -247,7 +273,7 @@ void ResultScene::UpdateMenu() {
             mouse.y >= y && mouse.y <= y+buttonHeight) { hovered = i; }
     }
     // 見えないメニューを誤って決定しないよう、ゲームオーバーは表示完了まで待つ。
-    if (!isLeaving_ && frame_ >= (gameOver ? 74 : kInputDelayFrames)) {
+    if (!demoMode_ && !isLeaving_ && frame_ >= (gameOver ? 74 : kInputDelayFrames)) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
             selectedButton_ = (selectedButton_ + buttonCount - 1) % buttonCount;
@@ -279,12 +305,22 @@ void ResultScene::UpdateMenu() {
 
 void ResultScene::Update() {
     ++frame_;
+    // 最後の0.5秒を暗転に使い、表示開始から3秒で再開通知を出す。
+    if (demoMode_ && !isLeaving_ && frame_ >= kDemoRestartFrames - kFadeDuration + 1) {
+        selectedButton_ = 0;
+        isLeaving_ = true;
+        transitionTimer_ = 0;
+    }
     // フェードやメニューの操作中も、背景の筋と煙を別々に動かし続ける。
     if (gameOverEffect_) { gameOverEffect_->Update(1.0f/60.0f); }
     if (isLeaving_) { ++transitionTimer_; }
     UpdateMenu();
     // 暗転が完了した瞬間に一度だけ予約し、読み込み中のシーンを作り直さない
     if (isLeaving_ && transitionTimer_ == kFadeDuration) {
+        if (demoMode_) {
+            demoRestartReady_ = true;
+            return;
+        }
         if (buttonActions_[selectedButton_] == Action::Restart) {
             GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
         } else {
@@ -324,6 +360,7 @@ void ResultScene::Finalize() {
     gameOverUnderlines_.clear();
     gameOverIndicators_.clear();
     gameOverSelection_.clear();
+    gameOverButtonGlows_.clear(); // 周回時に、解放した文字の光を参照しない。
     gameOverEffect_.reset();
     gameOverBackground_ = nullptr;
     gameOverHeadline_ = nullptr;

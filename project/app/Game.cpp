@@ -28,6 +28,20 @@ void Game::Initialize() {
     spriteCommon_ = std::make_unique<SpriteCommon>();
     spriteCommon_->Initialize(dxCommon_.get(), srvManager_.get());
 
+    // 日本語を画像で表示し、実行環境のフォントや文字コードに依存させない。
+    demoStatusLight_ = dxCommon_->CreateBufferResource(sizeof(DirectionalLight));
+    DirectionalLight* demoLight = nullptr;
+    demoStatusLight_->Map(0, nullptr, reinterpret_cast<void**>(&demoLight));
+    *demoLight = {};
+    demoLight->color = { 1, 1, 1, 1 };
+    demoLight->direction = { 0, -1, 0 };
+    demoLight->intensity = 1.0f;
+    demoStatusLabel_ = std::make_unique<Sprite>();
+    demoStatusLabel_->Initialize(spriteCommon_.get(), demoStatusLight_.Get(), "Resources/hud/demo_status.png");
+    demoStatusLabel_->SetPosition({ static_cast<float>(WinApp::kClientWidth) - 276.0f, 20.0f });
+    demoStatusLabel_->SetSize({ 256.0f, 48.0f });
+    demoStatusLabel_->Update();
+
     // 3d オブジェクト共通を初期化する
     object3dCommon_ = std::make_unique<Object3dCommon>();
     object3dCommon_->Initialize(dxCommon_.get(), srvManager_.get());
@@ -108,9 +122,15 @@ void Game::Initialize() {
     sceneManager_ = std::make_unique<SceneManager>();
     sceneManager_->SetContext(context);
 
-    // 動作確認用の指定がある場合だけ、死亡を待たずゲームオーバー画面を開く。
+    // 起動指定に合わせて、通常プレイ・展示・演出確認の入口を選ぶ。
     const std::wstring_view commandLine = GetCommandLineW();
-    if (commandLine.find(L"--preview-death") != std::wstring_view::npos) {
+    if (commandLine.find(L"--gameover-demo") != std::wstring_view::npos) {
+        // 展示用の起動では、タイトル操作なしで自動プレイを始める。
+        gameOverDemoActive_ = true;
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableGameOverDemo();
+        sceneManager_->SetNextScene(std::move(scene));
+    } else if (commandLine.find(L"--preview-death") != std::wstring_view::npos) {
         auto scene = std::make_unique<GamePlayScene>();
         scene->EnableDeathPreview();
         sceneManager_->SetNextScene(std::move(scene));
@@ -144,18 +164,32 @@ void Game::Update() {
             // ポーズ中は衝撃波などの画面エフェクトも同じ状態で止める。
             sceneManager_ && sceneManager_->IsPaused() ? 0.0f : 1.0f / 60.0f,
             input_->GetMousePosition(),
-            input_->PushMouseRight());
+            // デモ中は右クリックによる画面側の操作も受け付けない。
+            !gameOverDemoActive_ && input_->PushMouseRight());
     }
 
 
+    // F6は通常ビルドでも使え、自動プレイ終了時はタイトルへ戻す。
+    const bool toggleDemo = winApp_ && winApp_->ConsumeDemoToggleRequest();
+    if (toggleDemo && sceneManager_ && !sceneManager_->IsLoading()) {
+        gameOverDemoActive_ = !gameOverDemoActive_;
+        if (gameOverDemoActive_) {
+            auto scene = std::make_unique<GamePlayScene>();
+            scene->EnableGameOverDemo();
+            sceneManager_->SetNextScene(std::move(scene));
+        } else {
+            sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+        }
+    }
+
 #ifdef USE_IMGUI
     // 調整中の画面を、タイトルや本編からF8ですぐに確認できるようにする。
-    if (input_ && sceneManager_ && input_->TriggerKey(DIK_F8)) {
+    if (!gameOverDemoActive_ && input_ && sceneManager_ && input_->TriggerKey(DIK_F8)) {
         sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
     }
 
     // F1を押した瞬間にデバッグモードを切り替える
-    if (input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
+    if (!gameOverDemoActive_ && input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
         isDebugMode_ = !isDebugMode_;
     }
 #endif
@@ -222,6 +256,8 @@ void Game::Draw() {
     if (sceneManager_) {
         sceneManager_->DrawOverlay();
     }
+    // 画面のぼかしや暗転より前面へ表示し、展示中だと常に分かるようにする。
+    DrawDemoStatus();
 
 #ifdef USE_IMGUI
     // ImGuiを実際に描画する
@@ -234,6 +270,13 @@ void Game::Draw() {
 }
 
 
+void Game::DrawDemoStatus() {
+    // 通常プレイへ戻ったら、デモ専用の表示も消す。
+    if (!gameOverDemoActive_ || !demoStatusLabel_) { return; }
+    spriteCommon_->CommonDrawSetting();
+    demoStatusLabel_->Draw();
+}
+
 void Game::DrawLoadingScreen() {
     // 通常の描画と同じ経路でコマンドを送信し、準備したGPUデータも反映する。
     dxCommon_->PreDraw();
@@ -242,6 +285,7 @@ void Game::DrawLoadingScreen() {
     // 読み込みが終わるまでは文字を出さず、タイトルの登場につながる黒画面にする。
     const float background[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     commandList->ClearRenderTargetView(rtv, background, 0, nullptr);
+    DrawDemoStatus();
     dxCommon_->PostDraw();
 }
 
@@ -249,6 +293,10 @@ void Game::Finalize() {
 
     // シーンを先に落とす
     sceneManager_.reset();
+
+    // 表示用Spriteは、参照している画像やライトより先に解放する。
+    demoStatusLabel_.reset();
+    demoStatusLight_.Reset();
 
     ModelManager::GetInstance()->Finalize();
     TextureManager::GetInstance()->Finalize();

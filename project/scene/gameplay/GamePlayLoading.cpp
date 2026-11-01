@@ -325,6 +325,8 @@ bool GamePlayScene::ContinueInitialize()
 
 void GamePlayScene::OnActivated(float transitionFrame)
 {
+    // 準備完了後にだけ展示用の敵を配置し、周回の移動時間をリセットする。
+    if (gameOverDemo_) { PrepareDemoRound(); }
     // 直前のタイトル演出の時刻を受け取り、準備完了後に初めて扉を開く。
     introScanFrameOffset_ = transitionFrame;
     introFrame_ = 0;

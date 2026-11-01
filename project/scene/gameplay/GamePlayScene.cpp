@@ -295,12 +295,18 @@ GamePlayScene::PreparedLevel GamePlayScene::ReadInitialLevel(const std::string& 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
+    if (demoGameOverActive_) {
+        // 黒くなった画面を1フレーム描いてから、同じ本編を初期状態へ戻す。
+        if (demoGameOver_->IsDemoRestartReady()) { RestartDemoRound(); }
+        else { demoGameOver_->Update(); }
+        return;
+    }
     if (player_ && player_->IsDead()) {
         UpdateDeathSequence();
         return;
     }
     playerDeadFrames_ = 0;
-    if (UpdatePauseMenu(dt)) {
+    if (!gameOverDemo_ && UpdatePauseMenu(dt)) {
         // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
         return;
@@ -317,7 +323,7 @@ void GamePlayScene::Update()
 
 #ifdef USE_IMGUI
     // F7で通常の被弾を確認できる。無敵時間中はダメージも演出も再発生しない。
-    if (GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
+    if (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
         Vector3 attackerPosition = player_->GetWorldPosition();
         attackerPosition.x += 2.0f;
         ApplyPlayerDamage(attackerPosition);
@@ -326,7 +332,7 @@ void GamePlayScene::Update()
     // 動作確認用の自動再生とF9からも、通常と同じ倒れる処理へ入る。
     bool previewDeath = deathPreviewFrames_ > 0 && --deathPreviewFrames_ == 0;
 #ifdef USE_IMGUI
-    previewDeath = previewDeath || (GetContext().input && GetContext().input->TriggerKey(DIK_F9));
+    previewDeath = previewDeath || (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F9));
 #endif
     if (previewDeath && player_) {
         player_->Die();
@@ -348,12 +354,12 @@ void GamePlayScene::Update()
     }
 
     // Reload the level JSON manually when F5 is pressed.
-    if (GetContext().input && GetContext().input->TriggerKey(DIK_F5)) {
+    if (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F5)) {
         ReloadLevel(true);
     }
 
     // Mキーを押した瞬間にミニマップの大きさを切り替える
-    if (GetContext().input &&
+    if (!gameOverDemo_ && GetContext().input &&
         GetContext().input->TriggerKey(DIK_M)) {
         if (minimap_) {
             minimap_->ToggleExpanded();
@@ -361,7 +367,7 @@ void GamePlayScene::Update()
     }
 
     // Reload the level automatically after the file update becomes stable.
-    if (levelHotReload_.Update()) {
+    if (!gameOverDemo_ && levelHotReload_.Update()) {
         ReloadLevel(false);
     }
 
@@ -370,7 +376,8 @@ void GamePlayScene::Update()
     if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
     if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
 
-    if (debugCamera_ && GetContext().isDebugMode) {
+    // デモ中は移動キーやマウスでデバッグカメラを操作できないようにする。
+    if (!gameOverDemo_ && debugCamera_ && GetContext().isDebugMode) {
         debugCamera_->Update(
             GetContext().camera,
             GetContext().input,
@@ -426,7 +433,9 @@ void GamePlayScene::Update()
             if (!boss->IsDead()) { aimSpheres.push_back(boss->GetCollider()); }
         }
         player_->SetBulletAimTargets(aimBoxes, aimSpheres);
-        player_->Update(GetContext().camera);
+        // 展示中の入力は自動移動だけに絞り、射撃やメニュー操作を混ぜない。
+        if (gameOverDemo_) { player_->UpdateDemo(GetContext().camera, UpdateDemoMovement()); }
+        else { player_->Update(GetContext().camera); }
 
         // Player更新中に発生したグレネード爆発を敵へ反映する
         CheckGrenadeExplosions();
@@ -574,12 +583,12 @@ void GamePlayScene::Update()
     UpdateBossHpUiSprites();
 
     // 全敵の視界判定後に近接攻撃を処理する
-    UpdateMeleeAttack();
+    if (!gameOverDemo_) { UpdateMeleeAttack(); }
 
     CheckCollisions();
 
     // 移動とダメージ判定の後に、近くの発電機へのE入力を処理する
-    UpdateGeneratorInteraction(generatorDeltaSeconds);
+    if (!gameOverDemo_) { UpdateGeneratorInteraction(generatorDeltaSeconds); }
     UpdateGeneratorWorld(generatorDeltaSeconds);
     UpdateTeleporterEffects();
 
@@ -591,6 +600,7 @@ void GamePlayScene::Update()
             player_->IsDead() ? 0.0f : missingHp/warningRange);
         const bool isAimingGun =
             GetContext().input &&
+            !gameOverDemo_ &&
             GetContext().input->PushMouseRight() &&
             !player_->IsDead();
 
@@ -657,12 +667,112 @@ void GamePlayScene::UpdateDeathSequence()
         }
     }
     if (playerDeadFrames_ >= 150 && (!renderer || renderer->HasDeathSceneCapture())) {
-        GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
+        if (gameOverDemo_) {
+            // 展示はシーンを破棄せず、同じゲームオーバー画面を本編の上で再生する。
+            if (!demoGameOver_) { demoGameOver_ = std::make_unique<GameOverScene>(); }
+            demoGameOver_->SetContext(GetContext());
+            demoGameOver_->SetSceneManager(GetSceneManager());
+            demoGameOver_->SetDemoMode(true);
+            demoGameOver_->Initialize();
+            demoGameOverActive_ = true;
+            Logger::Log("[GameOverDemo] Game over displayed.");
+        } else {
+            GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
+        }
     }
+}
+
+void GamePlayScene::PrepareDemoRound()
+{
+    demoFrames_ = 0;
+    ++demoRound_;
+    demoEnemy_ = nullptr;
+    const Vector3 origin = player_->GetWorldPosition();
+    Vector3 spawn = origin;
+    float bestDistance = 0.0f;
+    // 周囲の8方向を壁と床に沿って調べ、展示用の敵を離れた見える場所へ置く。
+    for (int i = 0; i < 8; ++i) {
+        const float angle = static_cast<float>(i) * 0.78539816f;
+        const Vector3 movement{ std::sin(angle) * 5.0f, 0.0f, std::cos(angle) * 5.0f };
+        const Vector3 candidate = BodyContact::Move(origin, movement, 1.0f, &wallColliders_, &floorColliders_);
+        // 壁で横滑りした候補は使わず、接近できる直線上の床だけを選ぶ。
+        if (std::abs(candidate.x - origin.x - movement.x) > 0.1f ||
+            std::abs(candidate.z - origin.z - movement.z) > 0.1f) { continue; }
+        bool onFloor = false;
+        for (const auto& floor : floorColliders_) {
+            if (floor.hasCollider && floor.type == "BOX" &&
+                std::abs(candidate.x-floor.center.x) < floor.size.x*0.5f &&
+                std::abs(candidate.z-floor.center.z) < floor.size.z*0.5f) { onFloor = true; break; }
+        }
+        if (!onFloor) { continue; }
+        const float distance = movement.x * movement.x + movement.z * movement.z;
+        if (distance > bestDistance) { spawn = candidate; bestDistance = distance; }
+    }
+    if (bestDistance > 0.0f) {
+        // ダメージは演出で減らさず、通常の敵AIと接触判定に任せる。
+        auto enemy = std::make_unique<Enemy>();
+        enemy->Initialize(GetContext().object3dCommon, GetContext().camera, spawn);
+        enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
+        enemy->SetMap(&mapField_, tileSize_);
+        enemy->SetFloorColliders(&floorColliders_);
+        enemy->SetWallColliders(&wallColliders_);
+        enemy->SetNavMesh(&navMeshData_);
+        enemy->SetWaypoints({ spawn });
+        demoEnemy_ = enemy.get();
+        enemies_.push_back(std::move(enemy));
+    } else {
+        // 狭い開始地点では、元の配置の最寄りの敵へ近づく。
+        float nearest = 1.0e20f;
+        for (const auto& enemy : enemies_) {
+            const Vector3 position = enemy->GetWorldPosition();
+            const float distance = (position.x-origin.x)*(position.x-origin.x) +
+                (position.z-origin.z)*(position.z-origin.z);
+            if (distance < nearest) { nearest = distance; demoEnemy_ = enemy.get(); }
+        }
+    }
+    if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
+    Logger::Log("[GameOverDemo] Round started: " + std::to_string(demoRound_));
+}
+
+Vector3 GamePlayScene::UpdateDemoMovement()
+{
+    ++demoFrames_;
+    if (!demoEnemy_) { return {}; }
+    // 最初は少し横へ歩き、その後に敵へ近づいて通常の攻撃を受ける。
+    if (demoFrames_ <= 90) {
+        return { demoFrames_ <= 45 ? 0.035f : -0.035f, 0.0f, 0.012f };
+    }
+    if (demoFrames_ == 91) { demoEnemy_->OnHearSound(player_->GetWorldPosition()); }
+    const Vector3 target = demoEnemy_->GetWorldPosition();
+    const Vector3 position = player_->GetWorldPosition();
+    const Vector3 direction{ target.x-position.x, 0.0f, target.z-position.z };
+    const float distance = std::sqrt(direction.x*direction.x + direction.z*direction.z);
+    if (distance <= 0.8f) { return {}; }
+    return { direction.x/distance*0.065f, 0.0f, direction.z/distance*0.065f };
+}
+
+void GamePlayScene::RestartDemoRound()
+{
+    // 共有のモデルやプレイヤーは保ち、配置と体力だけを毎回戻す。
+    demoGameOver_->Finalize();
+    demoGameOverActive_ = false;
+    demoEnemy_ = nullptr;
+    playerDeadFrames_ = 0;
+    ReloadLevel(false);
+    // 前周の被弾によるカメラの揺れと追従途中の位置をリセットする。
+    followCamera_->Initialize(GetContext().camera);
+    aimingVignetteIntensity_ = 0.0f;
+    if (GetContext().offscreenRenderer) {
+        GetContext().offscreenRenderer->ResetDamageFeedback();
+        GetContext().offscreenRenderer->SetDeathBlur(0.0f);
+    }
+    OnActivated(0.0f);
+    Logger::Log("[GameOverDemo] Restart completed.");
 }
 
 void GamePlayScene::DrawShadow()
 {
+    if (demoGameOverActive_) { return; }
     // 影の描画では、空・UI・煙・弾の軌跡を含めない。
     if (player_) { player_->Draw(); }
     for (auto& enemy : enemies_) { enemy->Draw(); }
@@ -673,6 +783,7 @@ void GamePlayScene::DrawShadow()
 
 void GamePlayScene::Draw()
 {
+    if (demoGameOverActive_) { demoGameOver_->Draw(); return; }
     assert(GetContext().dxCommon);
     assert(GetContext().spriteCommon);
     assert(GetContext().object3dCommon);
@@ -712,6 +823,11 @@ void GamePlayScene::Draw()
 
     for (auto& wallObject : wallObjects_) {
         wallObject->Draw();
+    }
+
+    // 死亡時の血だまりは、縁が床と混ざるよう床の後に描画する。
+    if (player_) {
+        player_->DrawBloodPool();
     }
 
     // 透明な加算パーティクルは床や壁に上書きされないよう最後に描画する
@@ -863,6 +979,7 @@ void GamePlayScene::UpdateMissionStart()
 
 void GamePlayScene::DrawBloom()
 {
+    if (demoGameOverActive_) { return; }
     // 通常の画面が明るくても、発光を指定していない粒子や3Dモデルは対象にしない。
     if (particleSystem_) { particleSystem_->DrawBloom(); }
     if (bloodParticleSystem_) { bloodParticleSystem_->DrawBloom(); }
@@ -1798,6 +1915,10 @@ void GamePlayScene::UpdateMeleeAttack()
 
 void GamePlayScene::Finalize()
 {
+    // 所有しているゲームオーバー画面は、共通描画リソースより先に片付ける。
+    if (demoGameOver_) { demoGameOver_->Finalize(); demoGameOver_.reset(); }
+    demoGameOverActive_ = false;
+    demoEnemy_ = nullptr;
     // ポーズのSpriteも、参照先のライト用リソースより先に解放する。
     loadQueue_.Clear();
     initializing_ = false;
@@ -1943,6 +2064,8 @@ void GamePlayScene::CheckGrenadeExplosions()
 void GamePlayScene::ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower, int shakeFrames)
 {
     if (!player_ || !player_->OnHit(attackerPosition)) { return; }
+    // 展示の確認ログには、通常攻撃で減った体力を残す。
+    if (gameOverDemo_) { Logger::Log("[GameOverDemo] Enemy hit, HP: " + std::to_string(player_->GetHp())); }
     // 無敵時間で弾かれた接触では、画面エフェクトの時間を再開しない。
     if (followCamera_) { followCamera_->StartShake(shakePower,shakeFrames); }
     if (GetContext().offscreenRenderer) { GetContext().offscreenRenderer->StartDamageNoise(); }
@@ -1955,7 +2078,7 @@ void GamePlayScene::CheckCollisions()
     }
 
     // テレポートでレベルを作り直したフレームは、古い敵や弾との判定を続けない
-    if (CheckBossTeleport()) {
+    if (!gameOverDemo_ && CheckBossTeleport()) {
         return;
     }
 

@@ -1,0 +1,4 @@
+# 色はテクスチャに焼き込み、描画側で濃さと透明度を調整する。
+newmtl BloodPoolB
+Kd 1.0 1.0 1.0
+map_Kd bloodPoolB.png

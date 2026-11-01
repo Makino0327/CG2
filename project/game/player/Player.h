@@ -36,10 +36,14 @@ public:
     bool ContinueInitialize();
 
     void Update(Camera* camera);
+    // 展示中は操作入力を使わず、通常と同じ移動・被弾・アニメーションを進める。
+    void UpdateDemo(Camera* camera, const Vector3& movement);
     // 再開のクリックを射撃へ持ち越さず、ボタンを離してから次の発砲を受け付ける。
     void SuppressFireUntilRelease() { suppressFireUntilRelease_ = input_ && input_->PushMouseLeft(); }
 
     void Draw();
+    // 床の後に描き、半透明の縁を床の色と混ぜる。
+    void DrawBloodPool();
 
     // マップ情報とタイルサイズを設定する
     void SetMap(MapChipField* mapField, float tileSize) {
@@ -234,6 +238,33 @@ private:
 
     // 弾の当たり判定とは分けて、演出用の薬莢を保持する。
     std::vector<Casing> casings_;
+
+    // 死亡時に体の下から広がる血だまり。形の違う板をずらして重ね、輪郭を崩す。
+    struct BloodPoolLayer {
+        std::unique_ptr<Object3d> object;
+        float side = 0.0f;         // 体の横方向へのずれ
+        float forward = 0.0f;      // 腰から頭の方向へのずれ
+        float yaw = 0.0f;
+        float maxScale = 1.0f;
+        float delay = 0.0f;        // 広がり始めるまでの秒数
+        float duration = 1.0f;     // ほぼ最大まで広がる秒数
+        float heightOffset = 0.0f; // 重なりのちらつきを防ぐ床からの高さ
+    };
+
+    // 倒れた位置に血だまりを用意し、少し遅れて広げ始める。
+    void StartBloodPool();
+    // 倒れる途中は体を追い、その後は床の上で広げて暗くしていく。
+    void UpdateBloodPool();
+    // 倒れている体の腰の位置と向きを、血だまりの基準にする。
+    void TrackBloodPoolAnchor();
+    // 骨の原点を、描画と同じワールド座標で返す。
+    bool GetJointWorldPosition(const std::string& name, Vector3& position) const;
+
+    std::vector<BloodPoolLayer> bloodPoolLayers_;
+    float bloodPoolTime_ = 0.0f;
+    float bloodPoolFloorY_ = 0.0f;
+    Vector3 bloodPoolCenter_{};
+    Vector3 bloodPoolForward_{ 0.0f, 0.0f, 1.0f };
 
     // プレイヤーの向いている方向へグレネードを投げる
     void ThrowGrenade(Camera* camera);

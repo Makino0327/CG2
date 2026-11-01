@@ -32,7 +32,11 @@ void Player::BeginInitialize(
 
     // 円柱と底の縁を持つ薬莢モデルを読み込み、古い演出をリセットする。
     ModelManager::GetInstance()->LoadModel("casing/casing.obj");
+    // 死亡時の血だまりは、輪郭の違う2枚の板を重ねて使う。
+    ModelManager::GetInstance()->LoadModel("blood/bloodPoolA.obj");
+    ModelManager::GetInstance()->LoadModel("blood/bloodPoolB.obj");
     casings_.clear();
+    bloodPoolLayers_.clear();
     muzzleLightFrames_ = 0; // 初期化時に発射光を消す。
     knockbackVelocity_ = {}; // 初期化前の被弾移動を残さない。
 
@@ -313,6 +317,7 @@ void Player::Update(Camera* camera)
         UpdateBullets();
         UpdateGrenades();
         UpdateCasings();
+        UpdateBloodPool();
         return;
     }
 
@@ -481,6 +486,31 @@ void Player::Update(Camera* camera)
 }
 
 
+void Player::UpdateDemo(Camera* camera, const Vector3& movement)
+{
+    if (!object_) { return; }
+    if (isDead_) { Update(camera); return; }
+    firedThisFrame_ = false;
+    muzzleLightFrames_ = 0;
+    prevPos_ = GetWorldPosition();
+    // 自動移動でも壁を抜けず、被弾時の吹き飛ばしと無敵時間を保つ。
+    MoveWithCollision({ movement.x + knockbackVelocity_.x, 0.0f,
+        movement.z + knockbackVelocity_.z });
+    knockbackVelocity_.x *= 0.82f;
+    knockbackVelocity_.z *= 0.82f;
+    if (movement.x * movement.x + movement.z * movement.z > 0.000001f) {
+        // 進行方向へ滑らかに向け、マウス位置には反応させない。
+        const float targetYaw = std::atan2(movement.x, movement.z) + frontAngleOffset_;
+        const float difference = std::remainder(targetYaw - rotate_.y, 6.2831853f);
+        rotate_.y += difference * 0.15f;
+        object_->SetRotate(rotate_);
+    }
+    const Vector3 position = GetWorldPosition();
+    UpdateAnimation({ position.x - prevPos_.x, 0.0f, position.z - prevPos_.z }, false);
+    object_->Update();
+    if (invincibleTimer_ > 0) { --invincibleTimer_; }
+}
+
 void Player::Draw()
 {
     // 死亡後も、倒れたプレイヤーを背景へ残す。
@@ -587,6 +617,7 @@ void Player::Die()
     object_->SetAnimationParentCorrectionEnabled(false);
     object_->SetColor({ 1,1,1,1 });
     PlayMotion(Motion::Death);
+    StartBloodPool();
 }
 
 // ----------------------------
@@ -1269,6 +1300,153 @@ void Player::EjectCasing(const Vector3& muzzlePosition, const Vector3& direction
     casings_.push_back(std::move(casing));
 }
 
+bool Player::GetJointWorldPosition(const std::string& name, Vector3& position) const
+{
+    if (!object_ || !object_->HasSkeleton()) { return false; }
+    const Skeleton& skeleton = object_->GetSkeleton();
+    const auto found = skeleton.jointMap.find(name);
+    if (found == skeleton.jointMap.end()) { return false; }
+    // 骨の原点を、足元補正込みの描画用ワールド行列で変換する。
+    const Matrix4x4& joint = skeleton.joints[found->second].skeletonSpaceMatrix;
+    const Matrix4x4& world = object_->GetWorldMatrix();
+    const Vector3 local{ joint.m[3][0], joint.m[3][1], joint.m[3][2] };
+    position = {
+        local.x * world.m[0][0] + local.y * world.m[1][0] + local.z * world.m[2][0] + world.m[3][0],
+        local.x * world.m[0][1] + local.y * world.m[1][1] + local.z * world.m[2][1] + world.m[3][1],
+        local.x * world.m[0][2] + local.y * world.m[1][2] + local.z * world.m[2][2] + world.m[3][2]
+    };
+    return true;
+}
+
+void Player::StartBloodPool()
+{
+    bloodPoolLayers_.clear();
+    bloodPoolTime_ = 0.0f;
+    if (!object_ || !object3dCommon_) { return; }
+
+    // 体の下にある床の上面を探す。見つからなければ足元の高さを使う。
+    const Vector3 position = GetWorldPosition();
+    bloodPoolFloorY_ = position.y - colliderRadius_;
+    if (floorColliders_) {
+        float floorY = -FLT_MAX;
+        for (const LevelColliderData& floor : *floorColliders_) {
+            if (!floor.hasCollider || floor.type != "BOX") { continue; }
+            if (std::abs(position.x - floor.center.x) > floor.size.x * 0.5f ||
+                std::abs(position.z - floor.center.z) > floor.size.z * 0.5f) {
+                continue;
+            }
+            const float topY = floor.center.y + floor.size.y * 0.5f;
+            if (topY <= position.y + 0.01f) { floorY = (std::max)(floorY, topY); }
+        }
+        if (floorY != -FLT_MAX) { bloodPoolFloorY_ = floorY; }
+    }
+
+    // 倒れ始める前は、プレイヤーの向いている方向を体の向きとして使う。
+    const float facing = rotate_.y - frontAngleOffset_;
+    bloodPoolForward_ = { std::sin(facing), 0.0f, std::cos(facing) };
+    bloodPoolCenter_ = { position.x, 0.0f, position.z };
+    TrackBloodPoolAnchor();
+
+    static std::mt19937 randomEngine{ std::random_device{}() };
+    std::uniform_real_distribution<float> angle(0.0f, 6.2831853f);
+    std::uniform_real_distribution<float> variation(0.88f, 1.12f);
+    const float sideSign = (randomEngine() & 1u) ? 1.0f : -1.0f;
+
+    // 胴体の下の大きな溜まりに、胸側と腰側へ流れ出た小さな溜まりを重ねる。
+    // 広がる速さを変えることで、時間とともに輪郭の形も変わっていく。
+    // 死亡演出は約2.5秒で画面を保存するため、それまでにほぼ広がり切る長さにする。
+    struct LayerSetting {
+        const char* model;
+        float side, forward, scale, delay, duration;
+    };
+    const LayerSetting settings[] = {
+        // 体は高さ約4.4なので、胴体の幅を十分に超える大きさにする。
+        { "blood/bloodPoolA.obj", 0.0f, 0.5f, 3.2f, 0.3f, 2.4f },
+        { "blood/bloodPoolB.obj", 0.8f * sideSign, 1.6f, 2.2f, 0.6f, 2.8f },
+        { "blood/bloodPoolB.obj", -1.0f * sideSign, -0.8f, 1.6f, 0.9f, 3.0f },
+    };
+    float heightOffset = 0.012f;
+    for (const LayerSetting& setting : settings) {
+        BloodPoolLayer layer{};
+        layer.object = std::make_unique<Object3d>();
+        layer.object->Initialize(object3dCommon_);
+        layer.object->SetModel(setting.model);
+        layer.object->SetLightingType(LightingType::HalfLambert);
+        layer.side = setting.side;
+        layer.forward = setting.forward;
+        layer.yaw = angle(randomEngine);
+        layer.maxScale = setting.scale * variation(randomEngine);
+        layer.delay = setting.delay;
+        layer.duration = setting.duration * variation(randomEngine);
+        layer.heightOffset = heightOffset;
+        // 重なった板が同じ高さで奥行きを奪い合わないよう、少しずつ浮かせる。
+        heightOffset += 0.004f;
+        bloodPoolLayers_.push_back(std::move(layer));
+    }
+    UpdateBloodPool();
+}
+
+void Player::TrackBloodPoolAnchor()
+{
+    Vector3 hips{};
+    if (!GetJointWorldPosition("Hips", hips)) { return; }
+    bloodPoolCenter_ = { hips.x, 0.0f, hips.z };
+
+    // 倒れて頭が腰から水平に離れたら、その方向を体の向きにする。
+    Vector3 head{};
+    if (GetJointWorldPosition("Head", head)) {
+        const float dx = head.x - hips.x;
+        const float dz = head.z - hips.z;
+        const float length = std::sqrt(dx * dx + dz * dz);
+        if (length > 0.3f) { bloodPoolForward_ = { dx / length, 0.0f, dz / length }; }
+    }
+}
+
+void Player::UpdateBloodPool()
+{
+    if (bloodPoolLayers_.empty()) { return; }
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    bloodPoolTime_ += kDeltaTime;
+
+    // 倒れ終わるまでは体の位置を追い、その後は床に固定する。
+    const float settleTime = std::clamp(
+        animations_[static_cast<size_t>(Motion::Death)].duration, 0.5f, 2.0f);
+    if (bloodPoolTime_ <= settleTime + kDeltaTime) { TrackBloodPoolAnchor(); }
+
+    const Vector3 right{ bloodPoolForward_.z, 0.0f, -bloodPoolForward_.x };
+    for (BloodPoolLayer& layer : bloodPoolLayers_) {
+        const float elapsed = bloodPoolTime_ - layer.delay;
+        if (elapsed < 0.0f) { continue; }
+
+        // 最初は勢いよく、だんだんゆっくり広がる。
+        const float progress = std::clamp(elapsed / layer.duration, 0.0f, 1.0f);
+        const float inverse = 1.0f - progress;
+        const float grow = 1.0f - inverse * inverse * inverse;
+        const float scale = layer.maxScale * (0.12f + 0.88f * grow);
+        // 出始めは薄く、時間がたつと乾いたように少し暗くする。
+        // 床と同じ光で暗くなる分を補い、黒ではなく赤黒く見える明るさにする。
+        const float alpha = std::clamp(elapsed / 0.3f, 0.0f, 1.0f);
+        const float darken = 2.4f - 0.5f * std::clamp(elapsed / 10.0f, 0.0f, 1.0f);
+
+        layer.object->SetTranslate({
+            bloodPoolCenter_.x + right.x * layer.side + bloodPoolForward_.x * layer.forward,
+            bloodPoolFloorY_ + layer.heightOffset,
+            bloodPoolCenter_.z + right.z * layer.side + bloodPoolForward_.z * layer.forward });
+        layer.object->SetRotate({ 0.0f, layer.yaw, 0.0f });
+        layer.object->SetScale({ scale, 1.0f, scale });
+        layer.object->SetColor({ darken, darken, darken, alpha });
+        layer.object->Update();
+    }
+}
+
+void Player::DrawBloodPool()
+{
+    for (const BloodPoolLayer& layer : bloodPoolLayers_) {
+        // 広がり始める前の板は、透明でも奥行きを書き込まないよう描画しない。
+        if (bloodPoolTime_ >= layer.delay) { layer.object->Draw(); }
+    }
+}
+
 void Player::UpdateCasings()
 {
     constexpr float kRadius = 0.0715f;
@@ -1592,8 +1770,9 @@ void Player::RotateToMouse(Camera* camera)
 
 void Player::Respawn()
 {
-    // 復活前の薬莢を残さず、演出も初期状態へ戻す。
+    // 復活前の薬莢や血だまりを残さず、演出も初期状態へ戻す。
     casings_.clear();
+    bloodPoolLayers_.clear();
     muzzleLightFrames_ = 0; // 復活前の発射光も消す。
 
     // HPを最大まで戻す
