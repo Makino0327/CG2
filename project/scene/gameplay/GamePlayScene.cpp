@@ -306,6 +306,18 @@ void GamePlayScene::Update()
         return;
     }
     playerDeadFrames_ = 0;
+    if (briefingBeforeMission_) {
+        // 作戦の開始を待つ間も、背景の走査線は動かし続ける。
+        introScanFrameOffset_ += 1.0f;
+        introScan_.Update(introScanFrameOffset_, 1.0f);
+        if (UpdateControlsBriefing(true)) {
+            briefingBeforeMission_ = false;
+            player_->SuppressFireUntilRelease();
+        }
+        // 説明を読んでいる時間は、シャッターやMISSION STARTの演出に含めない。
+        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
+        return;
+    }
     if (!gameOverDemo_ && UpdatePauseMenu(dt)) {
         // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
@@ -403,6 +415,9 @@ void GamePlayScene::Update()
             boss->UpdateRenderOnly();
         }
 
+        // デバッグカメラに弾薬の描画だけを追従させる。
+        for (auto& drop : ammoDrops_) { drop.object->UpdateTransform(); }
+
         for (auto& floorObject : floorObjects_) {
             floorObject->Update();
         }
@@ -415,8 +430,6 @@ void GamePlayScene::Update()
             skybox_->Update();
         }
 
-        // デバッグカメラ中は近接攻撃マークを表示しない
-        meleeTarget_ = nullptr;
         return;
     }
 
@@ -576,9 +589,6 @@ void GamePlayScene::Update()
             minimapEnemyPositions);
     }
 
-    // 残弾数に合わせて左下の弾UIを更新する
-    UpdateAmmoUiSprites();
-
     // ボスのHPに合わせて画面上部のHPバーを更新する
     UpdateBossHpUiSprites();
 
@@ -586,6 +596,9 @@ void GamePlayScene::Update()
     if (!gameOverDemo_) { UpdateMeleeAttack(); }
 
     CheckCollisions();
+
+    // 回収した予備弾も、そのフレームの左下の表示に反映する。
+    UpdateAmmoUiSprites();
 
     // 移動とダメージ判定の後に、近くの発電機へのE入力を処理する
     if (!gameOverDemo_) { UpdateGeneratorInteraction(generatorDeltaSeconds); }
@@ -712,11 +725,7 @@ void GamePlayScene::PrepareDemoRound()
         // ダメージは演出で減らさず、通常の敵AIと接触判定に任せる。
         auto enemy = std::make_unique<Enemy>();
         enemy->Initialize(GetContext().object3dCommon, GetContext().camera, spawn);
-        enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
-        enemy->SetMap(&mapField_, tileSize_);
-        enemy->SetFloorColliders(&floorColliders_);
-        enemy->SetWallColliders(&wallColliders_);
-        enemy->SetNavMesh(&navMeshData_);
+        ConfigureEnemyForLevel(*enemy);
         enemy->SetWaypoints({ spawn });
         demoEnemy_ = enemy.get();
         enemies_.push_back(std::move(enemy));
@@ -777,6 +786,7 @@ void GamePlayScene::DrawShadow()
     if (player_) { player_->Draw(); }
     for (auto& enemy : enemies_) { enemy->Draw(); }
     for (auto& boss : bosses_) { boss->Draw(); }
+    for (auto& drop : ammoDrops_) { drop.object->Draw(); }
     for (auto& floor : floorObjects_) { floor->Draw(); }
     for (auto& wall : wallObjects_) { wall->Draw(); }
 }
@@ -825,6 +835,9 @@ void GamePlayScene::Draw()
         wallObject->Draw();
     }
 
+    // 撃破位置に残った弾薬をワールド内に描画する。
+    for (auto& drop : ammoDrops_) { drop.object->Draw(); }
+
     // 死亡時の血だまりは、縁が床と混ざるよう床の後に描画する。
     if (player_) {
         player_->DrawBloodPool();
@@ -864,48 +877,13 @@ void GamePlayScene::Draw()
         enemyVisionDebug_.Upload();
         enemyVisionDebug_.Draw();
     }
-    // 近接攻撃可能な敵の頭上へマークを表示する
-    if (meleeTarget_ && meleeMarker_ && GetContext().camera) {
-        Vector3 markerPosition = meleeTarget_->GetWorldPosition();
-        markerPosition.y += 2.0f;
-
-        const Matrix4x4& viewProjection = GetContext().camera->GetViewProjectionMatrix();
-
-        // 敵のワールド座標を画面表示用のクリップ座標へ変換する
-        const float clipX =
-            markerPosition.x * viewProjection.m[0][0] +
-            markerPosition.y * viewProjection.m[1][0] +
-            markerPosition.z * viewProjection.m[2][0] +
-            viewProjection.m[3][0];
-        const float clipY =
-            markerPosition.x * viewProjection.m[0][1] +
-            markerPosition.y * viewProjection.m[1][1] +
-            markerPosition.z * viewProjection.m[2][1] +
-            viewProjection.m[3][1];
-        const float clipW =
-            markerPosition.x * viewProjection.m[0][3] +
-            markerPosition.y * viewProjection.m[1][3] +
-            markerPosition.z * viewProjection.m[2][3] +
-            viewProjection.m[3][3];
-
-        // カメラより前にいる敵のマークだけ描画する
-        if (clipW > 0.001f) {
-            const float screenX =
-                ((clipX / clipW) + 1.0f) * 0.5f * WinApp::kClientWidth;
-            const float screenY =
-                (1.0f - (clipY / clipW)) * 0.5f * WinApp::kClientHeight;
-
-            meleeMarker_->SetPosition({ screenX, screenY });
-            meleeMarker_->Update();
-            meleeMarker_->Draw();
-        }
-    }
-
     // 作戦開始中はHUDを隠し、プレイヤーとカメラの動きを見せる。
     if (missionStartActive_) {
         DrawIntroTransition();
         return;
     }
+
+    DrawAmmoDropLabel();
 
     // 3Dオブジェクトより手前へミニマップを描画する
     if (minimap_) {
@@ -1162,9 +1140,10 @@ void GamePlayScene::UpdateGeneratorInteraction(double deltaSeconds)
             generatorCompleteNoticeSeconds_ = std::max(0.0, generatorCompleteNoticeSeconds_ - deltaSeconds);
         }
 
-        // 起動中のメーターを優先し、同時に別の発電機を操作しない
-        if (generator.activation.GetState() == GeneratorActivation::State::Starting ||
-            generatorCompleteNoticeSeconds_ > 0.0) {
+        // 増援の確認は起動中だけ行い、完了後はメーターの通知だけを残す。
+        const bool isStarting = generator.activation.GetState() == GeneratorActivation::State::Starting;
+        if (isStarting) { UpdateGeneratorReinforcements(generator); }
+        if (isStarting || generatorCompleteNoticeSeconds_ > 0.0) {
             generatorUiIndex_ = interactingGeneratorIndex_;
             return;
         }
@@ -1210,6 +1189,66 @@ void GamePlayScene::UpdateGeneratorInteraction(double deltaSeconds)
         generators_[generatorUiIndex_].activation.TryStart()) {
         interactingGeneratorIndex_ = generatorUiIndex_;
         generatorCompleteNoticeSeconds_ = 0.0;
+    }
+}
+
+void GamePlayScene::UpdateGeneratorReinforcements(GeneratorData& generator)
+{
+    const auto entry = generatorReinforcementSpawns_.find(generator.name);
+    if (entry == generatorReinforcementSpawns_.end()) { return; }
+    const float progress = generator.activation.GetProgress();
+    if (progress < generator.nextReinforcementCheck) { return; }
+    // 見えている地点や塞がれた地点は、毎フレーム調べず少し待ってから確認する。
+    constexpr float kCheckInterval = 0.25f / static_cast<float>(GeneratorActivation::kActivationSeconds);
+    generator.nextReinforcementCheck = progress + kCheckInterval;
+
+    auto& spawns = entry->second;
+    for (size_t index = 0; index < spawns.size(); ++index) {
+        auto& spawn = spawns[index];
+        // 登録数に応じて起動時間の中に均等に割り振る。各地点は一度だけ使う。
+        const float spawnProgress = static_cast<float>(index + 1) / static_cast<float>(spawns.size() + 1);
+        if (spawn.processed || progress < spawnProgress) { continue; }
+
+        auto enemy = std::make_unique<Enemy>();
+        ConfigureEnemyForLevel(*enemy);
+        Vector3 position;
+        if (!enemy->TryGetReinforcementPosition(spawn.marker, position)) {
+            spawn.processed = true;
+            Logger::Log("[GeneratorReinforcement] Invalid spawn position: " + spawn.name);
+            continue;
+        }
+
+        Vector2 screenUv;
+        if (TryConvertWorldToScreenUV(position, GetContext().camera->GetViewProjectionMatrix(), screenUv)) {
+            continue;
+        }
+        const SphereCollider spawnCollider{ position, enemy->GetCollider().radius };
+        const bool occupied = std::any_of(enemies_.begin(), enemies_.end(), [&](const auto& other) {
+            return !other->IsDead() && Collision::IsHit(spawnCollider, other->GetCollider());
+        });
+        if (occupied || Collision::IsHit(spawnCollider, player_->GetCollider())) { continue; }
+
+        // 到着済みの敵や、すでに発電機へ向かう敵とは停止位置をずらす。
+        std::vector<Vector3> reservedPositions;
+        for (const auto& other : enemies_) {
+            Vector3 destination;
+            if (other->GetGeneratorDestination(destination)) { reservedPositions.push_back(destination); }
+        }
+
+        enemy->Initialize(GetContext().object3dCommon, GetContext().camera, position);
+        enemy->SetWaypoints({ position });
+        enemy->OnHearGenerator(generator.collider.center, generator.collider.size, reservedPositions);
+        spawn.processed = true;
+        Vector3 destination;
+        if (!enemy->GetGeneratorDestination(destination)) {
+            Logger::Log("[GeneratorReinforcement] No generator approach: " + spawn.name);
+            continue;
+        }
+
+        // 経路が見つかった敵を通常の敵として追加し、次の更新から発電機へ向かわせる。
+        enemy->SetTargetPosition(player_->GetWorldPosition());
+        enemies_.push_back(std::move(enemy));
+        return;
     }
 }
 
@@ -1404,7 +1443,8 @@ void GamePlayScene::UpdateAmmoUiSprites()
         : (isShotgun ? Vector2{ 22.0f, 38.0f } : Vector2{ 18.0f, 34.0f });
     layout.gapX = isAssaultRifle ? 5.0f : (isShotgun ? 10.0f : 8.0f);
     layout.gapY = isAssaultRifle ? 7.0f : 0.0f;
-    layout.bulletsPerRow = isAssaultRifle ? 15 : (isShotgun ? 6 : 10);
+    // ライフルは1行15発、ほかの銃は弾倉の上限に合わせて1行に並べる。
+    layout.bulletsPerRow = isAssaultRifle ? 15 : std::max(1, maxAmmo);
     layout.startX = 32.0f;
     layout.startY = static_cast<float>(WinApp::kClientHeight) - 58.0f;
 
@@ -1467,20 +1507,41 @@ void GamePlayScene::UpdateAmmoUiSprites()
         const float padding = 10.0f;
         const int rowCount =
             (maxAmmo + layout.bulletsPerRow - 1) / layout.bulletsPerRow;
-        const float width =
+        float width =
             static_cast<float>(layout.bulletsPerRow) *
                 (layout.bulletSize.x + layout.gapX) -
             layout.gapX + padding * 2.0f;
+        // 予備弾を表示する武器は、表示する桁数に合わせて背景を右へ伸ばす。
+        const int reserveAmmo = player_->GetCurrentReserveAmmo();
+        if (reserveAmmo >= 0) {
+            const float glyphCount = static_cast<float>(std::to_string(reserveAmmo).size() + (currentAmmo == 0 ? 2 : 1));
+            width += padding + glyphCount * reserveAmmoSprites_.front()->GetSize().x;
+        }
         const float height =
             static_cast<float>(rowCount) * (layout.bulletSize.y + layout.gapY) -
             layout.gapY + padding * 2.0f;
         const float topY = layout.startY -
             static_cast<float>(rowCount - 1) * (layout.bulletSize.y + layout.gapY) -
             layout.bulletSize.y * 0.5f - padding;
-        ammoBackgroundSprite_->SetPosition({ layout.startX - padding, topY });
-        ammoBackgroundSprite_->SetSize({ width, height });
+        const float headerHeight = weaponNameSprite_->GetSize().y + 4.0f;
+        ammoBackgroundSprite_->SetPosition({ layout.startX - padding, topY - headerHeight });
+        ammoBackgroundSprite_->SetSize({ width, height + headerHeight });
         ammoBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.35f });
         ammoBackgroundSprite_->Update();
+
+        // 武器を切り替えたフレームで、残弾の上に選択中の武器名を出す。
+        if (layoutChanged) {
+            const float labelRow = isAssaultRifle ? 1.0f : (isShotgun ? 2.0f : 0.0f);
+            weaponNameSprite_->SetTextureLeftTop({ 0.0f, labelRow * weaponNameSprite_->GetTextureSize().y });
+            weaponNameSprite_->SetPosition({ layout.startX, topY - headerHeight + padding });
+            weaponNameSprite_->Update();
+        }
+        // リロード中だけ、武器名と同じ高さに状態を表示する。
+        if (player_->IsReloading()) {
+            reloadLabelSprite_->SetPosition({ layout.startX + width - padding * 2.0f,
+                weaponNameSprite_->GetPosition().y });
+            reloadLabelSprite_->Update();
+        }
     }
 
     // 残っている弾を目標スロットへ滑らかに寄せる
@@ -1591,6 +1652,8 @@ void GamePlayScene::DrawAmmoUiSprites()
     // 奥から順に、背景パネル → 残弾 → 発射演出の順で重ねる
     if (ammoBackgroundSprite_) {
         ammoBackgroundSprite_->Draw();
+        weaponNameSprite_->Draw();
+        if (player_->IsReloading()) { reloadLabelSprite_->Draw(); }
     }
     for (int index = 0;
          index < currentAmmo && index < static_cast<int>(ammoSprites_.size());
@@ -1604,6 +1667,26 @@ void GamePlayScene::DrawAmmoUiSprites()
          ++index) {
         if (ammoFireEffects_[index].active && ammoFireEffectSprites_[index]) {
             ammoFireEffectSprites_[index]->Draw();
+        }
+    }
+    // スラッシュの後に予備弾数を表示し、弾倉が空のときは左にも0を出す。
+    const int reserveAmmo = player_->GetCurrentReserveAmmo();
+    if (reserveAmmo >= 0 && ammoBackgroundSprite_) {
+        const std::string reserveText = (currentAmmo == 0 ? "0/" : "/") + std::to_string(reserveAmmo);
+        const Vector2& glyphSize = reserveAmmoSprites_.front()->GetSize();
+        const Vector2& panelPosition = ammoBackgroundSprite_->GetPosition();
+        const Vector2& panelSize = ammoBackgroundSprite_->GetSize();
+        float x = panelPosition.x + panelSize.x - 10.0f - glyphSize.x * static_cast<float>(reserveText.size());
+        const float headerHeight = weaponNameSprite_->GetSize().y + 4.0f;
+        const float y = panelPosition.y + headerHeight + (panelSize.y - headerHeight - glyphSize.y) * 0.5f;
+        for (size_t index = 0; index < reserveText.size(); ++index) {
+            auto& sprite = reserveAmmoSprites_[index];
+            const int glyph = reserveText[index] == '/' ? 10 : reserveText[index] - '0';
+            sprite->SetTextureLeftTop({ 32.0f * static_cast<float>(glyph), 0.0f });
+            sprite->SetPosition({ x, y });
+            sprite->Update();
+            sprite->Draw();
+            x += glyphSize.x;
         }
     }
 }
@@ -1743,109 +1826,12 @@ void GamePlayScene::UpdateMeleeAttack()
         return;
     }
 
-    // ナイフモードではないときは近接ターゲットを表示しない
-    if (!player_->IsMeleeMode() && !isMeleeAttacking_) {
-        meleeTarget_ = nullptr;
+    // ナイフを使っているときだけ、左クリックで斬撃を出す。
+    if (!player_->IsMeleeMode() || !GetContext().input->TriggerMouseLeft()) {
         return;
     }
-
-    if (isMeleeAttacking_) {
-        meleeAttackTimer_++;
-
-        // 攻撃中に対象が倒れた場合は近接攻撃を中断する
-        if (!meleeVictim_ || meleeVictim_->IsDead()) {
-            isMeleeAttacking_ = false;
-            meleeVictim_ = nullptr;
-            meleeAttackTimer_ = 0;
-            return;
-        }
-
-        const float approachRate =
-            static_cast<float>(meleeAttackTimer_) /
-            static_cast<float>(meleeAttackHitFrame_);
-        player_->SetPosition(
-            Lerp(meleeStartPosition_, meleeStrikePosition_, approachRate));
-
-        if (meleeAttackTimer_ >= meleeAttackHitFrame_) {
-            player_->SetPosition(meleeStrikePosition_);
-
-            const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
-            Vector3 slashDirection = {
-                victimPosition.x - meleeStartPosition_.x,
-                0.0f,
-                victimPosition.z - meleeStartPosition_.z
-            };
-
-            // ヒットした瞬間にナイフの斬撃エフェクトを出す
-            EmitMeleeSlashEffect(victimPosition, slashDirection);
-            meleeVictim_->OnMeleeHit();
-
-            isMeleeAttacking_ = false;
-            meleeVictim_ = nullptr;
-            meleeAttackTimer_ = 0;
-        }
-        return;
-    }
-
-    meleeTarget_ = nullptr;
 
     const Vector3 playerPosition = player_->GetWorldPosition();
-    float nearestInstantKillDistanceSq = meleeAttackRange_ * meleeAttackRange_;
-
-    for (auto& enemy : enemies_) {
-        // 死んでいる敵は近接攻撃の対象にしない
-        if (enemy->IsDead()) {
-            continue;
-        }
-
-        const Vector3 enemyPosition = enemy->GetWorldPosition();
-        const float diffX = enemyPosition.x - playerPosition.x;
-        const float diffZ = enemyPosition.z - playerPosition.z;
-        const float distanceSq = diffX * diffX + diffZ * diffZ;
-
-        if (!enemy->HasDetectedPlayer() && distanceSq <= nearestInstantKillDistanceSq) {
-            // 瞬殺できる特別近接は、まだプレイヤーを発見していない敵だけ対象にする
-            nearestInstantKillDistanceSq = distanceSq;
-            meleeTarget_ = enemy.get();
-        }
-    }
-
-    if (!GetContext().input->TriggerMouseLeft()) {
-        return;
-    }
-
-    if (meleeTarget_) {
-        // 瞬殺できる敵がいるときだけ、踏み込み付きの特別近接を開始する
-        meleeVictim_ = meleeTarget_;
-        meleeStartPosition_ = playerPosition;
-        meleeAttackTimer_ = 0;
-        isMeleeAttacking_ = true;
-
-        const Vector3 victimPosition = meleeVictim_->GetWorldPosition();
-        Vector3 toVictim = {
-            victimPosition.x - playerPosition.x,
-            0.0f,
-            victimPosition.z - playerPosition.z
-        };
-        if (toVictim.x == 0.0f && toVictim.z == 0.0f) {
-            toVictim = { 0.0f, 0.0f, 1.0f };
-        } else {
-            toVictim = Normalize(toVictim);
-        }
-
-        // 敵と重ならないように、敵の少し手前まで踏み込む
-        meleeStrikePosition_ = {
-            victimPosition.x - toVictim.x * 1.2f,
-            playerPosition.y,
-            victimPosition.z - toVictim.z * 1.2f
-        };
-
-        // 攻撃開始時にも薄い斬撃を出して、入力したことを分かりやすくする
-        EmitMeleeSlashEffect(playerPosition, toVictim);
-        meleeTarget_ = nullptr;
-        return;
-    }
-
     Vector3 slashDirection = PlayerBullet::CalcDirectionToMouseGround(
         playerPosition,
         GetContext().camera,
@@ -1857,7 +1843,7 @@ void GamePlayScene::UpdateMeleeAttack()
         slashDirection = Normalize(slashDirection);
     }
 
-    // 普通の近接は判定範囲の中心へ斬撃エフェクトを出す
+    // 斬撃の判定範囲の中央にエフェクトを出す。
     const float normalMeleeEffectDistance = normalMeleeAttackRange_ * 0.5f;
     const Vector3 normalMeleeEffectPosition = {
         playerPosition.x + slashDirection.x * normalMeleeEffectDistance,
@@ -1865,7 +1851,6 @@ void GamePlayScene::UpdateMeleeAttack()
         playerPosition.z + slashDirection.z * normalMeleeEffectDistance
     };
 
-    // 吸い付きなしで、見た目と同じ位置に斬撃を出す
     EmitMeleeSlashEffect(normalMeleeEffectPosition, slashDirection);
 
     Enemy* normalMeleeHitTarget = nullptr;
@@ -1929,6 +1914,12 @@ void GamePlayScene::Finalize()
     pauseShade_.reset();
     pausePanel_.reset();
     pauseBlackout_.reset();
+    briefingDim_.reset();
+    briefingPanel_.reset();
+    briefingButton_.reset();
+    briefingLine_.reset();
+    briefingBeforeMission_ = false;
+    briefingInputReady_ = false;
     // 開始演出のSpriteも、参照先のライト用リソースより先に解放する。
     for (auto& door : introDoors_) { door.reset(); }
     for (auto& edge : introDoorEdges_) { edge.reset(); }
@@ -1953,19 +1944,19 @@ void GamePlayScene::Finalize()
     generatorGaugeBackground_.reset();
     generatorGaugeFill_.reset();
     generators_.clear();
+    generatorReinforcementSpawns_.clear();
     doors_.clear();
     interactingGeneratorIndex_ = -1;
     generatorUiIndex_ = -1;
     sprites_.clear();
     ammoSprites_.clear();
+    weaponNameSprite_.reset();
+    reloadLabelSprite_.reset();
+    for (auto& glyph : reserveAmmoSprites_) { glyph.reset(); }
+    ammoDropLabel_.reset();
     bossHpBackgroundSprite_.reset();
     bossHpFillSprite_.reset();
     bossHpFrameSprite_.reset();
-    meleeMarker_.reset();
-    meleeTarget_ = nullptr;
-    meleeVictim_ = nullptr;
-    isMeleeAttacking_ = false;
-    meleeAttackTimer_ = 0;
 
     object3d_.reset();
     particleSystem_.reset();
@@ -1984,6 +1975,7 @@ void GamePlayScene::Finalize()
     debugCamera_.reset();
     player_.reset();
     enemies_.clear();
+    ammoDrops_.clear();
     bosses_.clear();
 
     // ミニマップが所有するSpriteを解放する
@@ -2085,7 +2077,7 @@ void GamePlayScene::CheckCollisions()
     // 無敵時間中も接触補正を続け、複数の敵との重なりを反復して解消する。
     for (int pass = 0; pass < 4; ++pass) {
         for (auto& enemy : enemies_) {
-            if (enemy->IsDead() || player_->IsDead() || isMeleeAttacking_) { continue; }
+            if (enemy->IsDead() || player_->IsDead()) { continue; }
             SphereCollider playerCollider = player_->GetCollider();
             SphereCollider enemyCollider = enemy->GetCollider();
             if (!Collision::IsHit(playerCollider, enemyCollider)) { continue; }
@@ -2143,11 +2135,14 @@ void GamePlayScene::CheckCollisions()
 
     // 弾によるボス撃破を先に処理し、生きているボスの着地攻撃だけを当てる
     for (const auto& boss : bosses_) {
-        if (!isMeleeAttacking_ && !player_->IsDead() && boss->IsAttackHit(player_->GetCollider())) {
+        if (!player_->IsDead() && boss->IsAttackHit(player_->GetCollider())) {
             // ボスの攻撃も、通常の被弾と同じノイズを使う。
             ApplyPlayerDamage(boss->GetCollider().center,0.40f,12);
         }
     }
+
+    // 銃・ナイフ・爆発のいずれで撃破しても、敵を削除する前にドロップを出す。
+    if (!gameOverDemo_) { UpdateAmmoDrops(); }
 
     enemies_.erase(
         std::remove_if(
@@ -2160,11 +2155,112 @@ void GamePlayScene::CheckCollisions()
         enemies_.end());
 }
 
+void GamePlayScene::UpdateAmmoDrops()
+{
+    constexpr float kPickupRadius = 1.25f;
+    constexpr float kPickupHeight = 1.5f;
+    constexpr float kPickupOffsetY = 0.35f;
+    constexpr float kHoverHeight = 0.36f;
+    const Vector3 playerPosition = player_->GetWorldPosition();
+
+    // 天面のイラストが逆さにならないよう、水平のまま軽く上下させる。
+    for (auto& drop : ammoDrops_) {
+        if (drop.pickupDelay > 0) { --drop.pickupDelay; }
+        drop.hoverPhase = std::fmod(drop.hoverPhase + 0.05f, 6.2831853f);
+        Vector3 position = drop.object->GetTranslate();
+        position.y = drop.groundY + kHoverHeight + 0.055f * std::sin(drop.hoverPhase);
+        drop.object->SetTranslate(position);
+        drop.object->UpdateTransform();
+    }
+    if (!player_->IsDead()) {
+        // 見た目の上下動に関係なく、床を基準に回収できる距離を判定する。
+        std::erase_if(ammoDrops_, [&](const AmmoDrop& drop) {
+            const Vector3& position = drop.object->GetTranslate();
+            const float dx = position.x - playerPosition.x;
+            const float dz = position.z - playerPosition.z;
+            const float dy = drop.groundY + kPickupOffsetY - playerPosition.y;
+            if (drop.pickupDelay > 0 || std::abs(dy) > kPickupHeight ||
+                dx * dx + dz * dz > kPickupRadius * kPickupRadius) {
+                return false;
+            }
+            const auto& style = kAmmoDropStyles[drop.styleIndex];
+            player_->AddReserveAmmo(style.weapon, style.rounds);
+            return true;
+        });
+    }
+
+    // 撃破ごとにハンドガン50％、ライフル25％、ショットガン25％で弾種を選ぶ。
+    for (auto& enemy : enemies_) {
+        if (!enemy->ConsumeDeathDrop()) { continue; }
+        static std::mt19937 randomEngine{ std::random_device{}() };
+        static std::discrete_distribution<size_t> dropStyle{ 50, 25, 25 };
+        const size_t styleIndex = dropStyle(randomEngine);
+        const SphereCollider collider = enemy->GetCollider();
+        auto object = std::make_unique<Object3d>();
+        object->Initialize(GetContext().object3dCommon);
+        object->SetModel(kAmmoDropStyles[styleIndex].modelPath);
+        object->SetCamera(GetContext().camera);
+        const float groundY = collider.center.y - collider.radius;
+        object->SetTranslate({ collider.center.x, groundY + kHoverHeight, collider.center.z });
+        object->UpdateTransform();
+        ammoDrops_.push_back({ std::move(object), groundY, styleIndex });
+    }
+
+    if (particleSystem_) {
+        // 弾種ごとの色で光らせる。回収と同時に光も消す。
+        constexpr float kGlowLife = 1.0f / 60.0f;
+        constexpr float kGlowStrength = 0.9f;
+        for (const auto& drop : ammoDrops_) {
+            Vector3 position = drop.object->GetTranslate();
+            position.y = drop.groundY + 0.16f;
+            if (!particleSystem_->IsSegmentVisible(position, position)) { continue; }
+            const auto& style = kAmmoDropStyles[drop.styleIndex];
+            particleSystem_->Emit(position, { style.glowSize, style.glowSize, style.glowSize }, {},
+                style.glowColor, kGlowLife, kGlowStrength);
+        }
+    }
+}
+
+void GamePlayScene::DrawAmmoDropLabel()
+{
+    if (!player_ || !ammoDropLabel_ || !GetContext().camera) { return; }
+
+    // ラベルが重ならないよう、回収範囲の手前にある一番近い弾薬だけに出す。
+    constexpr float kLabelRange = 4.0f;
+    const Vector3 playerPosition = player_->GetWorldPosition();
+    const Matrix4x4& viewProjection = GetContext().camera->GetViewProjectionMatrix();
+    float nearestDistanceSq = kLabelRange * kLabelRange;
+    const AmmoDrop* nearestDrop = nullptr;
+    Vector2 labelUV{};
+    for (const auto& drop : ammoDrops_) {
+        const Vector3& position = drop.object->GetTranslate();
+        const float dx = position.x - playerPosition.x;
+        const float dy = position.y - playerPosition.y;
+        const float dz = position.z - playerPosition.z;
+        const float distanceSq = dx * dx + dy * dy + dz * dz;
+        Vector2 uv{};
+        if (distanceSq < nearestDistanceSq && TryConvertWorldToScreenUV(position, viewProjection, uv)) {
+            nearestDistanceSq = distanceSq;
+            nearestDrop = &drop;
+            labelUV = uv;
+        }
+    }
+    if (!nearestDrop) { return; }
+
+    // アトラスから弾種に合うラベルを選び、モデルの少し下に表示する。
+    const auto& style = kAmmoDropStyles[nearestDrop->styleIndex];
+    ammoDropLabel_->SetTextureLeftTop({ 64.0f * static_cast<float>(nearestDrop->styleIndex), 0.0f });
+    ammoDropLabel_->SetPosition({ labelUV.x * WinApp::kClientWidth,
+        labelUV.y * WinApp::kClientHeight + style.labelOffsetY });
+    ammoDropLabel_->Update();
+    ammoDropLabel_->Draw();
+}
+
 void GamePlayScene::DrawImGui()
 {
 #ifdef USE_IMGUI
     // ポーズ中にデバッグUIからカメラやゲームの状態を変更しない。
-    if (pause_.IsPaused()) { return; }
+    if (IsPaused()) { return; }
     if (!GetContext().camera) {
         return;
     }
@@ -2316,6 +2412,7 @@ void GamePlayScene::ResetMapObjects()
 
     // ステージ再読み込み時は発電機を未起動状態へ戻し、古い操作対象を解除する
     generators_.clear();
+    generatorReinforcementSpawns_.clear();
     interactingGeneratorIndex_ = -1;
     generatorUiIndex_ = -1;
     generatorCompleteNoticeSeconds_ = 0.0;
@@ -2330,6 +2427,14 @@ void GamePlayScene::CreateMapObject(const LevelObjectData& objectData,
     std::vector<MinimapObjectData>& minimapObjects)
 {
     // 初回の分割読み込みと、F5での再読み込みで同じ1個分の生成処理を使う。
+
+    // 発電機より先に並んでいるEmptyも、名前で紐づけて保持する。
+    if (objectData.objectKind == "generator_reinforcement") {
+        if (objectData.type == "EMPTY" && !objectData.targetGenerator.empty()) {
+            generatorReinforcementSpawns_[objectData.targetGenerator].push_back({ objectData.name, objectData.translation });
+        }
+        return;
+    }
 
     if (objectData.type != "MESH") {
         return;
@@ -2440,6 +2545,7 @@ void GamePlayScene::CreateMapObject(const LevelObjectData& objectData,
             // 実際に配置した発電機のBOXと、個別の起動状態を登録する
             if (objectData.objectKind == "generator") {
                 GeneratorData generator;
+                generator.name = objectData.name;
                 generator.collider = worldCollider;
                 generators_.push_back(std::move(generator));
             }
@@ -2490,16 +2596,21 @@ void GamePlayScene::CreateMapObjects(const std::vector<LevelObjectData>& allObje
     if (minimap_) { minimap_->SetObjectMarkers(markers); }
 }
 
+void GamePlayScene::ConfigureEnemyForLevel(Enemy& enemy)
+{
+    // 初期配置と増援で、敵の当たり判定と経路探索に同じデータを渡す。
+    enemy.SetBloodParticleSystem(bloodParticleSystem_.get());
+    enemy.SetMap(&mapField_, tileSize_);
+    enemy.SetFloorColliders(&floorColliders_);
+    enemy.SetWallColliders(&wallColliders_);
+    enemy.SetNavMesh(&navMeshData_);
+}
+
 void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
 {
-    // 敵の再生成時は近接攻撃とキル演出の状態を解除する
-    meleeTarget_ = nullptr;
-    meleeVictim_ = nullptr;
-    isMeleeAttacking_ = false;
-    meleeAttackTimer_ = 0;
-
     // レベルデータから敵を作り直す
     enemies_.clear();
+    ammoDrops_.clear(); // 別のレベルや再読み込みに回収前の弾薬を持ち越さない。
 
     // 敵オブジェクト名ごとに出現位置を保存する
     std::unordered_map<std::string, Vector3> enemySpawnMap;
@@ -2543,13 +2654,7 @@ void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
 
         auto enemy = std::make_unique<Enemy>();
         enemy->Initialize(GetContext().object3dCommon, GetContext().camera, spawnPosition);
-        enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
-
-        // 敵にもプレイヤーと同じマップとコライダー情報を渡す
-        enemy->SetMap(&mapField_, tileSize_);
-        enemy->SetFloorColliders(&floorColliders_);
-        enemy->SetWallColliders(&wallColliders_);
-        enemy->SetNavMesh(&navMeshData_);
+        ConfigureEnemyForLevel(*enemy);
 
         // 敵にNavMeshを渡して、壁を回り込めるようにする
         // 敵に渡す前にウェイポイントを番号順に並べる

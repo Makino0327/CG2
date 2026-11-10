@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <future>
+#include <unordered_map>
 
 #include "../engine/math/Math.h"
 #include "../BaseScene.h"
@@ -56,7 +57,7 @@ public:
     void DrawShadow() override; // 人や壁の形を、影用の深度画像へ描く。
     void DrawBloom() override;
     void DrawOverlay() override;
-    bool IsPaused() const override { return pause_.IsPaused(); }
+    bool IsPaused() const override { return briefingBeforeMission_ || pause_.IsPaused(); }
     // 展示を終了するときは読み込み画面へ切り替え、次のタイトルの描画設定を混ぜない。
     bool KeepDrawingWhileLoading() const override { return !gameOverDemo_ && player_ && player_->IsDead(); }
     // 確認用の起動では、開始演出の後に死亡から遷移までを自動再生する。
@@ -87,16 +88,29 @@ private:
     void InitializePauseUi();
     bool UpdatePauseMenu(float seconds);
     void UpdatePauseVisuals();
+    // 作戦前とポーズ中で同じガイドを使い、ボタンの文言と戻り先だけを切り替える。
+    void BeginControlsBriefing();
+    bool UpdateControlsBriefing(bool beforeMission);
+    void DrawControlsBriefing(bool beforeMission);
     PauseState pause_;
     int pauseSelection_ = 0;
-    std::array<float, 2> pauseSelectionAmounts_{};
+    std::array<float, 3> pauseSelectionAmounts_{};
     std::unique_ptr<Sprite> pauseDim_;
     std::unique_ptr<Sprite> pauseShade_;
     std::unique_ptr<Sprite> pausePanel_;
     std::unique_ptr<Sprite> pauseBlackout_;
-    std::array<std::unique_ptr<Sprite>, 3> pauseLabels_;
-    std::array<std::unique_ptr<Sprite>, 2> pauseRows_;
-    std::array<std::unique_ptr<Sprite>, 2> pauseMarkers_;
+    std::array<std::unique_ptr<Sprite>, 4> pauseLabels_;
+    std::array<std::unique_ptr<Sprite>, 3> pauseRows_;
+    std::array<std::unique_ptr<Sprite>, 3> pauseMarkers_;
+    enum class BriefingTransition { Opening, Open, Closing };
+    BriefingTransition briefingTransition_ = BriefingTransition::Opening;
+    int briefingTransitionFrame_ = 0;
+    bool briefingBeforeMission_ = false;
+    bool briefingInputReady_ = false; // ガイドを開いた入力を、次の画面の決定に使わない。
+    std::unique_ptr<Sprite> briefingDim_;
+    std::unique_ptr<Sprite> briefingPanel_;
+    std::unique_ptr<Sprite> briefingButton_;
+    std::unique_ptr<Sprite> briefingLine_;
 
     // 開始時に上下へ開くシャッターの位置を進め、HUDより手前に描く
     void UpdateIntroTransition();
@@ -111,6 +125,10 @@ private:
 
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
+    // 撃破された通常敵から弾薬を出し、接近したプレイヤーに渡す。
+    void UpdateAmmoDrops();
+    // 一番近い弾薬に種類を示すラベルを重ねる。
+    void DrawAmmoDropLabel();
     // ダメージが成立したときだけ、カメラ揺れと画面ノイズを発生させる。
     void ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower = 0.30f, int shakeFrames = 10);
 
@@ -121,7 +139,7 @@ private:
     // 敵同士の重なりを解消する
     void ResolveEnemyOverlap();
 
-    // ナイフモード中に近接攻撃できる敵を探し、左クリック入力と攻撃演出を処理する
+    // ナイフモード中の左クリックで、斬撃の演出と当たり判定を処理する。
     void UpdateMeleeAttack();
     // ナイフで切ったような斬撃エフェクトを出す
     void EmitMeleeSlashEffect(const Vector3& center, const Vector3& direction);
@@ -129,6 +147,8 @@ private:
     void CreateMapObjects(const std::vector<LevelObjectData>& allObjects);
     // レベルデータから敵を生成する
     void SpawnEnemies(const std::vector<LevelObjectData>& allObjects);
+    // 初期配置と増援に、同じ床・壁・NavMeshを設定する。
+    void ConfigureEnemyForLevel(Enemy& enemy);
     // レベルデータからボスを生成する
     void SpawnBosses(const std::vector<LevelObjectData>& allObjects);
     // レベルデータを読み直してゲーム内オブジェクトを再構築する
@@ -210,6 +230,31 @@ private:
     // 現在出現している敵
     std::vector<std::unique_ptr<Enemy>> enemies_;
 
+    // モデル、回収先、光の色を弾種ごとにまとめる。順番はラベル画像と揃える。
+    struct AmmoDropStyle {
+        const char* modelPath;
+        Player::AttackMode weapon;
+        int rounds;
+        Vector4 glowColor;
+        float glowSize;
+        float labelOffsetY;
+    };
+    static constexpr std::array<AmmoDropStyle, 3> kAmmoDropStyles{{
+        { "handgun_ammo/handgun_ammo.obj", Player::AttackMode::Gun, 7, { 1.0f, 0.70f, 0.22f, 0.13f }, 0.86f, 27.0f },
+        { "assault_rifle_ammo/assault_rifle_ammo.obj", Player::AttackMode::AssaultRifle, 15, { 0.22f, 0.76f, 1.0f, 0.15f }, 0.95f, 32.0f },
+        { "shotgun_ammo/shotgun_ammo.obj", Player::AttackMode::Shotgun, 3, { 1.0f, 0.25f, 0.15f, 0.17f }, 0.88f, 28.0f },
+    }};
+    // 弾薬は敵の死亡演出が終わった後も回収されるまで残る。
+    struct AmmoDrop {
+        std::unique_ptr<Object3d> object;
+        float groundY = 0.0f; // 浮遊アニメーションの基準になる床の高さ。
+        size_t styleIndex = 0;
+        int pickupDelay = 30; // 出現直後に重なっていても、少しの間は弾薬を表示する。
+        float hoverPhase = 0.0f; // 箱の向きを固定したまま上下させるための角度。
+    };
+    std::vector<AmmoDrop> ammoDrops_;
+    std::unique_ptr<Sprite> ammoDropLabel_;
+
     /// ボス
     // 現在出現しているボス
     std::vector<std::unique_ptr<Boss>> bosses_;
@@ -227,39 +272,16 @@ private:
     // プレイヤー周辺に敵を自動配置するときの半径
     float enemySpawnRadius_ = 8.0f;
 
-    // 現在近接攻撃の対象になっている敵
-    Enemy* meleeTarget_ = nullptr;
-
-    // 敵へ近接攻撃できる距離
-    float meleeAttackRange_ = 7.0f;
-
-    // 普通の近接攻撃が届く距離
+    // ナイフの斬撃が届く距離。
     float normalMeleeAttackRange_ = 3.6f;
-
-    // 近接キル演出中か
-    bool isMeleeAttacking_ = false;
-
-    // 近接キル演出の経過フレーム
-    int meleeAttackTimer_ = 0;
-
-    // 斬撃を当てるフレーム
-    int meleeAttackHitFrame_ = 6;
-
-    // 近接キル演出で倒す敵
-    Enemy* meleeVictim_ = nullptr;
-
-    // 演出開始前のプレイヤー位置
-    Vector3 meleeStartPosition_ = { 0.0f, 0.0f, 0.0f };
-
-    // 敵へ踏み込んだときのプレイヤー位置
-    Vector3 meleeStrikePosition_ = { 0.0f, 0.0f, 0.0f };
-
-
-    // 近接攻撃可能な敵の頭上に表示するマーク
-    std::unique_ptr<Sprite> meleeMarker_;
 
     // 左下に表示する残弾UI用の黄色い四角Sprite
     std::vector<std::unique_ptr<Sprite>> ammoSprites_;
+
+    // 選択中の武器名と、装填弾の横に出す予備弾数。
+    std::unique_ptr<Sprite> weaponNameSprite_;
+    std::unique_ptr<Sprite> reloadLabelSprite_;
+    std::array<std::unique_ptr<Sprite>, 12> reserveAmmoSprites_;
 
     // 残弾UIを見えやすくする黒い半透明の背景パネル用Sprite
     std::unique_ptr<Sprite> ammoBackgroundSprite_;
@@ -313,9 +335,19 @@ private:
 
     // 発電機ごとに当たり判定と起動状態を保存する
     struct GeneratorData {
+        std::string name;
         LevelColliderData collider{};
         GeneratorActivation activation;
+        float nextReinforcementCheck = 0.0f; // 次に出現地点を確認する起動進捗。
     };
+    // 発電機の名前ごとに、Blenderから読み込んだ出現地点を持つ。
+    struct ReinforcementSpawn {
+        std::string name;
+        Vector3 marker{};
+        bool processed = false;
+    };
+    void UpdateGeneratorReinforcements(GeneratorData& generator);
+    std::unordered_map<std::string, std::vector<ReinforcementSpawn>> generatorReinforcementSpawns_;
     std::vector<GeneratorData> generators_;
     int interactingGeneratorIndex_ = -1; // 現在起動中、または完了通知中の発電機
     int generatorUiIndex_ = -1; // 今フレームに操作案内を表示する発電機

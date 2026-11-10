@@ -3,6 +3,8 @@
 #include "ModelStructs.h"
 #include "ModelCommon.h"
 
+enum class LightingType;
+
 class Model
 {
 public:
@@ -23,6 +25,8 @@ public:
 	static ModelData LoadGltfFile(const std::string& directoryPath, const std::string& filename);
 
 	void SetTextureIndex(uint32_t index) { modelData_.material.textureIndex = index; }
+	// 読み込み済みモデルのマテリアルに、描画時のライティング方式を設定する。
+	void SetLightingType(LightingType lightingType);
 
 	// 読み込んだモデルデータを参照する
 	const ModelData& GetModelData() const { return modelData_; }

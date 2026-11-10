@@ -1668,6 +1668,190 @@
                     2.0
                 ]
             }
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_00",
+            "transform": {
+                "translation": [
+                    16.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_00"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_01",
+            "transform": {
+                "translation": [
+                    30.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_00"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_02",
+            "transform": {
+                "translation": [
+                    7.0,
+                    -26.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_00"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_03",
+            "transform": {
+                "translation": [
+                    7.0,
+                    -5.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_00"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_04",
+            "transform": {
+                "translation": [
+                    -8.0,
+                    21.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_01"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_05",
+            "transform": {
+                "translation": [
+                    -11.0,
+                    34.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_01"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_06",
+            "transform": {
+                "translation": [
+                    -26.0,
+                    14.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_01"
+        },
+        {
+            "type": "EMPTY",
+            "name": "ReinforcementSpawn_07",
+            "transform": {
+                "translation": [
+                    0.0,
+                    18.0,
+                    0.0
+                ],
+                "rotation": [
+                    0.0,
+                    -0.0,
+                    0.0
+                ],
+                "scaling": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "object_kind": "generator_reinforcement",
+            "target_generator": "Generator_01"
         }
     ],
     "nav_mesh": {

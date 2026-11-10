@@ -4,11 +4,12 @@
 // ポーズの演出中もゲームを止め、暗転が終わってからタイトルへ切り替える。
 class PauseState {
 public:
-    enum class Phase { Playing, Opening, Open, Closing, Returning, Finished };
+    enum class Phase { Playing, Opening, Open, Briefing, Closing, Returning, Finished };
     enum class Event { None, Resumed, ReturnToTitle };
 
     bool IsPaused() const { return phase_ != Phase::Playing; }
     bool CanSelect() const { return phase_ == Phase::Open; }
+    bool IsBriefingOpen() const { return phase_ == Phase::Briefing; }
     Phase GetPhase() const { return phase_; }
     float GetAmount() const { return amount_; }
     float GetReturnAmount() const { return returnAmount_; }
@@ -21,6 +22,13 @@ public:
     }
     void Resume() {
         if (phase_ == Phase::Opening || phase_ == Phase::Open) { phase_ = Phase::Closing; }
+    }
+    // 操作ガイドを閉じてもゲームは止めたまま、ポーズの選択画面へ戻す。
+    void OpenBriefing() {
+        if (phase_ == Phase::Open) { phase_ = Phase::Briefing; }
+    }
+    void CloseBriefing() {
+        if (phase_ == Phase::Briefing) { phase_ = Phase::Open; }
     }
     void ReturnToTitle() {
         if (phase_ == Phase::Open) { phase_ = Phase::Returning; returnAmount_ = 0.0f; }

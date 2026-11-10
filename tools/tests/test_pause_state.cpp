@@ -13,6 +13,14 @@ int main()
     assert(pause.GetAmount() > 0.49f && pause.GetAmount() < 0.51f);
     pause.Update(0.09f);
     assert(pause.CanSelect() && pause.GetAmount() == 1.0f);
+    // 操作ガイドは停止状態を保ち、閉じると同じポーズ画面へ戻る。
+    pause.OpenBriefing();
+    assert(pause.IsBriefingOpen() && pause.IsPaused() && !pause.CanSelect());
+    pause.Resume();
+    pause.ReturnToTitle();
+    assert(pause.Update(1.0f) == PauseState::Event::None && pause.IsBriefingOpen());
+    pause.CloseBriefing();
+    assert(pause.IsPaused() && pause.CanSelect() && pause.GetAmount() == 1.0f);
     // 閉じる演出中も敵や発電機を止め、再開の通知を一度だけ返す。
     pause.Resume();
     assert(pause.Update(0.09f) == PauseState::Event::None && pause.IsPaused());

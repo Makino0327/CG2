@@ -18,6 +18,7 @@ struct LevelObjectData {
     std::string fileName; // 表示に使うモデル名
     std::string objectKind; // Blender側で設定したゲーム用の種類
     std::string targetLevel; // テレポーターで移動する先のレベルJSON
+    std::string targetGenerator; // 増援地点に紐づく発電機の名前
     Vector3 translation; // 平行移動
     Vector3 rotation; // 回転
     Vector3 scaling; // 拡大縮小

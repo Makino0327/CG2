@@ -193,9 +193,9 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     // 再生成時はHPと死亡状態を初期値へ戻す
     hp_ = maxHp_;
     isDead_ = false;
+    deathDropConsumed_ = false;
 
     // 再生成時はプレイヤー発見状態も解除する
-    hasDetectedPlayer_ = false;
     isChasing_ = false;
     isTargetInSight_ = false;
     lastSeenPosition_ = position;
@@ -278,10 +278,6 @@ void Enemy::Update()
         lostSightLookTimer_ = 0;
         hearingTimer_ = 0;
         isInvestigatingSound_ = false;
-
-        // 一度発見したことを記録する
-        // このフラグは巡回へ戻っても解除しない
-        hasDetectedPlayer_ = true;
     } else if (isChasing_) {
         // 見失ったら現在位置は追わず、記憶した位置への経路を作り直す
         if (wasTargetInSight) {
@@ -521,6 +517,14 @@ Vector3 Enemy::GetWorldPosition() const
     return position_;
 }
 
+bool Enemy::ConsumeDeathDrop()
+{
+    // 生存中やドロップ済みの敵からは何も落とさない。
+    if (!isDead_ || deathDropConsumed_) { return false; }
+    deathDropConsumed_ = true;
+    return true;
+}
+
 void Enemy::OnHearSound(const Vector3& soundPosition)
 {
     // 死亡中は反応しない
@@ -658,21 +662,6 @@ void Enemy::OnExplosionHit()
     // 通常死亡と同じOBJ破片と血しぶき演出を開始する
     StartDeathEffect();
 }
-void Enemy::OnMeleeHit()
-{
-    // すでに死亡している敵には何もしない
-    if (isDead_) {
-        return;
-    }
-
-    // 近接攻撃は残りHPに関係なく即死させる
-    hp_ = 0;
-    isDead_ = true;
-
-    // 通常撃破と同じ血しぶきと破片を発生させる
-    StartDeathEffect();
-}
-
 void Enemy::OnMeleeDamage(const Vector3& hitPosition, const Vector3& hitDirection)
 {
     // すでに死亡している敵には何もしない
@@ -928,6 +917,26 @@ void Enemy::UpdateDeathFragments()
     if (deathEffectTimer_ >= kDeathEffectDuration) {
         isReadyToRemove_ = true;
     }
+}
+
+bool Enemy::TryGetReinforcementPosition(const Vector3& marker, Vector3& position) const
+{
+    // 床のない場所や、高さの違う床へ飛び移る配置は使わない。
+    constexpr float kMaxHeightFromFloor = 1.0f;
+    float groundY = 0.0f;
+    if (!GetGroundHeight(marker.x, marker.z, groundY) ||
+        std::abs(marker.y - groundY) > kMaxHeightFromFloor) {
+        return false;
+    }
+
+    // 敵の中心を床から半径分上げ、歩行範囲と体の大きさを確認する。
+    const Vector3 candidate{ marker.x, groundY + colliderRadius_, marker.z };
+    if (FindNavMeshTriangle(candidate) < 0 || IsPositionBlockedByWall(candidate)) {
+        return false;
+    }
+
+    position = candidate;
+    return true;
 }
 
 bool Enemy::GetGroundHeight(float x, float z, float& groundY) const

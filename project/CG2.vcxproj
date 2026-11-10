@@ -500,6 +500,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
   <ItemGroup>
     <None Include="Resources\shaders\CopyImage.hlsli" />
     <None Include="Resources\hud\pause_labels.png" />
+    <None Include="Resources\hud\controls_briefing.png" />
+    <None Include="Resources\hud\controls_briefing_buttons.png" />
     <None Include="Resources\hud\mission_start.png" />
     <None Include="Resources\hud\demo_status.png" />
     <None Include="Resources\shaders\Bloom.hlsli" />
@@ -516,10 +518,10 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <None Include="Resources\shaders\Skybox.hlsli" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <!-- ポーズの文字を、実行ファイル側にもコピーする。 -->
+  <!-- ポーズと作戦ブリーフィングの画像を、実行ファイル側にもコピーする。 -->
   <Target Name="CopyPauseUiTextures" AfterTargets="Build">
     <MakeDir Directories="$(OutDir)Resources\hud" />
-    <Copy SourceFiles="$(ProjectDir)Resources\hud\pause_labels.png"
+    <Copy SourceFiles="$(ProjectDir)Resources\hud\pause_labels.png;$(ProjectDir)Resources\hud\controls_briefing.png;$(ProjectDir)Resources\hud\controls_briefing_buttons.png"
           DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
   </Target>
   <ImportGroup Label="ExtensionTargets">

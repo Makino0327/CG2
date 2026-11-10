@@ -137,7 +137,8 @@ def normalize_existing_level_stage_objects(scene):
 
         # 編集対象になりうる既存オブジェクトだけMainStageへ移す
         object_kind = get_object_kind(object)
-        if object_kind not in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator", "door"}:
+        if object_kind not in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport",
+                               "generator", "generator_reinforcement", "door"}:
             continue
 
         if main_collection.objects.get(object.name) is None:
@@ -189,7 +190,11 @@ def sync_level_stage_visibility(scene):
 def on_edit_level_stage_changed(self, context):
 
     # UIで編集ステージを切り替えたら表示も切り替える
-    sync_level_stage_visibility(context.scene)
+    scene = context.scene
+    generator = scene.myaddon_reinforcement_generator
+    if generator is not None and not poll_reinforcement_generator(scene, generator):
+        scene.myaddon_reinforcement_generator = None
+    sync_level_stage_visibility(scene)
 
     if context.screen is not None:
         for area in context.screen.areas:
@@ -399,6 +404,16 @@ def is_generator_object(object):
     )
 
 
+def poll_reinforcement_generator(scene, object):
+    # 編集中のステージに所属する発電機を、出現地点の設定先に選べるようにする。
+    return (is_generator_object(object) and object.type == 'MESH' and scene.objects.get(object.name) == object
+            and get_object_level_stage(object) == scene.myaddon_edit_level_stage)
+
+
+def is_reinforcement_spawn(object):
+    return object is not None and object.get("object_kind", "") == "generator_reinforcement"
+
+
 def is_door_object(object):
 
     # 改名や複製をしても種類タグでドアを識別する
@@ -414,6 +429,9 @@ def get_object_kind(object):
     # ドアを床や壁の名前判定より先に識別する
     if is_door_object(object):
         return "door"
+
+    if is_reinforcement_spawn(object):
+        return "generator_reinforcement"
 
     # 発電機を床や壁の名前判定より先に識別する
     if is_generator_object(object):
@@ -506,6 +524,13 @@ def apply_editor_visuals(object):
         object.show_in_front = True
         object.color = (0.95, 0.65, 0.12, 1.0)
 
+    elif object_kind == "generator_reinforcement":
+        # 増援の出現地点は赤い矢印で示す。
+        object.show_in_front = True
+        object.empty_display_type = 'ARROWS'
+        object.empty_display_size = 1.0
+        object.color = (1.0, 0.26, 0.17, 1.0)
+
     elif object_kind == "door":
         # ソリッド表示でもドアを見分けられる灰色にする
         object.show_in_front = True
@@ -554,7 +579,8 @@ def sync_object_selection_filter(scene):
         refresh_object_kind_tag(object)
         object_kind = get_object_kind(object)
         is_nav_mesh_hidden = object_kind == "navmesh" and not scene.myaddon_show_nav_mesh
-        is_editable_object = object_kind in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport", "generator", "door"}
+        is_editable_object = object_kind in {"enemy", "wall", "floor", "player", "navmesh", "boss_teleport",
+                                             "generator", "generator_reinforcement", "door"}
 
         if is_nav_mesh_hidden:
             object.show_name = False
@@ -1638,11 +1664,44 @@ class MYADDON_OT_add_generator(bpy.types.Operator):
         # 既存ツールと同じステージ管理・選択フィルターへ組み込む
         move_object_to_level_stage(generator_object, context.scene, context.scene.myaddon_edit_level_stage)
         apply_editor_visuals(generator_object)
+        context.scene.myaddon_reinforcement_generator = generator_object
         context.scene.myaddon_edit_target = 'GENERATOR'
         sync_level_stage_visibility(context.scene)
         sync_object_selection_filter(context.scene)
         generator_object.select_set(True)
         context.view_layer.objects.active = generator_object
+        return {'FINISHED'}
+
+
+class MYADDON_OT_add_reinforcement_spawn(bpy.types.Operator):
+
+    bl_idname = "myaddon.add_reinforcement_spawn"
+    bl_label = "出現地点を追加"
+    bl_description = "選んだ発電機の増援地点を3Dカーソル位置へ追加します"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        return (context.mode == 'OBJECT' and scene is not None
+                and poll_reinforcement_generator(scene, scene.myaddon_reinforcement_generator))
+
+    def execute(self, context):
+        scene = context.scene
+        generator = scene.myaddon_reinforcement_generator
+        spawn_index = find_next_numbered_name(scene, "ReinforcementSpawn_")
+        marker = bpy.data.objects.new(f"ReinforcementSpawn_{spawn_index:02d}", None)
+        marker.location = scene.cursor.location.copy()
+        marker["object_kind"] = "generator_reinforcement"
+        # 発電機を改名しても紐づきが保たれ、発電機を動かしても出現地点はその場に残る。
+        marker["reinforcement_generator"] = generator
+        move_object_to_level_stage(marker, scene, get_object_level_stage(generator))
+        apply_editor_visuals(marker)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        scene.myaddon_edit_target = 'GENERATOR_REINFORCEMENT'
+        marker.select_set(True)
+        context.view_layer.objects.active = marker
         return {'FINISHED'}
 
 
@@ -1758,6 +1817,20 @@ def requires_file_name(object):
     return object_kind in {"wall", "floor", "player", "boss_teleport", "generator", "door"}
 
 
+def get_nav_mesh_triangles_xy(scene, stage):
+    # ゲームのNavMesh出力と同じ分割方法で、真上から見た三角形を作る。
+    triangles = []
+    for object in scene.objects:
+        if object.type != 'MESH' or not is_nav_mesh_object(object) or get_object_level_stage(object) != stage:
+            continue
+        points = [(object.matrix_world @ vertex.co).to_2d() for vertex in object.data.vertices]
+        for polygon in object.data.polygons:
+            indices = polygon.vertices
+            for index in range(1, len(indices) - 1):
+                triangles.append((points[indices[0]], points[indices[index]], points[indices[index + 1]]))
+    return triangles
+
+
 def validate_level_scene(scene, target_stage=None):
     # Export 前の検証結果を文字列リストで返す
     issues = []
@@ -1767,6 +1840,7 @@ def validate_level_scene(scene, target_stage=None):
         target_stage = scene.myaddon_edit_level_stage
     player_objects = []
     object_name_counts = {}
+    nav_mesh_by_stage = {}
 
     for object in scene.objects:
         # 検証対象ステージに入っていないオブジェクトは数えない
@@ -1793,6 +1867,22 @@ def validate_level_scene(scene, target_stage=None):
         # Player の存在確認用に保持する
         if object_kind == "player":
             player_objects.append(object)
+
+        if object_kind == "generator_reinforcement":
+            generator = object.get("reinforcement_generator")
+            stage = get_object_level_stage(object)
+            if (not isinstance(generator, bpy.types.Object) or generator.type != 'MESH' or not is_generator_object(generator)
+                    or scene.objects.get(generator.name) != generator or get_object_level_stage(generator) != stage):
+                issues.append(f"{object.name}: 同じステージの発電機を設定してください")
+            if object.type != 'EMPTY' or object.parent is not None:
+                issues.append(f"{object.name}: 出現地点はシーン直下のEmptyにしてください")
+            if stage not in nav_mesh_by_stage:
+                nav_mesh_by_stage[stage] = get_nav_mesh_triangles_xy(scene, stage)
+            # 出現地点のXYが歩行範囲外なら、配置を直せるよう書き出し前に知らせる。
+            point = object.matrix_world.translation.to_2d()
+            if not any(mathutils.geometry.intersect_point_tri_2d(point, *triangle)
+                       for triangle in nav_mesh_by_stage[stage]):
+                issues.append(f"{object.name}: 出現地点をNavMeshの上に置いてください")
 
         # 通常敵の本体には Waypoint が必要
         if is_enemy_root_object(object):
@@ -2064,6 +2154,10 @@ class MYADDON_OT_export_scene(
         # テレポーターが持つ移動先JSONを出力する
         if "target_level" in object:
             json_object["target_level"] = object["target_level"]
+
+        # 増援地点には、参照している発電機の書き出し時点の名前を出す。
+        if is_reinforcement_spawn(object):
+            json_object["target_generator"] = object["reinforcement_generator"].name
 
         # カスタムプロパティ「collider」
         if "collider" in object:
@@ -2603,6 +2697,17 @@ class VIEW3D_PT_grid_snap(bpy.types.Panel):
         layout.operator(MYADDON_OT_add_wall.bl_idname, text="Add Wall")
         # 発電機も既存の配置ボタンと同じ場所から追加する
         layout.operator(MYADDON_OT_add_generator.bl_idname, text="Add Generator")
+        reinforcement_box = layout.box()
+        reinforcement_box.label(text="発電機を起動したら出る敵")
+        reinforcement_box.prop(scene, "myaddon_reinforcement_generator", text="発電機")
+        generator = scene.myaddon_reinforcement_generator
+        if poll_reinforcement_generator(scene, generator):
+            count = sum(1 for object in scene.objects if is_reinforcement_spawn(object)
+                        and object.get("reinforcement_generator") == generator
+                        and get_object_level_stage(object) == scene.myaddon_edit_level_stage)
+            reinforcement_box.label(text=f"登録済みの出現地点: {count}")
+        reinforcement_box.operator(MYADDON_OT_add_reinforcement_spawn.bl_idname)
+        reinforcement_box.label(text="床の上、NavMeshの内側に配置")
         # ドアもモデルと当たり判定をまとめて追加する
         layout.operator(MYADDON_OT_add_door.bl_idname, text="Add Door")
         layout.operator(MYADDON_OT_add_boss_teleport.bl_idname, text="Add Boss Teleport")
@@ -3247,6 +3352,7 @@ classes = (
     MYADDON_OT_add_floor,
     MYADDON_OT_add_wall,
     MYADDON_OT_add_generator,
+    MYADDON_OT_add_reinforcement_spawn,
     MYADDON_OT_add_door,
     MYADDON_OT_add_boss_teleport,
     MYADDON_OT_validate_scene,
@@ -3407,6 +3513,13 @@ def register():
     )
 
 
+    # 現在のステージにある発電機を、台数に関係なく一覧から選択する。
+    bpy.types.Scene.myaddon_reinforcement_generator = bpy.props.PointerProperty(
+        name="発電機",
+        type=bpy.types.Object,
+        poll=poll_reinforcement_generator,
+    )
+
     # Edit target filter used to lock selection to one object kind.
     bpy.types.Scene.myaddon_edit_target = bpy.props.EnumProperty(
         name="Edit Target",
@@ -3421,6 +3534,7 @@ def register():
             ("BOSS_TELEPORT", "Boss Teleport", "Edit boss teleports"),
             ("GENERATOR", "Generator", "発電機だけを選択・編集します"),
             ("DOOR", "Door", "ドアだけを選択・編集します"),
+            ("GENERATOR_REINFORCEMENT", "増援の出現地点", "発電機の増援地点だけを選択・編集します"),
         ],
         default="ALL",
         update=on_edit_target_changed
@@ -3562,6 +3676,7 @@ def unregister():
         "myaddon_level_export_target",
         "myaddon_validation_status",
         "myaddon_validation_details",
+        "myaddon_reinforcement_generator",
         "myaddon_edit_target",
     ]
 

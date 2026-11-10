@@ -61,6 +61,24 @@ def run_checks():
     scene.myaddon_edit_target = 'GENERATOR'
     assert not generator.hide_select
 
+    # 発電機ごとに複数の増援地点を置け、対象の改名や移動で位置や紐づきが変わらない。
+    main_spawns = []
+    for target, position in ((generator, (17, 17, 0)), (generator, (17, -17, 0)), (second, (-17, -17, 0))):
+        scene.myaddon_reinforcement_generator = target
+        scene.cursor.location = position
+        assert bpy.ops.myaddon.add_reinforcement_spawn() == {'FINISHED'}
+        marker = bpy.context.active_object
+        assert addon.get_object_kind(marker) == 'generator_reinforcement'
+        assert marker.type == 'EMPTY' and marker.parent is None
+        assert marker['reinforcement_generator'] == target
+        assert tuple(marker.location) == position
+        main_spawns.append(marker)
+    generator.name = 'PowerUnit_Renamed'
+    generator.location.x += 1
+    assert tuple(main_spawns[0].location) == (17, 17, 0)
+    assert main_spawns[0]['reinforcement_generator'].name == generator.name
+    generator.location.x -= 1
+
     # NavMeshが発電機を障害物として避けることを確認する
     assert bpy.ops.myaddon.generate_nav_mesh() == {'FINISHED'}
     for obj in scene.objects:
@@ -69,8 +87,17 @@ def run_checks():
                 center = obj.matrix_world @ face.center
                 assert not (2.0 < center.x < 6.0 and 4.6 < center.y < 7.4)
 
+    # 歩行範囲外の地点を、JSONへ書き出す前に検出する。
+    main_spawns[0].location.x = 1000
+    bpy.context.view_layer.update()
+    assert any('NavMesh' in issue and main_spawns[0].name in issue
+               for issue in addon.validate_level_scene(scene, 'MAIN'))
+    main_spawns[0].location.x = 17
+    bpy.context.view_layer.update()
+
     # Bossへも追加し、ステージごとのJSONに混ざらず出力されることを確認する
     scene.myaddon_edit_level_stage = 'BOSS'
+    assert scene.myaddon_reinforcement_generator is None
     scene.myaddon_edit_target = 'ALL'
     scene.cursor.location = (0, 0, 0)
     addon.ensure_boss_stage_basics(scene)
@@ -78,6 +105,14 @@ def run_checks():
     boss_generator = bpy.context.active_object
     assert addon.get_object_level_stage(boss_generator) == 'BOSS'
     assert boss_generator.rotation_euler.to_matrix().is_identity
+    assert bpy.ops.myaddon.add_nav_mesh() == {'FINISHED'}
+    bpy.context.active_object.location = (10, 10, 0.05)
+    scene.cursor.location = (10, 10, 0)
+    assert bpy.ops.myaddon.add_reinforcement_spawn() == {'FINISHED'}
+    boss_spawn = bpy.context.active_object
+    assert addon.get_object_level_stage(boss_spawn) == 'BOSS'
+    assert boss_spawn['reinforcement_generator'] == boss_generator
+    bpy.context.view_layer.update()
     output = root / 'generated/validation/generator'
     output.mkdir(parents=True, exist_ok=True)
     for stage in ('MAIN', 'BOSS'):
@@ -88,7 +123,14 @@ def run_checks():
             assert bpy.ops.myaddon.myaddon_ot_export_scene(filepath=str(path), stage_target=stage) == {'FINISHED'}
         data = json.loads(path.read_text(encoding='utf-8'))
         generators = [obj for obj in data['objects'] if obj.get('object_kind') == 'generator']
+        spawns = [obj for obj in data['objects'] if obj.get('object_kind') == 'generator_reinforcement']
         assert len(generators) == (3 if stage == 'MAIN' else 1)
+        expected_spawns = main_spawns if stage == 'MAIN' else [boss_spawn]
+        assert len(spawns) == len(expected_spawns)
+        assert {obj['name']: obj['target_generator'] for obj in spawns} == {
+            marker.name: marker['reinforcement_generator'].name for marker in expected_spawns
+        }
+        assert all(obj['type'] == 'EMPTY' and 'file_name' not in obj and 'collider' not in obj for obj in spawns)
         for obj in generators:
             assert obj['file_name'] == 'generator/generator.obj'
             assert obj['collider']['type'] == 'BOX'
@@ -102,8 +144,11 @@ def run_checks():
     del boss_generator['collider']
     assert any(boss_generator.name in issue for issue in addon.validate_level_scene(scene, 'BOSS'))
     boss_generator['collider'] = 'BOX'
+    boss_spawn['reinforcement_generator'] = second
+    assert any(boss_spawn.name in issue for issue in addon.validate_level_scene(scene, 'BOSS'))
+    boss_spawn['reinforcement_generator'] = boss_generator
     addon.unregister()
-    print('PASS: placement, model, duplication, filters, navigation, validation, MAIN/BOSS JSON export')
+    print('PASS: generator placement, reinforcement links, navigation validation, MAIN/BOSS JSON export')
 
     # 必要な場合だけ仮モデルのプレビューをレンダリングする
     if '--render' in sys.argv:

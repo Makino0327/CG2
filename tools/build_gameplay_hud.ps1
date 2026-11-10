@@ -63,6 +63,16 @@ try {
         }
     }
 
+    # 残弾HUDの武器名は弾種順に並べ、最後の行にリロード中の表示を置く。
+    Save-HudImage 'weapon_labels.png' 384 192 {
+        param($graphics)
+        $labels = @('ハンドガン', 'アサルトライフル', 'ショットガン')
+        for ($row = 0; $row -lt $labels.Count; $row++) {
+            Draw-HudText $graphics $labels[$row] 34 4 ($row * 48) 48 ([Drawing.Color]::White) $true
+        }
+        Draw-HudText $graphics 'リロード中' 34 4 144 48 ([Drawing.Color]::White) $true 184
+    }
+
     # 操作説明も2倍解像度で作り、半透明の背景で明るい床の上でも読めるようにする
     Save-HudImage 'controls_guide.png' 648 512 {
         param($graphics)

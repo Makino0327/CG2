@@ -543,6 +543,12 @@ void Model::Initialize(ModelCommon* modelCommon,
 
 }
 
+void Model::SetLightingType(LightingType lightingType)
+{
+	// 描画時に使うモデル側の定数バッファへ反映する。
+	materialData_->lightingType = static_cast<int>(lightingType);
+}
+
 void Model::Draw(const Vector4& color)
 {
 	ID3D12GraphicsCommandList* commandList = modelCommon_->GetDxCommon()->GetCommandList();

@@ -1,0 +1,4 @@
+# 比較画像を共通の印刷用テクスチャとして使う。
+newmtl PrintedAmmoCarton
+Kd 1.0 1.0 1.0
+map_Kd ../handgun_ammo/handgun_ammo.png

@@ -1,0 +1,4 @@
+# 赤い散弾とSGの印刷を弾薬箱に貼る。
+newmtl PrintedAmmoCarton
+Kd 1.0 1.0 1.0
+map_Kd shotgun_ammo.png

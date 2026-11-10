@@ -45,5 +45,37 @@ int main() {
     blocked.SetWallColliders(&walls);
     blocked.OnHearGenerator(center, size, {});
     assert(!blocked.GetGeneratorDestination(retainedGoal));
-    std::cout << "PASS: actual enemy sound targeting, persistent destination, spacing, gunshot priority, blocked route\n";
+
+    // 増援は床とNavMeshが重なり、壁に触れない地点だけに出現する。
+    walls.pop_back();
+    LevelNavMeshData mesh;
+    mesh.vertices = { {-12, 0, -8}, {-12, 0, 8}, {12, 0, -8}, {12, 0, 8},
+        {16, 0, -4}, {16, 0, 4}, {24, 0, -4}, {24, 0, 4} };
+    mesh.triangles = { {0, 1, 2}, {2, 1, 3}, {4, 5, 6}, {6, 5, 7} };
+    mesh.BuildLinks();
+    Enemy reinforcement;
+    reinforcement.SetFloorColliders(&floors);
+    reinforcement.SetWallColliders(&walls);
+    Vector3 spawn;
+    assert(!reinforcement.TryGetReinforcementPosition({-8, 0, 0}, spawn));
+    reinforcement.SetNavMesh(&mesh);
+    assert(!reinforcement.TryGetReinforcementPosition({40, 0, 0}, spawn));
+    assert(!reinforcement.TryGetReinforcementPosition({-8, 3, 0}, spawn));
+    assert(!reinforcement.TryGetReinforcementPosition({8, 0, 0}, spawn));
+    assert(reinforcement.TryGetReinforcementPosition({-8, 0, 0}, spawn));
+    assert(spawn.x == -8 && spawn.y == reinforcement.GetCollider().radius && spawn.z == 0);
+    reinforcement.SetPosition(spawn);
+    reinforcement.OnHearGenerator(center, size, {});
+    assert(reinforcement.GetGeneratorDestination(retainedGoal));
+
+    // NavMeshの島に出現できても、発電機まで接続されていなければ増援には使わない。
+    Enemy isolated;
+    isolated.SetFloorColliders(&floors);
+    isolated.SetWallColliders(&walls);
+    isolated.SetNavMesh(&mesh);
+    assert(isolated.TryGetReinforcementPosition({20, 0, 0}, spawn));
+    isolated.SetPosition(spawn);
+    isolated.OnHearGenerator(center, size, {});
+    assert(!isolated.GetGeneratorDestination(retainedGoal));
+    std::cout << "PASS: enemy generator targeting, spacing, reinforcement placement and disconnected route checks\n";
 }

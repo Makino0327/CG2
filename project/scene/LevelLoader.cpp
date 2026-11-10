@@ -117,6 +117,11 @@ static LevelObjectData ParseObject(const json& objectJson) {
         objectData.targetLevel = objectJson["target_level"].get<std::string>();
     }
 
+    // Blenderで増援地点に設定した発電機の名前を読む。
+    if (objectJson.contains("target_generator")) {
+        objectData.targetGenerator = objectJson["target_generator"].get<std::string>();
+    }
+
     const json& transform = objectJson["transform"];
 
     // Blender座標系からゲーム座標系へ変換して位置を入れる

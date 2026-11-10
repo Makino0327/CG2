@@ -224,6 +224,26 @@ int Player::GetCurrentMaxAmmo() const
     return GetMaxAmmoForCurrentWeapon();
 }
 
+void Player::AddReserveAmmo(AttackMode weapon, int rounds)
+{
+    // 装備中の武器に関係なく、拾った弾に対応する予備弾を増やす。
+    if (weapon == AttackMode::Gun) {
+        handgunReserveAmmo_ += rounds;
+    } else if (weapon == AttackMode::AssaultRifle) {
+        assaultRifleReserveAmmo_ += rounds;
+    } else if (weapon == AttackMode::Shotgun) {
+        shotgunReserveAmmo_ += rounds;
+    }
+}
+
+int Player::GetCurrentReserveAmmo() const
+{
+    if (selectedGunMode_ == AttackMode::Gun) { return handgunReserveAmmo_; }
+    if (selectedGunMode_ == AttackMode::AssaultRifle) { return assaultRifleReserveAmmo_; }
+    if (selectedGunMode_ == AttackMode::Shotgun) { return shotgunReserveAmmo_; }
+    return -1;
+}
+
 int Player::GetMaxAmmoForCurrentWeapon() const
 {
     // 選択中の銃に応じて最大弾数を返す
@@ -266,6 +286,11 @@ void Player::StartReload()
         return;
     }
 
+    // 予備弾が尽きるとリロードを開始できない。
+    if (GetCurrentReserveAmmo() == 0) {
+        return;
+    }
+
     isReloading_ = true;
     reloadTimer_ = GetReloadDurationForCurrentWeapon();
 }
@@ -284,14 +309,21 @@ void Player::UpdateReload()
         return;
     }
 
-    // リロード完了時に選択中の銃だけ満タンにする
+    // リロードが完了してから選択中の銃に弾を装填する。
     isReloading_ = false;
-    if (selectedGunMode_ == AttackMode::AssaultRifle) {
-        assaultRifleAmmo_ = assaultRifleMaxAmmo_;
+    // どの銃も、弾倉の空きと予備弾の少ない方だけを装填する。
+    const int maxAmmo = GetMaxAmmoForCurrentWeapon();
+    const auto reloadMagazine = [maxAmmo](int& magazine, int& reserve) {
+        const int rounds = std::min(maxAmmo - magazine, reserve);
+        magazine += rounds;
+        reserve -= rounds;
+    };
+    if (selectedGunMode_ == AttackMode::Gun) {
+        reloadMagazine(handgunAmmo_, handgunReserveAmmo_);
+    } else if (selectedGunMode_ == AttackMode::AssaultRifle) {
+        reloadMagazine(assaultRifleAmmo_, assaultRifleReserveAmmo_);
     } else if (selectedGunMode_ == AttackMode::Shotgun) {
-        shotgunAmmo_ = shotgunMaxAmmo_;
-    } else if (selectedGunMode_ == AttackMode::Gun) {
-        handgunAmmo_ = handgunMaxAmmo_;
+        reloadMagazine(shotgunAmmo_, shotgunReserveAmmo_);
     }
 }
 

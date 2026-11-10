@@ -58,6 +58,9 @@ public:
     // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
 
+    // 撃破後の最初の呼び出しだけドロップを許可する。
+    bool ConsumeDeathDrop();
+
     // 死亡演出が終わり、敵を配列から削除してよいか返す
     bool IsReadyToRemove() const { return isReadyToRemove_; }
 
@@ -86,13 +89,7 @@ public:
     void SetMap(const MapChipField* mapField, float tileSize);
     bool IsTargetInSight() const { return isTargetInSight_; }
 
-    // 一度でもプレイヤーを発見したかを返す
-    bool HasDetectedPlayer() const { return hasDetectedPlayer_; }
-
-    // 近接攻撃によって敵を即死させる
-    void OnMeleeHit();
-
-    // 通常近接攻撃で敵に1ダメージを与える
+    // ナイフで敵に1ダメージを与える。
     void OnMeleeDamage(const Vector3& hitPosition, const Vector3& hitDirection);
 
     void AppendVisionDebugLines(DebugLine3D& debugLine) const;
@@ -108,6 +105,9 @@ public:
 
     // シーン側で接続情報まで構築したNavMeshを、読み取り専用で共有する。
     void SetNavMesh(const LevelNavMeshData* navMesh);
+
+    // 配置用Emptyの足元から、床・壁・NavMeshを確認して敵の中心座標を求める。
+    bool TryGetReinforcementPosition(const Vector3& marker, Vector3& position) const;
 
     // デバッグカメラ用に描画だけ更新する
     void UpdateRenderOnly();
@@ -188,6 +188,7 @@ private:
 
     // 撃破フラグ
     bool isDead_ = false;
+    bool deathDropConsumed_ = false; // 死亡演出中に同じ敵から二重に落とさない。
 
     // 敵の現在HP
     int hp_ = 3;
@@ -247,10 +248,6 @@ private:
 
     // 視認できたフレームだけ更新する、最後に見たプレイヤーの位置
     Vector3 lastSeenPosition_ = { 0.0f, 0.0f, 0.0f };
-
-    // 一度でもプレイヤーを発見したか
-    // 追跡をやめて巡回へ戻っても解除しない
-    bool hasDetectedPlayer_ = false;
 
     // 追跡終了後にNavMeshで巡回地点へ戻っているか
     bool isReturningToPatrol_ = false;

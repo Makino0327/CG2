@@ -44,6 +44,14 @@ void GamePlayScene::BeginInitialize()
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("bullet/bullet.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("grenade/grenade.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("enemy/enemy.obj"); });
+    for (const auto& style : kAmmoDropStyles) {
+        loadQueue_.Add([modelPath = style.modelPath] {
+            // 弾薬を先に読み込み、暗い床の上でもモデルに付けた色で表示する。
+            auto* models = ModelManager::GetInstance();
+            models->LoadModel(modelPath);
+            models->FindModel(modelPath)->SetLightingType(LightingType::None);
+        });
+    }
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("boss/boss.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("block/block.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("casing/casing.obj"); });
@@ -82,27 +90,12 @@ void GamePlayScene::BeginInitialize()
         InitializePauseUi();
     });
     loadQueue_.Add([this] {
-        // 近接攻撃可能な敵の頭上へ表示するマークを作る
-        meleeMarker_ = std::make_unique<Sprite>();
-        meleeMarker_->Initialize(
-            GetContext().spriteCommon,
-            directionalLightResource_.Get(),
-            "Resources/circle2.png");
-    });
-    loadQueue_.Add([this] {
         // ミニマップを初期化する
         minimap_ = std::make_unique<Minimap>();
         minimap_->Initialize(
             GetContext().spriteCommon,
             directionalLightResource_.Get(),
             "Resources/level/minimap.json");
-    });
-    loadQueue_.Add([this] {
-        // マークの中心が敵の頭上に合うように設定する
-        meleeMarker_->SetAnchorPoint({ 0.5f, 0.5f });
-        meleeMarker_->SetSize({ 42.0f, 42.0f });
-        meleeMarker_->SetColor({ 1.0f, 0.85f, 0.1f, 1.0f });
-        meleeMarker_->Update();
     });
     loadQueue_.Add([this] {
         // 残弾UI用に最大30個分の黄色い四角Spriteを作っておく
@@ -131,6 +124,43 @@ void GamePlayScene::BeginInitialize()
         ammoBackgroundSprite_->SetAnchorPoint({ 0.0f, 0.0f });
         ammoBackgroundSprite_->SetColor({ 0.0f, 0.0f, 0.0f, 0.35f });
         ammoBackgroundSprite_->Update();
+        // 銃の名前は、残弾の上に出す文字画像から1行ずつ切り替える。
+        constexpr const char* kWeaponLabelsTexture = "Resources/hud/weapon_labels.png";
+        weaponNameSprite_ = std::make_unique<Sprite>();
+        weaponNameSprite_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(),
+            kWeaponLabelsTexture);
+        weaponNameSprite_->SetTextureSize({ 384.0f, 48.0f });
+        weaponNameSprite_->SetSize({ 192.0f, 24.0f });
+
+        // 同じ画像の4行目を「リロード中」として右寄せで表示する。
+        reloadLabelSprite_ = std::make_unique<Sprite>();
+        reloadLabelSprite_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(),
+            kWeaponLabelsTexture);
+        const float labelHeight = weaponNameSprite_->GetTextureSize().y;
+        reloadLabelSprite_->SetTextureLeftTop({ 0.0f, labelHeight * 3.0f });
+        reloadLabelSprite_->SetTextureSize({ 192.0f, labelHeight });
+        reloadLabelSprite_->SetSize({ 96.0f, weaponNameSprite_->GetSize().y });
+        reloadLabelSprite_->SetAnchorPoint({ 1.0f, 0.0f });
+        reloadLabelSprite_->SetColor({ 1.0f, 0.80f, 0.40f, 1.0f });
+    });
+    loadQueue_.Add([this] {
+        // 目的表示と同じ数字画像を、予備弾数にも使う。
+        for (auto& glyph : reserveAmmoSprites_) {
+            glyph = std::make_unique<Sprite>();
+            glyph->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(),
+                "Resources/hud/count_glyphs.png");
+            glyph->SetTextureSize({ 32.0f, 64.0f });
+            glyph->SetSize({ 14.0f, 28.0f });
+        }
+    });
+    loadQueue_.Add([this] {
+        // 近くの弾薬に表示する短いラベルは、1枚の画像から切り替える。
+        ammoDropLabel_ = std::make_unique<Sprite>();
+        ammoDropLabel_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(),
+            "Resources/hud/ammo_drop_labels.png");
+        ammoDropLabel_->SetTextureSize({ 64.0f, 32.0f });
+        ammoDropLabel_->SetSize({ 34.0f, 17.0f });
+        ammoDropLabel_->SetAnchorPoint({ 0.5f, 0.0f });
     });
     loadQueue_.Add([this] {
         // 発射演出用のSpriteを作っておく(中心を基準に動かす)
@@ -347,6 +377,9 @@ void GamePlayScene::OnActivated(float transitionFrame)
     GetContext().camera->Update();
     missionStartFrame_ = 0;
     missionStartActive_ = true;
+    // 通常の作戦だけは確認を待つ。自動デモと死亡演出の確認起動は従来どおり進める。
+    briefingBeforeMission_ = !gameOverDemo_ && deathPreviewFrames_ < 0;
+    if (briefingBeforeMission_) { BeginControlsBriefing(); }
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);
@@ -389,11 +422,7 @@ void GamePlayScene::QueueInitialLevelObjects()
         loadQueue_.Add([this, position, waypoints = std::move(waypoints)] {
             auto enemy = std::make_unique<Enemy>();
             enemy->Initialize(GetContext().object3dCommon, GetContext().camera, position);
-            enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
-            enemy->SetMap(&mapField_, tileSize_);
-            enemy->SetFloorColliders(&floorColliders_);
-            enemy->SetWallColliders(&wallColliders_);
-            enemy->SetNavMesh(&navMeshData_);
+            ConfigureEnemyForLevel(*enemy);
             enemy->SetWaypoints(waypoints);
             enemies_.push_back(std::move(enemy));
         });

@@ -126,6 +126,11 @@ public:
     // 現在の武器の最大弾数を返す
     int GetCurrentMaxAmmo() const;
 
+    // 拾った弾を種類ごとの予備弾に追加する。
+    void AddReserveAmmo(AttackMode weapon, int rounds);
+    // 選択中の銃の予備弾数を返す。銃以外は -1 を返す。
+    int GetCurrentReserveAmmo() const;
+
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
 
@@ -320,8 +325,8 @@ private:
 
     // アサルトライフルの連射ごとに増えるばらけ角度
     float assaultSpreadIncrease_ = 0.008f;
-    // ハンドガンの最大弾数
-    int handgunMaxAmmo_ = 10;
+    // ハンドガンの弾倉に入る最大弾数。
+    int handgunMaxAmmo_ = 7;
 
     // アサルトライフルの最大弾数
     int assaultRifleMaxAmmo_ = 30;
@@ -329,14 +334,23 @@ private:
     // ショットガンの最大弾数
     int shotgunMaxAmmo_ = 6;
 
-    // ハンドガンの現在弾数
-    int handgunAmmo_ = 10;
+    // ハンドガンは満タンで開始する。
+    int handgunAmmo_ = handgunMaxAmmo_;
 
-    // アサルトライフルの現在弾数
-    int assaultRifleAmmo_ = 30;
+    // ハンドガンは予備弾10発を持って開始する。
+    int handgunReserveAmmo_ = 10;
 
-    // ショットガンの現在弾数
-    int shotgunAmmo_ = 6;
+    // アサルトライフルは空の弾倉で開始する。
+    int assaultRifleAmmo_ = 0;
+
+    // アサルトライフルの予備弾は、弾薬を拾うまで0発。
+    int assaultRifleReserveAmmo_ = 0;
+
+    // ショットガンは空の弾倉で開始する。
+    int shotgunAmmo_ = 0;
+
+    // ショットガンの予備弾は、弾薬を拾うまで0発。
+    int shotgunReserveAmmo_ = 0;
 
     // ハンドガンのリロード時間
     int handgunReloadDuration_ = 70;
