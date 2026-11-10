@@ -17,6 +17,8 @@ PixelShaderOutput main(VertexShaderOutput input)
 {
     PixelShaderOutput output;
     float4 textureColor = gTexture.Sample(gSampler, input.texcoord);
+    // 背景の空も暗くして、弾の光との明暗差を付ける
     output.color = textureColor * color;
+    output.color.rgb *= 0.30f;
     return output;
 }

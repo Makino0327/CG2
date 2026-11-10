@@ -1128,95 +1128,96 @@ bool Enemy::FindNavMeshPath(int startTriangle, int goalTriangle, std::vector<int
 
 Vector3 Enemy::CalculateNavMeshChaseDirection(const Vector3& chaseTarget)
 {
-    // NavMeshがない場合は、今までの壁回避追跡を使う
-    if (!navMesh_ || navMesh_->triangles.empty() || navMesh_->neighbors.empty()) {
-        return CalculateChaseDirection(chaseTarget);
-    }
+    Vector3 routeTarget = chaseTarget;
 
-    const int startTriangle = FindNavMeshTriangle(position_);
-    const int goalTriangle = FindNavMeshTriangle(chaseTarget);
-    if (startTriangle < 0 || goalTriangle < 0) {
-        return CalculateChaseDirection(chaseTarget);
-    }
+    // 壁を横切らずに移動できる場合だけ、目標へ直接向かう
+    bool hasRouteTarget = !IsSegmentBlockedByWall(position_, chaseTarget, nullptr);
 
-    // 経路を頻繁に作り直すと三角形をまたぐたびに目標が跳ねるので、少し長めに保持する
-    if (navMeshPathRefreshTimer_ <= 0 || navMeshPath_.empty() || navMeshPath_.back() != goalTriangle) {
-        FindNavMeshPath(startTriangle, goalTriangle, navMeshPath_);
-        navMeshPathRefreshTimer_ = 30;
-    } else {
-        navMeshPathRefreshTimer_--;
-    }
+    if (!hasRouteTarget && navMesh_ && !navMesh_->triangles.empty() &&
+        !navMesh_->neighbors.empty()) {
+        const int startTriangle = FindNavMeshTriangle(position_);
+        const int goalTriangle = FindNavMeshTriangle(chaseTarget);
 
-    if (navMeshPath_.empty()) {
-        return CalculateChaseDirection(chaseTarget);
-    }
+        if (startTriangle >= 0 && goalTriangle >= 0) {
+            auto current = std::find(navMeshPath_.begin(), navMeshPath_.end(), startTriangle);
+            if (navMeshPathRefreshTimer_ > 0) {
+                --navMeshPathRefreshTimer_;
+            }
 
-    // 近すぎる三角形中心を追うと左右に振れやすいので、少し先の三角形を目標にする
-    int targetPathIndex = 0;
-    for (int index = 0; index < static_cast<int>(navMeshPath_.size()); ++index) {
-        if (navMeshPath_[index] == startTriangle) {
-            targetPathIndex = index;
-            const float lookAheadDistance = 4.5f;
-            float pathDistance = 0.0f;
-            Vector3 previousCenter = GetNavMeshTriangleCenter(navMeshPath_[index]);
+            // 経路から外れた場合や目標の三角形が変わった場合は、待たずに更新する
+            if (navMeshPathRefreshTimer_ <= 0 || navMeshPath_.empty() ||
+                current == navMeshPath_.end() || navMeshPath_.back() != goalTriangle) {
+                FindNavMeshPath(startTriangle, goalTriangle, navMeshPath_);
+                navMeshPathRefreshTimer_ = 10;
+                current = std::find(navMeshPath_.begin(), navMeshPath_.end(), startTriangle);
+            }
 
-            for (int aheadIndex = index + 1; aheadIndex < static_cast<int>(navMeshPath_.size()); ++aheadIndex) {
-                const Vector3 nextCenter = GetNavMeshTriangleCenter(navMeshPath_[aheadIndex]);
-                pathDistance += std::sqrt(GetDistanceSqXZ(previousCenter, nextCenter));
-                targetPathIndex = aheadIndex;
-                previousCenter = nextCenter;
+            if (current != navMeshPath_.end()) {
+                const int currentIndex = static_cast<int>(current - navMeshPath_.begin());
 
-                if (pathDistance >= lookAheadDistance) {
-                    break;
+                // 遮蔽物を横切らずに向かえる経路点だけを先読みする
+                for (int index = currentIndex + 1;
+                    index < static_cast<int>(navMeshPath_.size()); ++index) {
+                    const Vector3 candidate = GetNavMeshTriangleCenter(navMeshPath_[index]);
+                    if (IsSegmentBlockedByWall(position_, candidate, nullptr)) {
+                        break;
+                    }
+                    routeTarget = candidate;
+                    hasRouteTarget = true;
+                    if (GetDistanceSqXZ(position_, candidate) >= 4.5f * 4.5f) {
+                        break;
+                    }
                 }
             }
-            break;
         }
     }
 
-    Vector3 routeTarget = GetNavMeshTriangleCenter(navMeshPath_[targetPathIndex]);
-    if (startTriangle == goalTriangle || targetPathIndex == static_cast<int>(navMeshPath_.size()) - 1) {
-        routeTarget = chaseTarget;
+    Vector3 desiredDirection = { 0.0f, 0.0f, 0.0f };
+    if (hasRouteTarget) {
+        const Vector3 toRouteTarget = {
+            routeTarget.x - position_.x, 0.0f, routeTarget.z - position_.z
+        };
+        if (DotVector3(toRouteTarget, toRouteTarget) > 0.0001f) {
+            desiredDirection = Normalize(toRouteTarget);
+        }
+    } else {
+        // 経路が使えない場所でも、壁の角を回り込む処理へ切り替える
+        desiredDirection = CalculateChaseDirection(chaseTarget);
     }
 
-    Vector3 toRouteTarget = {
-        routeTarget.x - position_.x,
-        0.0f,
-        routeTarget.z - position_.z
-    };
-
-    const float distanceSq = toRouteTarget.x * toRouteTarget.x + toRouteTarget.z * toRouteTarget.z;
-    if (distanceSq <= 0.0001f) {
-        return { 0.0f, 0.0f, 0.0f };
+    // 移動できない場合は、以前の向きへ歩き続けずに停止する
+    if (DotVector3(desiredDirection, desiredDirection) <= 0.0001f) {
+        navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        return navMeshSmoothedDirection_;
     }
 
-    const Vector3 desiredDirection = Normalize(toRouteTarget);
+    Vector3 result = desiredDirection;
+    if (DotVector3(navMeshSmoothedDirection_, navMeshSmoothedDirection_) > 0.0001f) {
+        // 角度で補間し、正反対へ曲がる場合も古い方向が残り続けないようにする
+        const float currentYaw = std::atan2(navMeshSmoothedDirection_.x, navMeshSmoothedDirection_.z);
+        const float targetYaw = std::atan2(desiredDirection.x, desiredDirection.z);
+        const float nextYaw = ApproachAngle(currentYaw, targetYaw, 0.14f, 0.002f);
+        result = { std::sin(nextYaw), 0.0f, std::cos(nextYaw) };
 
-    // 進行方向を少しずつ混ぜて、左右に急反転する動きを抑える
-    const bool hasSmoothDirection =
-        std::fabs(navMeshSmoothedDirection_.x) > 0.001f ||
-        std::fabs(navMeshSmoothedDirection_.z) > 0.001f;
-
-    if (!hasSmoothDirection) {
-        navMeshSmoothedDirection_ = desiredDirection;
-        return desiredDirection;
+        // 補間した方向が壁へ向かう場合は、衝突する前に目標方向へ切り替える
+        Vector3 probePosition = position_;
+        probePosition.x += result.x * 0.6f;
+        probePosition.z += result.z * 0.6f;
+        if (IsSegmentBlockedByWall(position_, probePosition, nullptr) ||
+            IsPositionBlockedByWall(probePosition)) {
+            result = desiredDirection;
+        }
     }
 
-    const float oldDirectionRate = 0.88f;
-    const float newDirectionRate = 1.0f - oldDirectionRate;
-    Vector3 mixedDirection = {
-        navMeshSmoothedDirection_.x * oldDirectionRate + desiredDirection.x * newDirectionRate,
-        0.0f,
-        navMeshSmoothedDirection_.z * oldDirectionRate + desiredDirection.z * newDirectionRate
-    };
-
-    const float mixedDistanceSq = mixedDirection.x * mixedDirection.x + mixedDirection.z * mixedDirection.z;
-    if (mixedDistanceSq <= 0.0001f) {
-        navMeshSmoothedDirection_ = desiredDirection;
-        return desiredDirection;
+    // 実際の一歩も確認し、壁へ押し付けられる動きを防ぐ
+    Vector3 nextPosition = position_;
+    nextPosition.x += result.x * moveSpeed_;
+    nextPosition.z += result.z * moveSpeed_;
+    if (IsPositionBlockedByWall(nextPosition)) {
+        result = CalculateChaseDirection(chaseTarget);
     }
 
-    navMeshSmoothedDirection_ = Normalize(mixedDirection);
+    navMeshSmoothedDirection_ = result;
     return navMeshSmoothedDirection_;
 }
 
@@ -1349,7 +1350,7 @@ Vector3 Enemy::CalculateChaseDirection(const Vector3& chaseTarget) const
             }
 
             // 自分から角までの道が塞がっている候補は避ける
-            if (IsSegmentBlockedByWall(position_, cornerTarget, nullptr, blockingWall)) {
+            if (IsSegmentBlockedByWall(position_, cornerTarget, nullptr)) {
                 continue;
             }
 
@@ -1483,9 +1484,10 @@ bool Enemy::CheckTargetInSight() const
         dot = -1.0f;
     }
 
-    // 水平方向の視野角を超えたら見えていない
+    // 追跡中は左右にも注意を向け、回り込んだプレイヤーを再発見しやすくする
     const float horizontalAngle = std::acos(dot);
-    if (horizontalAngle > sightHalfAngleRad_) {
+    const float effectiveHalfAngle = isChasing_ ? 1.570796327f : sightHalfAngleRad_;
+    if (horizontalAngle > effectiveHalfAngle) {
         return false;
     }
 

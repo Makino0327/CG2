@@ -53,9 +53,10 @@ void PlayerBullet::Initialize(
     const float bulletPitch = -std::atan2(velocity_.y, horizontalSpeed);
     object_->SetRotate({ bulletPitch, bulletAngle, 0.0f });
 
-    // 弾本体の金属色を少し明るくし、細い発光の芯と合わせて見やすくする。
-    object_->SetColor({ 0.85f, 0.68f, 0.35f, 1.0f });
-    object_->SetLightingType(LightingType::HalfLambert);
+    // 弾本体を明るい黄色にして、暗い背景でも見分けやすくする
+    object_->SetColor({ 1.0f, 0.85f, 0.4f, 1.0f });
+    // 周囲の照明が暗くても、弾本体の明るさを保つ
+    object_->SetLightingType(LightingType::None);
 
     // 位置を設定する
     object_->SetTranslate(position_);

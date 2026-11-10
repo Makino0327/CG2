@@ -8,8 +8,8 @@
 #include "../../../externals/imgui/imgui.h"
 #endif
 
-// Shared light intensity for all Object3d instances.
-float Object3d::lightIntensity_ = 0.5f;
+// 周囲の照明を抑えて、弾の光や発射炎を目立たせる
+float Object3d::lightIntensity_ = 0.22f;
 
 void Object3d::Initialize(Object3dCommon* object3dCommon)
 {
