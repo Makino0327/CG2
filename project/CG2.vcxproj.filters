@@ -56,6 +56,7 @@
     <ClCompile Include="app\Framework.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayTutorial.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayLoading.cpp" />
     <ClCompile Include="scene\title\TitleScene.cpp" />
     <ClCompile Include="scene\BaseScene.cpp" />
@@ -99,6 +100,7 @@
     <ClInclude Include="game\map\MapChipField.h" />
     <ClInclude Include="game\generator\GeneratorActivation.h" />
     <ClInclude Include="game\generator\GeneratorDoorLink.h" />
+    <ClInclude Include="game\tutorial\TutorialFlow.h" />
     <ClInclude Include="game\generator\GeneratorApproach.h" />
     <ClInclude Include="engine\math\Math.h" />
     <ClInclude Include="engine\3d\model\Model.h" />
@@ -150,6 +152,7 @@
     <ClInclude Include="game\player\PlayerGrenade.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\boss\Boss.h" />
+    <ClInclude Include="game\boss\BossCharge.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\collision\Collision.h" />
     <ClInclude Include="game\collision\BodyContact.h" />

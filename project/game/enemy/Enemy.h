@@ -58,6 +58,13 @@ public:
     // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
 
+    // チュートリアルの練習用の敵は、その場に立ったまま見たり聞いたり攻撃したりしない。
+    void SetPassive(bool passive) { isPassive_ = passive; }
+    bool IsPassive() const { return isPassive_; }
+    // チュートリアルで、どのステップの敵かを覚えておく。通常の敵は-1。
+    void SetTutorialStep(int step) { tutorialStep_ = step; }
+    int GetTutorialStep() const { return tutorialStep_; }
+
     // 撃破後の最初の呼び出しだけドロップを許可する。
     bool ConsumeDeathDrop();
 
@@ -188,6 +195,8 @@ private:
 
     // 撃破フラグ
     bool isDead_ = false;
+    bool isPassive_ = false;
+    int tutorialStep_ = -1;
     bool deathDropConsumed_ = false; // 死亡演出中に同じ敵から二重に落とさない。
 
     // 敵の現在HP

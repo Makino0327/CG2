@@ -9,6 +9,8 @@
 #include <random>
 #include <unordered_map>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 #include "../engine/base/directX/DirectXCommon.h"
 #include "../engine/base/winapp/WinApp.h"
@@ -223,6 +225,12 @@ bool GamePlayScene::CheckBossTeleport()
             continue;
         }
 
+        // チュートリアルのポータルは別のステージへ移らず、完了の表示を出す
+        if (tutorialMode_) {
+            if (IsBossTeleportUsable()) { tutorial_.Finish(); }
+            return false;
+        }
+
         // テレポーターを踏んだらボスステージへ移動する
         constexpr bool kTeleportGoesToClear = false;
         if (kTeleportGoesToClear) {
@@ -268,6 +276,8 @@ void GamePlayScene::ReloadLevel(bool isManualReload)
     // Recreate enemies from the current level data.
     SpawnEnemies(allObjects);
     SpawnBosses(allObjects);
+    // 敵を作り直した後に、課題の進み具合と置いてある弾薬を最初へ戻す。
+    if (tutorialMode_) { ResetTutorial(allObjects); }
 
     // Sync the current file timestamp after a successful reload.
     levelHotReload_.SyncCurrentWriteTime();
@@ -302,7 +312,9 @@ void GamePlayScene::Update()
         return;
     }
     if (player_ && player_->IsDead()) {
-        UpdateDeathSequence();
+        // チュートリアルではゲームオーバーにせず、課題の入口からやり直す。
+        if (tutorialMode_) { UpdateTutorialDeath(); }
+        else { UpdateDeathSequence(); }
         return;
     }
     playerDeadFrames_ = 0;
@@ -417,6 +429,7 @@ void GamePlayScene::Update()
 
         // デバッグカメラに弾薬の描画だけを追従させる。
         for (auto& drop : ammoDrops_) { drop.object->UpdateTransform(); }
+        for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->UpdateTransform(); } }
 
         for (auto& floorObject : floorObjects_) {
             floorObject->Update();
@@ -441,6 +454,10 @@ void GamePlayScene::Update()
         aimSpheres.reserve(bosses_.size());
         for (const auto& enemy : enemies_) {
             if (!enemy->IsDead()) { aimBoxes.push_back(enemy->GetBulletCollider()); }
+        }
+        // 木箱の側面を狙ったときも、実際の箱の高さへ銃口を向ける。
+        for (const auto& crate : ammoCrates_) {
+            if (crate.hp > 0) { aimBoxes.push_back(crate.collider); }
         }
         for (const auto& boss : bosses_) {
             if (!boss->IsDead()) { aimSpheres.push_back(boss->GetCollider()); }
@@ -474,6 +491,11 @@ void GamePlayScene::Update()
 
     for (auto& wallObject : wallObjects_) {
         wallObject->Update();
+    }
+
+    // 木箱はワールド座標を保ち、追従カメラ更新後の行列を毎フレーム反映する。
+    for (auto& crate : ammoCrates_) {
+        if (crate.hp > 0) { crate.object->UpdateTransform(); }
     }
 
     if (skybox_) {
@@ -604,6 +626,10 @@ void GamePlayScene::Update()
     if (!gameOverDemo_) { UpdateGeneratorInteraction(generatorDeltaSeconds); }
     UpdateGeneratorWorld(generatorDeltaSeconds);
     UpdateTeleporterEffects();
+    if (tutorialMode_) {
+        UpdateTutorial();
+        if (tutorialLeaving_) { return; }
+    }
 
     if (player_ && GetContext().offscreenRenderer) {
         // HPが減るほど赤い縁を濃くする。現在の最大HP3では、残り2で半分、残り1で最大。
@@ -787,6 +813,7 @@ void GamePlayScene::DrawShadow()
     for (auto& enemy : enemies_) { enemy->Draw(); }
     for (auto& boss : bosses_) { boss->Draw(); }
     for (auto& drop : ammoDrops_) { drop.object->Draw(); }
+    for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->Draw(); } }
     for (auto& floor : floorObjects_) { floor->Draw(); }
     for (auto& wall : wallObjects_) { wall->Draw(); }
 }
@@ -837,6 +864,11 @@ void GamePlayScene::Draw()
 
     // 撃破位置に残った弾薬をワールド内に描画する。
     for (auto& drop : ammoDrops_) { drop.object->Draw(); }
+    // 補給用の木箱は壊れたら描画せず、中から出た弾薬だけを残す。
+    for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->Draw(); } }
+
+    // 床を描いた後に、1秒間の突進予告を赤い帯と矢印で重ねる。
+    for (auto& boss : bosses_) { boss->DrawAttackWarning(); }
 
     // 死亡時の血だまりは、縁が床と混ざるよう床の後に描画する。
     if (player_) {
@@ -859,7 +891,11 @@ void GamePlayScene::Draw()
     }
 
     // 死亡後の背景には、ミニマップや残弾などのHUDを残さない。
-    if (player_ && player_->IsDead()) { return; }
+    if (player_ && player_->IsDead()) {
+        // チュートリアルでは、やり直しのお知らせだけは表示する
+        if (tutorialMode_) { DrawTutorialNotice(); }
+        return;
+    }
 
     // 敵の視界範囲をデバッグ線で描画する
     if (GetContext().camera && line3dCommon_) {
@@ -895,6 +931,9 @@ void GamePlayScene::Draw()
 
     // 左下に残弾UIを描画する
     DrawAmmoUiSprites();
+
+    // 武器名より上に、グレネードのモデルと残数を表示する。
+    DrawGrenadeUi();
 
     // 発電機の操作案内を通常のゲーム画面に重ねる
     DrawGeneratorUi();
@@ -946,6 +985,7 @@ void GamePlayScene::UpdateMissionStart()
     for (auto& boss : bosses_) { boss->UpdateRenderOnly(); }
     for (auto& floor : floorObjects_) { floor->Update(); }
     for (auto& wall : wallObjects_) { wall->Update(); }
+    for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->UpdateTransform(); } }
     if (skybox_) { skybox_->Update(); }
     constexpr float dt = 1.0f / 60.0f;
     if (particleSystem_) { particleSystem_->Update(dt); }
@@ -1050,6 +1090,11 @@ void GamePlayScene::DrawGuideUi()
 {
     // 死亡演出中とデバッグカメラ中は、操作できない案内を隠す
     if (!player_ || player_->IsDead() || (GetContext().isDebugMode && *GetContext().isDebugMode)) {
+        return;
+    }
+    // チュートリアルでは、目標の代わりに課題の説明を表示する
+    if (tutorialMode_) {
+        DrawTutorialUi();
         return;
     }
     GetContext().spriteCommon->CommonDrawSetting();
@@ -1265,8 +1310,18 @@ void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
 
     // 全台のメーターが満タンになった時だけ、ステージ内のドアを開く
     generatorDoorLink_.Update(generators_.size(), activeCount, deltaSeconds);
-    const float openProgress = generatorDoorLink_.GetOpenProgress();
-    for (const auto& door : doors_) {
+    for (auto& door : doors_) {
+        float openProgress = generatorDoorLink_.GetOpenProgress();
+        bool isOpen = generatorDoorLink_.IsOpen();
+        if (door.tutorialStep > 0) {
+            // チュートリアルのドアは、対応する課題を達成した時に1枚ずつ開く
+            if (tutorialMode_ && tutorial_.IsDoorOpen(door.tutorialStep) && deltaSeconds > 0.0) {
+                door.tutorialOpenSeconds = (std::min)(door.tutorialOpenSeconds + deltaSeconds,
+                    GeneratorDoorLink::kOpenSeconds);
+            }
+            openProgress = static_cast<float>(door.tutorialOpenSeconds / GeneratorDoorLink::kOpenSeconds);
+            isOpen = door.tutorialOpenSeconds >= GeneratorDoorLink::kOpenSeconds;
+        }
         Vector3 position = door.closedPosition;
         position.y += door.liftDistance * openProgress;
         door.object->SetTranslate(position);
@@ -1275,10 +1330,10 @@ void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
         auto& collider = wallColliders_[door.colliderIndex];
         collider.center = door.closedColliderCenter;
         collider.center.y += door.liftDistance * openProgress;
-        collider.hasCollider = !generatorDoorLink_.IsOpen();
+        collider.hasCollider = !isOpen;
     }
     if (minimap_) {
-        minimap_->SetDoorsOpen(generatorDoorLink_.IsOpen());
+        minimap_->SetDoorsOpen(tutorialMode_ ? tutorial_.IsFinished() : generatorDoorLink_.IsOpen());
     }
 
     // 聞こえる中で最も近い発電機を知らせ、音声出力の有無によらず敵が反応する
@@ -1321,6 +1376,10 @@ void GamePlayScene::UpdateGeneratorWorld(double deltaSeconds)
 
 bool GamePlayScene::IsBossTeleportUsable() const
 {
+    // チュートリアルでは、発電機の課題を達成した後から踏める
+    if (tutorialMode_) {
+        return tutorial_.GetClearedStep() >= TutorialFlow::kStepCount - 1;
+    }
     // ドアも発電機も無いステージでは最初から踏める。ある場合は全ドアが開き切ってから
     if (doors_.empty() && generators_.empty()) {
         return true;
@@ -1691,6 +1750,61 @@ void GamePlayScene::DrawAmmoUiSprites()
     }
 }
 
+void GamePlayScene::DrawGrenadeUi()
+{
+    // 読み込みが完了しているときだけ、モデルと数字をまとめて描く。
+    if (!player_ || !ammoBackgroundSprite_ || !grenadeUiModel_ ||
+        !grenadeCountSprites_[0] || !grenadeCountSprites_[1]) {
+        return;
+    }
+
+    // 銃ごとに弾の段数が変わっても、武器名の上へ追従させる。
+    const Vector2& panelPosition = ammoBackgroundSprite_->GetPosition();
+    const float left = panelPosition.x + 4.0f;
+    const float top = panelPosition.y - 58.0f;
+    constexpr float kIconSize = 48.0f;
+    auto* commandList = GetContext().dxCommon->GetCommandList();
+
+    // モデルを描く範囲だけ深度を消し、背景の壁などに隠れないようにする。
+    const D3D12_RECT iconRect{
+        static_cast<LONG>(left), static_cast<LONG>(top),
+        static_cast<LONG>(left + kIconSize), static_cast<LONG>(top + kIconSize)
+    };
+    commandList->ClearDepthStencilView(GetContext().dxCommon->GetDSVHandle(),
+        D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 1, &iconRect);
+
+    // 専用カメラの映像を、48ピクセル四方に収める。
+    const D3D12_VIEWPORT iconViewport{ left, top, kIconSize, kIconSize, 0.0f, 1.0f };
+    commandList->RSSetViewports(1, &iconViewport);
+    grenadeUiModel_->Draw();
+
+    // 後続の数字や案内は、通常どおり画面全体の座標で描く。
+    const D3D12_VIEWPORT fullViewport{
+        0.0f, 0.0f,
+        static_cast<float>(WinApp::kClientWidth),
+        static_cast<float>(WinApp::kClientHeight), 0.0f, 1.0f
+    };
+    commandList->RSSetViewports(1, &fullViewport);
+
+    // 通常プレイはxと残数、チュートリアルはxと無限記号を表示する。
+    const bool unlimited = player_->HasUnlimitedGrenades();
+    const int count = std::clamp(player_->GetGrenadeCount(), 0, 3);
+    constexpr int kMultiplyGlyph = 11;
+    constexpr int kInfinityGlyph = 12;
+    const int glyphs[] = { kMultiplyGlyph, unlimited ? kInfinityGlyph : count };
+    const Vector4 color = unlimited || count > 0
+        ? Vector4{ 1.0f, 1.0f, 1.0f, 1.0f }
+        : Vector4{ 0.5f, 0.5f, 0.5f, 1.0f };
+    for (size_t index = 0; index < grenadeCountSprites_.size(); ++index) {
+        auto& sprite = grenadeCountSprites_[index];
+        sprite->SetTextureLeftTop({ 32.0f * static_cast<float>(glyphs[index]), 0.0f });
+        sprite->SetPosition({ left + 52.0f + 18.0f * static_cast<float>(index), top + 24.0f });
+        sprite->SetColor(color);
+        sprite->Update();
+        sprite->Draw();
+    }
+}
+
 void GamePlayScene::UpdateBossHpUiSprites()
 {
     constexpr float kBarWidth = 520.0f;
@@ -1896,6 +2010,21 @@ void GamePlayScene::UpdateMeleeAttack()
             normalMeleeHitTarget->GetWorldPosition(),
             slashDirection);
     }
+
+    // 弾切れでも補給できるよう、近くで正面を向いて切れば木箱を壊せる。
+    for (size_t index = 0; index < ammoCrates_.size(); ++index) {
+        const auto& crate = ammoCrates_[index];
+        if (crate.hp <= 0) { continue; }
+        const float dx = crate.collider.center.x - playerPosition.x;
+        const float dz = crate.collider.center.z - playerPosition.z;
+        const float forward = dx * slashDirection.x + dz * slashDirection.z;
+        const float side = std::abs(dx * slashDirection.z - dz * slashDirection.x);
+        if (forward >= 0.0f && forward <= normalMeleeAttackRange_ + crate.collider.halfSize.z &&
+            side <= kNormalMeleeHalfWidth + crate.collider.halfSize.x &&
+            std::abs(crate.collider.center.y - playerPosition.y) <= crate.collider.halfSize.y + 1.0f) {
+            DamageAmmoCrate(index, 2);
+        }
+    }
 }
 
 void GamePlayScene::Finalize()
@@ -1933,6 +2062,21 @@ void GamePlayScene::Finalize()
     for (auto& label : pauseLabels_) { label.reset(); }
     for (auto& row : pauseRows_) { row.reset(); }
     for (auto& marker : pauseMarkers_) { marker.reset(); }
+    // チュートリアルの案内も、参照しているライト用リソースより先に解放する
+    tutorialPanel_.reset();
+    tutorialAccent_.reset();
+    tutorialBannerBack_.reset();
+    tutorialControls_.reset();
+    tutorialControlsAccent_.reset();
+    tutorialDivider_.reset();
+    for (auto& sprite : tutorialBannerLines_) { sprite.reset(); }
+    for (auto& sprite : tutorialTextRows_) { sprite.reset(); }
+    for (auto& sprite : tutorialCheckLabels_) { sprite.reset(); }
+    for (auto& sprite : tutorialCheckBoxes_) { sprite.reset(); }
+    for (auto& sprite : tutorialCheckFills_) { sprite.reset(); }
+    for (auto& row : tutorialCheckCounts_) { for (auto& sprite : row) { sprite.reset(); } }
+    for (auto& sprite : tutorialStepPips_) { sprite.reset(); }
+    for (auto& sprite : tutorialBannerLabels_) { sprite.reset(); }
     // 案内用Spriteも、参照しているライト用リソースより先に解放する
     objectivePanel_.reset();
     objectiveLabel_.reset();
@@ -1950,6 +2094,9 @@ void GamePlayScene::Finalize()
     generatorUiIndex_ = -1;
     sprites_.clear();
     ammoSprites_.clear();
+    // UIのモデルと文字を、参照先の描画リソースより先に解放する。
+    grenadeUiModel_.reset();
+    for (auto& glyph : grenadeCountSprites_) { glyph.reset(); }
     weaponNameSprite_.reset();
     reloadLabelSprite_.reset();
     for (auto& glyph : reserveAmmoSprites_) { glyph.reset(); }
@@ -1977,6 +2124,7 @@ void GamePlayScene::Finalize()
     enemies_.clear();
     ammoDrops_.clear();
     bosses_.clear();
+    ammoCrates_.clear();
 
     // ミニマップが所有するSpriteを解放する
     minimap_.reset();
@@ -2051,6 +2199,16 @@ void GamePlayScene::CheckGrenadeExplosions()
                 enemy->OnExplosionHit();
             }
         }
+        // グレネードの爆発でも木箱を壊し、補給を取り出せるようにする。
+        for (size_t index = 0; index < ammoCrates_.size(); ++index) {
+            const auto& crate = ammoCrates_[index];
+            if (crate.hp <= 0) { continue; }
+            const Vector3 nearest = Collision::ClosestPointOnBox(explosionPosition, crate.collider);
+            const float dx = nearest.x - explosionPosition.x;
+            const float dy = nearest.y - explosionPosition.y;
+            const float dz = nearest.z - explosionPosition.z;
+            if (dx * dx + dy * dy + dz * dz <= explosionRadiusSq) { DamageAmmoCrate(index, 2); }
+        }
     }
 }
 void GamePlayScene::ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower, int shakeFrames)
@@ -2082,8 +2240,8 @@ void GamePlayScene::CheckCollisions()
             SphereCollider enemyCollider = enemy->GetCollider();
             if (!Collision::IsHit(playerCollider, enemyCollider)) { continue; }
 
-            // 実際にHPが減った接触だけ、揺れと短いノイズを開始する。
-            ApplyPlayerDamage(enemyCollider.center);
+            // 実際にHPが減った接触だけ、揺れと短いノイズを開始する。練習用の敵は押し返すだけ。
+            if (!enemy->IsPassive()) { ApplyPlayerDamage(enemyCollider.center); }
             BodyContact::Separate(playerCollider, enemyCollider, &wallColliders_, &floorColliders_);
             player_->SetPosition(playerCollider.center);
             enemy->SetPosition(enemyCollider.center);
@@ -2096,6 +2254,7 @@ void GamePlayScene::CheckCollisions()
         float nearestTime = 1.0f;
         Enemy* hitEnemy = nullptr;
         Boss* hitBoss = nullptr;
+        size_t hitCrate = ammoCrates_.size();
         // 壁までの区間で敵とボスをまとめて調べ、最も手前の対象にだけ当てる。
         for (auto& enemy : enemies_) {
             if (enemy->IsDead()) { continue; }
@@ -2116,6 +2275,18 @@ void GamePlayScene::CheckCollisions()
                 hitBoss = boss.get();
             }
         }
+        // 敵やボスより手前にある木箱へ最初に当たった弾だけを消費する。
+        for (size_t index = 0; index < ammoCrates_.size(); ++index) {
+            if (ammoCrates_[index].hp <= 0) { continue; }
+            float hitTime = 0.0f;
+            if (bullet->CheckHit(wallColliders_[ammoCrates_[index].wallColliderIndex], hitTime) &&
+                ((!hitEnemy && !hitBoss && hitCrate == ammoCrates_.size()) || hitTime < nearestTime)) {
+                nearestTime = hitTime;
+                hitEnemy = nullptr;
+                hitBoss = nullptr;
+                hitCrate = index;
+            }
+        }
         if (hitEnemy) {
             bullet->OnHit(nearestTime);
             const Vector3 hitDirection = Normalize(bullet->GetVelocity());
@@ -2128,6 +2299,9 @@ void GamePlayScene::CheckCollisions()
             // ボスへの命中位置で止めて、HPを1減らす。
             bullet->OnHit(nearestTime);
             hitBoss->OnHit();
+        } else if (hitCrate < ammoCrates_.size()) {
+            bullet->OnHit(nearestTime);
+            DamageAmmoCrate(hitCrate, 1);
         }
         // 敵に当たらなかった場合は壁への命中を確定し、軌跡を生成する。
         bullet->FinishUpdate();
@@ -2153,6 +2327,44 @@ void GamePlayScene::CheckCollisions()
                 return enemy->IsReadyToRemove();
             }),
         enemies_.end());
+}
+
+void GamePlayScene::SpawnAmmoDrop(const Vector3& groundPosition, size_t styleIndex)
+{
+    if (styleIndex >= kAmmoDropStyles.size()) { return; }
+    auto object = std::make_unique<Object3d>();
+    object->Initialize(GetContext().object3dCommon);
+    object->SetModel(kAmmoDropStyles[styleIndex].modelPath);
+    object->SetCamera(GetContext().camera);
+    object->SetTranslate({ groundPosition.x, groundPosition.y + 0.36f, groundPosition.z });
+    object->UpdateTransform();
+    ammoDrops_.push_back({ std::move(object), groundPosition.y, styleIndex });
+}
+
+void GamePlayScene::DamageAmmoCrate(size_t index, int damage)
+{
+    if (index >= ammoCrates_.size() || damage <= 0) { return; }
+    auto& crate = ammoCrates_[index];
+    if (crate.hp <= 0) { return; }
+    crate.hp = std::max(0, crate.hp - damage);
+    if (crate.hp > 0) { return; }
+
+    // 配列の番号を変えずに壁判定を消し、壊れた木箱の場所を通れるようにする。
+    wallColliders_[crate.wallColliderIndex].hasCollider = false;
+    const Vector3& center = crate.collider.center;
+    const float groundY = center.y - crate.collider.halfSize.y;
+    // 1箱につきライフル15発とショットガン3発を、重ならない位置へ出す。
+    SpawnAmmoDrop({ center.x - 0.75f, groundY, center.z }, 1);
+    SpawnAmmoDrop({ center.x + 0.75f, groundY, center.z }, 2);
+    if (particleSystem_) {
+        // 茶色い破片を短く散らして、木箱が壊れたことを伝える。
+        for (int piece = 0; piece < 16; ++piece) {
+            const float angle = static_cast<float>(piece) * 6.2831853f / 16.0f;
+            particleSystem_->Emit(center, { 0.25f, 0.25f, 0.25f },
+                { std::cos(angle) * 3.0f, 1.5f, std::sin(angle) * 3.0f },
+                { 0.65f, 0.35f, 0.12f, 0.9f }, 0.4f);
+        }
+    }
 }
 
 void GamePlayScene::UpdateAmmoDrops()
@@ -2196,14 +2408,8 @@ void GamePlayScene::UpdateAmmoDrops()
         static std::discrete_distribution<size_t> dropStyle{ 50, 25, 25 };
         const size_t styleIndex = dropStyle(randomEngine);
         const SphereCollider collider = enemy->GetCollider();
-        auto object = std::make_unique<Object3d>();
-        object->Initialize(GetContext().object3dCommon);
-        object->SetModel(kAmmoDropStyles[styleIndex].modelPath);
-        object->SetCamera(GetContext().camera);
         const float groundY = collider.center.y - collider.radius;
-        object->SetTranslate({ collider.center.x, groundY + kHoverHeight, collider.center.z });
-        object->UpdateTransform();
-        ammoDrops_.push_back({ std::move(object), groundY, styleIndex });
+        SpawnAmmoDrop({ collider.center.x, groundY, collider.center.z }, styleIndex);
     }
 
     if (particleSystem_) {
@@ -2404,6 +2610,7 @@ void GamePlayScene::ResolveEnemyOverlap()
 
 void GamePlayScene::ResetMapObjects()
 {
+    ammoCrates_.clear();
     floorObjects_.clear();
     wallObjects_.clear();
     floorColliders_.clear();
@@ -2462,6 +2669,17 @@ void GamePlayScene::CreateMapObject(const LevelObjectData& objectData,
     mapObject->SetRotate(objectData.rotation);
     mapObject->SetTranslate(objectData.translation);
     mapObject->Update();
+
+    if (objectData.objectKind == "ammo_crate") {
+        // 木箱は床ではなく、銃弾が当たって壊れる独立した障害物として管理する。
+        const Vector3 halfSize{ std::abs(objectData.scaling.x), std::abs(objectData.scaling.y),
+            std::abs(objectData.scaling.z) };
+        const size_t wallIndex = wallColliders_.size();
+        wallColliders_.push_back({ "BOX", objectData.translation,
+            { halfSize.x * 2.0f, halfSize.y * 2.0f, halfSize.z * 2.0f }, true });
+        ammoCrates_.push_back({ std::move(mapObject), { objectData.translation, halfSize, 0.0f }, wallIndex });
+        return;
+    }
 
     if (objectData.objectKind == "boss_teleport" || objectData.name.rfind("BossTeleport", 0) == 0) {
         BossTeleportData teleport{};
@@ -2574,6 +2792,11 @@ void GamePlayScene::CreateMapObject(const LevelObjectData& objectData,
                 door.closedPosition = objectData.translation;
                 door.closedColliderCenter = worldCollider.center;
                 door.liftDistance = worldCollider.size.y + 0.5f;
+                // TutorialDoor_3 なら、3番目の課題を達成した時に開く
+                constexpr const char* kTutorialDoorPrefix = "TutorialDoor_";
+                if (objectData.name.rfind(kTutorialDoorPrefix, 0) == 0) {
+                    door.tutorialStep = std::atoi(objectData.name.c_str() + std::strlen(kTutorialDoorPrefix));
+                }
                 doors_.push_back(door);
             }
             wallColliders_.push_back(worldCollider);
@@ -2648,15 +2871,11 @@ void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
     }
 
     // 保存した出現位置から敵を生成する
+    tutorialEnemyTotals_.clear();
     for (const auto& enemyEntry : enemySpawnMap) {
         const std::string& enemyName = enemyEntry.first;
         const Vector3& spawnPosition = enemyEntry.second;
 
-        auto enemy = std::make_unique<Enemy>();
-        enemy->Initialize(GetContext().object3dCommon, GetContext().camera, spawnPosition);
-        ConfigureEnemyForLevel(*enemy);
-
-        // 敵にNavMeshを渡して、壁を回り込めるようにする
         // 敵に渡す前にウェイポイントを番号順に並べる
         std::vector<Vector3> waypoints;
         auto found = enemyWaypointMap.find(enemyName);
@@ -2675,9 +2894,10 @@ void GamePlayScene::SpawnEnemies(const std::vector<LevelObjectData>& allObjects)
             }
         }
 
-        // JSONから読み込んだウェイポイント一覧を敵に設定する
-        enemy->SetWaypoints(waypoints);
-
+        // JSONから読み込んだウェイポイント一覧を敵に設定して追加する
+        auto enemy = CreateLevelEnemy(enemyName, spawnPosition, waypoints);
+        // チュートリアルの敵は、課題ごとの最初の数を数えておく
+        if (enemy->GetTutorialStep() > 0) { ++tutorialEnemyTotals_[enemy->GetTutorialStep()]; }
         enemies_.push_back(std::move(enemy));
     }
 }

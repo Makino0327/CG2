@@ -248,6 +248,13 @@ void Enemy::Update()
 
     // 前フレームの状態を保存する
     prevPosition_ = position_;
+    if (isPassive_) {
+        // 練習用の敵は床に立たせるだけで、視界や移動のAIを動かさない。
+        isTargetInSight_ = false;
+        ResolveGroundHeight(position_);
+        UpdateRenderOnly();
+        return;
+    }
     if (generatorApproachRetryTimer_ > 0) {
         --generatorApproachRetryTimer_;
     }
@@ -527,8 +534,8 @@ bool Enemy::ConsumeDeathDrop()
 
 void Enemy::OnHearSound(const Vector3& soundPosition)
 {
-    // 死亡中は反応しない
-    if (isDead_) {
+    // 死亡中と練習用の敵は反応しない
+    if (isDead_ || isPassive_) {
         return;
     }
 
@@ -557,7 +564,7 @@ void Enemy::OnHearGenerator(const Vector3& center, const Vector3& size,
     const std::vector<Vector3>& reservedPositions)
 {
     // 視認・追跡・銃声への警戒を優先し、同じ音で到着状態を上書きしない
-    if (isDead_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 || isInvestigatingSound_ ||
+    if (isDead_ || isPassive_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 || isInvestigatingSound_ ||
         isInvestigatingGenerator_ || generatorApproachRetryTimer_ > 0) {
         return;
     }
@@ -1526,6 +1533,11 @@ bool Enemy::CheckTargetInSight() const
 
 void Enemy::AppendVisionDebugLines(DebugLine3D& debugLine) const
 {
+    // 周りを見ない練習用の敵には、視界の扇形を出さない。
+    if (isPassive_) {
+        return;
+    }
+
     // 視野の始点を目線の高さに合わせる
     Vector3 origin = position_;
     origin.y += sightHeight_;

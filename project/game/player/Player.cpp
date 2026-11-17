@@ -25,6 +25,13 @@ void Player::BeginInitialize(
 {
     input_ = input;
 
+    // 新しくゲームを始めるときは、通常の所持数と設定へ戻す。
+    grenadeCount_ = kInitialGrenadeCount;
+    unlimitedGrenades_ = false;
+    grenades_.clear();
+    pendingGrenadeExplosions_.clear();
+    grenadeShakeRequested_ = false;
+
     // 弾の軌跡を生成する共有パーティクルを保存する
     particleSystem_ = particleSystem;
     // 3D描画の共通設定を保存する
@@ -286,8 +293,9 @@ void Player::StartReload()
         return;
     }
 
-    // 予備弾が尽きるとリロードを開始できない。
-    if (GetCurrentReserveAmmo() == 0) {
+    // 予備弾が尽きるとリロードを開始できない。予備弾が無限のハンドガンは除く。
+    const bool unlimited = unlimitedHandgunReserve_ && selectedGunMode_ == AttackMode::Gun;
+    if (!unlimited && GetCurrentReserveAmmo() == 0) {
         return;
     }
 
@@ -318,7 +326,10 @@ void Player::UpdateReload()
         magazine += rounds;
         reserve -= rounds;
     };
-    if (selectedGunMode_ == AttackMode::Gun) {
+    if (selectedGunMode_ == AttackMode::Gun && unlimitedHandgunReserve_) {
+        // 予備弾を減らさずに満タンまで装填し、弾切れで進めなくならないようにする
+        handgunAmmo_ = maxAmmo;
+    } else if (selectedGunMode_ == AttackMode::Gun) {
         reloadMagazine(handgunAmmo_, handgunReserveAmmo_);
     } else if (selectedGunMode_ == AttackMode::AssaultRifle) {
         reloadMagazine(assaultRifleAmmo_, assaultRifleReserveAmmo_);
@@ -1562,7 +1573,8 @@ void Player::UpdateCasings()
 
 void Player::ThrowGrenade(Camera* camera)
 {
-    if (!object_ || !camera || !input_) {
+    // 通常プレイでは、所持数が0個になったら投げられない。
+    if (!object_ || !camera || !input_ || (!unlimitedGrenades_ && grenadeCount_ <= 0)) {
         return;
     }
 
@@ -1595,6 +1607,9 @@ void Player::ThrowGrenade(Camera* camera)
         wallColliders_);
 
     grenades_.push_back(std::move(grenade));
+
+    // 生成に成功したときだけ消費し、チュートリアルでは減らさない。
+    if (!unlimitedGrenades_) { --grenadeCount_; }
 }
 
 void Player::UpdateGrenades()
@@ -1802,6 +1817,12 @@ void Player::RotateToMouse(Camera* camera)
 
 void Player::Respawn()
 {
+    // 復活時は3個へ補充し、復活前の投擲や爆発を持ち越さない。
+    grenadeCount_ = kInitialGrenadeCount;
+    grenades_.clear();
+    pendingGrenadeExplosions_.clear();
+    grenadeShakeRequested_ = false;
+
     // 復活前の薬莢や血だまりを残さず、演出も初期状態へ戻す。
     casings_.clear();
     bloodPoolLayers_.clear();

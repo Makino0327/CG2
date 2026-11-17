@@ -54,12 +54,14 @@ try {
         }
     }
 
-    # 数字は1文字ごとに切り出すため、すべて同じ幅にしておく
-    Save-HudImage 'count_glyphs.png' 352 64 {
+    # 数字とスラッシュの順序を保ち、末尾へグレネード用のxと無限記号を足す。
+    Save-HudImage 'count_glyphs.png' 416 64 {
         param($graphics)
-        $glyphs = '0123456789/'
+        $glyphs = '0123456789/x∞'
         for ($index = 0; $index -lt $glyphs.Length; $index++) {
-            Draw-HudText $graphics ([string]$glyphs[$index]) 40 ($index * 32) 0 64 ([System.Drawing.Color]::White) $true 32
+            # 横長の無限記号も、隣の文字へはみ出さない大きさにする。
+            $glyphSize = if ($glyphs[$index] -eq '∞') { 28 } else { 40 }
+            Draw-HudText $graphics ([string]$glyphs[$index]) $glyphSize ($index * 32) 0 64 ([System.Drawing.Color]::White) $true 32
         }
     }
 

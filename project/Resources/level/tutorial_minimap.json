@@ -1,0 +1,401 @@
+{
+    "name": "tutorial_minimap",
+    "coordinate_system": "game_xz",
+    "bounds": {
+        "min": [
+            -40.0,
+            -6.0
+        ],
+        "max": [
+            40.0,
+            124.0
+        ],
+        "center": [
+            0.0,
+            59.0
+        ],
+        "size": [
+            80.0,
+            130.0
+        ]
+    },
+    "objects": [
+        {
+            "name": "Player",
+            "kind": "player",
+            "position": [
+                0.0,
+                3.0
+            ],
+            "size": [
+                0.0,
+                0.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_0",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                7.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_1",
+            "kind": "wall",
+            "position": [
+                13.0,
+                7.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_2",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                23.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_3",
+            "kind": "wall",
+            "position": [
+                13.0,
+                23.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_4",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                40.0
+            ],
+            "size": [
+                2.0,
+                16
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_5",
+            "kind": "wall",
+            "position": [
+                13.0,
+                40.0
+            ],
+            "size": [
+                2.0,
+                16
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_6",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                57.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_7",
+            "kind": "wall",
+            "position": [
+                13.0,
+                57.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_8",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                73.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_9",
+            "kind": "wall",
+            "position": [
+                13.0,
+                73.0
+            ],
+            "size": [
+                2.0,
+                14
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_10",
+            "kind": "wall",
+            "position": [
+                -35.0,
+                92.0
+            ],
+            "size": [
+                2.0,
+                20
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_11",
+            "kind": "wall",
+            "position": [
+                35.0,
+                92.0
+            ],
+            "size": [
+                2.0,
+                20
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_12",
+            "kind": "wall",
+            "position": [
+                -13.0,
+                110.0
+            ],
+            "size": [
+                2.0,
+                12
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_13",
+            "kind": "wall",
+            "position": [
+                13.0,
+                110.0
+            ],
+            "size": [
+                2.0,
+                12
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_14",
+            "kind": "wall",
+            "position": [
+                0.0,
+                -1.0
+            ],
+            "size": [
+                28.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_15",
+            "kind": "wall",
+            "position": [
+                0.0,
+                117.0
+            ],
+            "size": [
+                28.0,
+                2.0
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_16",
+            "kind": "wall",
+            "position": [
+                -8.0,
+                15.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_17",
+            "kind": "wall",
+            "position": [
+                8.0,
+                15.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_18",
+            "kind": "wall",
+            "position": [
+                -8.0,
+                31.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_19",
+            "kind": "wall",
+            "position": [
+                8.0,
+                31.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_20",
+            "kind": "wall",
+            "position": [
+                -8.0,
+                49.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_21",
+            "kind": "wall",
+            "position": [
+                8.0,
+                49.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_22",
+            "kind": "wall",
+            "position": [
+                -8.0,
+                65.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_23",
+            "kind": "wall",
+            "position": [
+                8.0,
+                65.0
+            ],
+            "size": [
+                12.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_24",
+            "kind": "wall",
+            "position": [
+                -19.0,
+                81.0
+            ],
+            "size": [
+                34.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_25",
+            "kind": "wall",
+            "position": [
+                19.0,
+                81.0
+            ],
+            "size": [
+                34.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_26",
+            "kind": "wall",
+            "position": [
+                -19.0,
+                103.0
+            ],
+            "size": [
+                34.0,
+                2
+            ],
+            "rotation": 0.0
+        },
+        {
+            "name": "wall_27",
+            "kind": "wall",
+            "position": [
+                19.0,
+                103.0
+            ],
+            "size": [
+                34.0,
+                2
+            ],
+            "rotation": 0.0
+        }
+    ]
+}

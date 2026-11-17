@@ -32,7 +32,9 @@ namespace {
     constexpr float kButtonX = 500.0f;
     constexpr float kButtonWidth = 280.0f;
     constexpr float kButtonHeight = 44.0f;
-    constexpr float kButtonY[] = { 470.0f, 524.0f };
+    constexpr float kButtonY[] = { 460.0f, 514.0f, 568.0f };
+    // メニューの並び。表示順と選択番号をそろえる
+    enum MenuButton { kMenuStart, kMenuTutorial, kMenuQuit, kMenuCount };
     // 読み込み完了後、約1.5秒かけて黒画面からタイトル全体を浮かび上がらせる。
     constexpr int kTitleFadeFrames = 90;
 
@@ -267,11 +269,18 @@ void TitleScene::CreateMenu() {
     titleLogo_ = CreateUiTexture("Resources/title/title_logo.png", { 190,170 }, { 900,132 });
 
     // 箱や金属枠は描かず、文字・細い下線・小さな赤い印だけで選択を表す
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < kMenuCount; ++i) {
         const float y = kButtonY[i];
         buttonHitAreas_[i] = CreateUiRect({ kButtonX,y }, { kButtonWidth,kButtonHeight }, { 0,0,0,0 });
-        buttonLabels_[i] = CreateUiLabel(i, { 520,y+2 }, { 240,36 });
-        buttonIndicators_[i] = CreateUiRect({ 576,y+17 }, { 3,3 }, { 0.61f,0.14f,0.14f,0 });
+        // チュートリアルの文字だけ別の画像。スタートと終了は menu_labels.png の0行目と1行目
+        buttonLabels_[i] = i == kMenuTutorial
+            ? CreateUiTexture("Resources/title/tutorial_label.png", { 520,y+2 }, { 240,36 })
+            : CreateUiLabel(i == kMenuStart ? 0 : 1, { 520,y+2 }, { 240,36 });
+        // 長いチュートリアルの文字にも、スタートと同じ左余白を確保する。
+        const float indicatorX = i == kMenuTutorial ? 542.0f : 576.0f;
+        // 別画像の文字は中心が少し低いため、赤い印も同じ高さへ合わせる。
+        const float indicatorY = y + (i == kMenuTutorial ? 18.5f : 17.0f);
+        buttonIndicators_[i] = CreateUiRect({ indicatorX,indicatorY }, { 3,3 }, { 0.61f,0.14f,0.14f,0 });
         buttonUnderlines_[i] = CreateUiRect({ 602,y+40 }, { 76,1 }, { 0.70f,0.63f,0.61f,0 });
     }
 
@@ -289,7 +298,7 @@ void TitleScene::UpdateMenu() {
     const Vector2 mouse = GetContext().input->GetMousePosition();
     const Vector2 delta = GetContext().input->GetMouseDelta();
     int hovered = -1;
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < kMenuCount; ++i) {
         // 文字の周囲に透明な入力範囲を設け、クリックしやすくする
         const Vector2 position = buttonHitAreas_[i]->GetPosition();
         if (mouse.x >= position.x && mouse.x <= position.x+kButtonWidth &&
@@ -298,18 +307,22 @@ void TitleScene::UpdateMenu() {
     // 黒画面の下で開始されないよう、タイトルが完全に見えてから入力を受け付ける。
     if (!isStarting_ && frame_ > kTitleFadeFrames + 1) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
-        if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_DOWN) ||
-            GetContext().input->TriggerKey(DIK_W) || GetContext().input->TriggerKey(DIK_S)) {
-            selectedButton_ = 1-selectedButton_;
+        // 上下キーとW/Sで3項目を順に選ぶ。端まで来たら反対側へ回る。
+        if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
+            selectedButton_ = (selectedButton_ + kMenuCount - 1) % kMenuCount;
+        } else if (GetContext().input->TriggerKey(DIK_DOWN) || GetContext().input->TriggerKey(DIK_S)) {
+            selectedButton_ = (selectedButton_ + 1) % kMenuCount;
         }
         const bool clicked = hovered >= 0 && GetContext().input->TriggerMouseLeft();
         if (clicked) { selectedButton_ = hovered; }
         if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
-            if (selectedButton_ == 0) {
+            if (selectedButton_ == kMenuStart || selectedButton_ == kMenuTutorial) {
                 isStarting_ = true;
                 transitionFrame_ = 0;
-                // Space入力後は読み込まず、タイトル表示前に準備した本編を渡す。
                 assert(preparedGamePlay_);
+                // チュートリアルは準備済みの本編を使い、ステージと案内だけを切り替える。
+                if (selectedButton_ == kMenuTutorial) { preparedGamePlay_->EnableTutorial(); }
+                // Space入力後は読み込まず、タイトル表示前に準備した本編を渡す。
                 GetSceneManager()->SetNextInitializedScene(std::move(preparedGamePlay_));
                 // 背景の銃の歪みを止め、画面中央への一発でタイトルを割る。
                 if (GetContext().offscreenRenderer) {
@@ -358,7 +371,7 @@ void TitleScene::UpdateMenuAnimation() {
 
     // 選択文字を滑らかに明るくし、下線だけを中央から短く伸ばす
     const float menuFade = SmoothStep01((age-22.0f)/48.0f);
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < kMenuCount; ++i) {
         const float target = i == selectedButton_ ? 1.0f : 0.0f;
         buttonSelection_[i] += (target-buttonSelection_[i])*0.16f;
         const float selected = buttonSelection_[i];

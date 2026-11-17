@@ -134,6 +134,16 @@ void Game::Initialize() {
         auto scene = std::make_unique<GamePlayScene>();
         scene->EnableDeathPreview();
         sceneManager_->SetNextScene(std::move(scene));
+    } else if (commandLine.find(L"--boss") != std::wstring_view::npos) {
+        // ボス戦の調整を、通常ステージの攻略なしで確認するための起動指定。
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableBossPreview();
+        sceneManager_->SetNextScene(std::move(scene));
+    } else if (commandLine.find(L"--tutorial") != std::wstring_view::npos) {
+        // 確認用に、タイトルを飛ばしてチュートリアルから始める。
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableTutorial();
+        sceneManager_->SetNextScene(std::move(scene));
     } else if (commandLine.find(L"--preview-gameover") != std::wstring_view::npos) {
         sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
     } else {

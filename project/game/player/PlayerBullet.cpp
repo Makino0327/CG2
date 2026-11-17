@@ -306,6 +306,17 @@ SphereCollider PlayerBullet::GetCollider() const
     return { position_, colliderRadius_ };
 }
 
+bool PlayerBullet::CheckHit(const LevelColliderData& target, float& hitTime) const
+{
+    if (!target.hasCollider || target.type != "BOX") { return false; }
+    const Vector3 minimum{ target.center.x - target.size.x * 0.5f,
+        target.center.y - target.size.y * 0.5f, target.center.z - target.size.z * 0.5f };
+    const Vector3 maximum{ target.center.x + target.size.x * 0.5f,
+        target.center.y + target.size.y * 0.5f, target.center.z + target.size.z * 0.5f };
+    return Collision::SweepSphereAabb(previousPosition_, movementEnd_, colliderRadius_,
+        minimum, maximum, hitTime) && hitTime <= wallHitTime_;
+}
+
 bool PlayerBullet::CheckHit(const SphereCollider& target, float& hitTime) const
 {
     // 壁と同じフレーム時刻で判定し、壁より後の命中は除外する。

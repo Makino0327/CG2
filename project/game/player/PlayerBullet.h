@@ -36,6 +36,8 @@ public:
 
     // このフレームの移動区間全体で敵への命中を判定する。
     bool CheckHit(const SphereCollider& target, float& hitTime) const;
+    // 壊せる木箱は壁と同じ計算で調べ、自分の壁判定に弾かれないようにする。
+    bool CheckHit(const LevelColliderData& target, float& hitTime) const;
     // 通常敵の箱にも、同じ移動区間で当たり判定を行う。
     bool CheckHit(const BoxCollider& target, float& hitTime) const;
     // 敵の移動前の位置も使い、追いかけながら撃つ場合の接触を見逃さない。

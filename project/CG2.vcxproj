@@ -197,6 +197,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClCompile Include="app\Game.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayTutorial.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayLoading.cpp" />
     <ClCompile Include="engine\base\imgui\ImGuiManager.cpp" />
     <ClCompile Include="engine\input\Input.cpp" />
@@ -427,6 +428,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="game\collision\BodyContact.h" />
     <ClInclude Include="game\common\BloodSplatter.h" />
     <ClInclude Include="game\boss\Boss.h" />
+    <ClInclude Include="game\boss\BossCharge.h" />
     <ClInclude Include="game\enemy\Enemy.h" />
     <ClInclude Include="game\camera\FollowCamera.h" />
     <ClInclude Include="game\camera\DebugCamera.h" />
@@ -463,6 +465,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="game\map\MapChipField.h" />
     <ClInclude Include="game\generator\GeneratorActivation.h" />
     <ClInclude Include="game\generator\GeneratorDoorLink.h" />
+    <ClInclude Include="game\tutorial\TutorialFlow.h" />
     <ClInclude Include="game\generator\GeneratorApproach.h" />
     <ClInclude Include="engine\math\Math.h" />
     <ClInclude Include="engine\3d\model\Model.h" />
@@ -531,6 +534,14 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <MakeDir Directories="$(OutDir)Resources\hud" />
     <Copy SourceFiles="$(ProjectDir)Resources\hud\mission_start.png"
           DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
+  </Target>
+  <!-- チュートリアルの案内文とタイトルのボタン文字を、実行ファイル側にもコピーする。 -->
+  <Target Name="CopyTutorialUiTextures" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)Resources\hud;$(OutDir)Resources\title" />
+    <Copy SourceFiles="$(ProjectDir)Resources\hud\tutorial_labels.png"
+          DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(ProjectDir)Resources\title\tutorial_label.png"
+          DestinationFolder="$(OutDir)Resources\title" SkipUnchangedFiles="true" />
   </Target>
   <!-- デモプレイ中の日本語ラベルを、実行ファイル側にもコピーする。 -->
   <Target Name="CopyDemoStatusTexture" AfterTargets="Build">

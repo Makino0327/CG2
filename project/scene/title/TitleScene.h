@@ -111,11 +111,11 @@ private:
     // 枠と文字は通常のSpriteで描き、Releaseビルドでもメニューを表示する
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
     // 透明な入力範囲と文字の表示を分離し、枠のないメニューにする
-    std::array<Sprite*, 2> buttonHitAreas_{};
-    std::array<Sprite*, 2> buttonLabels_{};
-    std::array<Sprite*, 2> buttonIndicators_{};
-    std::array<Sprite*, 2> buttonUnderlines_{};
-    std::array<float, 2> buttonSelection_{};
+    std::array<Sprite*, 3> buttonHitAreas_{};
+    std::array<Sprite*, 3> buttonLabels_{};
+    std::array<Sprite*, 3> buttonIndicators_{};
+    std::array<Sprite*, 3> buttonUnderlines_{};
+    std::array<float, 3> buttonSelection_{};
     std::array<Sprite*, 2> titleMist_{};
     Sprite* titleLogo_ = nullptr;
     Sprite* titleShade_ = nullptr;

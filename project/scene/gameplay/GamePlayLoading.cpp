@@ -43,6 +43,12 @@ void GamePlayScene::BeginInitialize()
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("player_modular/Swat.gltf"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("bullet/bullet.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("grenade/grenade.obj"); });
+    loadQueue_.Add([] {
+        // UIの明るさだけを固定できるよう、投擲用とは別のマテリアルで読み込む。
+        auto* models = ModelManager::GetInstance();
+        models->LoadModel("./grenade/grenade.obj");
+        models->FindModel("./grenade/grenade.obj")->SetLightingType(LightingType::None);
+    });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("enemy/enemy.obj"); });
     for (const auto& style : kAmmoDropStyles) {
         loadQueue_.Add([modelPath = style.modelPath] {
@@ -53,6 +59,13 @@ void GamePlayScene::BeginInitialize()
         });
     }
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("boss/boss.obj"); });
+    loadQueue_.Add([] {
+        // 床の予告は照明や影で暗くならない専用マテリアルにする。
+        auto* models = ModelManager::GetInstance();
+        models->LoadModel("boss/charge_warning.obj");
+        models->FindModel("boss/charge_warning.obj")->SetLightingType(LightingType::None);
+    });
+    loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("wooden_crate/wooden_crate.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("block/block.obj"); });
     loadQueue_.Add([] { ModelManager::GetInstance()->LoadModel("casing/casing.obj"); });
     loadQueue_.Add([] { TextureManager::GetInstance()->LoadTexture("Resources/uvChecker.png"); });
@@ -85,6 +98,10 @@ void GamePlayScene::BeginInitialize()
     });
     loadQueue_.Add([this] {
         InitializeGuideUi();
+    });
+    loadQueue_.Add([this] {
+        // チュートリアルへ切り替えた時に使う案内も、描画前に作っておく
+        InitializeTutorialUi();
     });
     loadQueue_.Add([this] {
         InitializePauseUi();
@@ -151,6 +168,35 @@ void GamePlayScene::BeginInitialize()
                 "Resources/hud/count_glyphs.png");
             glyph->SetTextureSize({ 32.0f, 64.0f });
             glyph->SetSize({ 14.0f, 28.0f });
+        }
+    });
+    loadQueue_.Add([this] {
+        // カメラの移動や画面の縦横比に影響されない、モデル表示用のカメラ。
+        grenadeUiCamera_.SetTranslate({ 0.0f, 0.0f, -5.0f });
+        grenadeUiCamera_.SetRotate({ 0.0f, 0.0f, 0.0f });
+        grenadeUiCamera_.SetAspectRatio(1.0f);
+        grenadeUiCamera_.SetFovY(0.65f);
+        grenadeUiCamera_.Update();
+
+        // ゲーム中に投げるものと同じ形のモデルを、小さなUIとして描く。
+        grenadeUiModel_ = std::make_unique<Object3d>();
+        grenadeUiModel_->Initialize(GetContext().object3dCommon);
+        grenadeUiModel_->SetModel("./grenade/grenade.obj");
+        grenadeUiModel_->SetCamera(&grenadeUiCamera_);
+        grenadeUiModel_->SetSkeletonVisible(false);
+        grenadeUiModel_->SetScale({ 0.8f, 0.8f, 0.8f });
+        grenadeUiModel_->SetRotate({ 0.3f, 0.6f, 0.0f });
+        grenadeUiModel_->SetTranslate({ 0.0f, 0.0f, 0.0f });
+        grenadeUiModel_->UpdateTransform();
+
+        // 数字画像の末尾に追加したxと無限記号も、同じSpriteで切り替える。
+        for (auto& glyph : grenadeCountSprites_) {
+            glyph = std::make_unique<Sprite>();
+            glyph->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(),
+                "Resources/hud/count_glyphs.png");
+            glyph->SetTextureSize({ 32.0f, 64.0f });
+            glyph->SetSize({ 18.0f, 36.0f });
+            glyph->SetAnchorPoint({ 0.0f, 0.5f });
         }
     });
     loadQueue_.Add([this] {
@@ -378,7 +424,8 @@ void GamePlayScene::OnActivated(float transitionFrame)
     missionStartFrame_ = 0;
     missionStartActive_ = true;
     // 通常の作戦だけは確認を待つ。自動デモと死亡演出の確認起動は従来どおり進める。
-    briefingBeforeMission_ = !gameOverDemo_ && deathPreviewFrames_ < 0;
+    // チュートリアルは操作を1つずつ教えるので、最初の操作説明は出さない。
+    briefingBeforeMission_ = !gameOverDemo_ && deathPreviewFrames_ < 0 && !tutorialMode_;
     if (briefingBeforeMission_) { BeginControlsBriefing(); }
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
@@ -419,12 +466,8 @@ void GamePlayScene::QueueInitialLevelObjects()
         std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         std::vector<Vector3> waypoints;
         for (const auto& point : sorted) { waypoints.push_back(point.second); }
-        loadQueue_.Add([this, position, waypoints = std::move(waypoints)] {
-            auto enemy = std::make_unique<Enemy>();
-            enemy->Initialize(GetContext().object3dCommon, GetContext().camera, position);
-            ConfigureEnemyForLevel(*enemy);
-            enemy->SetWaypoints(waypoints);
-            enemies_.push_back(std::move(enemy));
+        loadQueue_.Add([this, name, position, waypoints = std::move(waypoints)] {
+            enemies_.push_back(CreateLevelEnemy(name, position, waypoints));
         });
     }
     for (size_t i = 0; i < preparedLevel_.objects.size(); ++i) {
@@ -448,5 +491,7 @@ void GamePlayScene::QueueInitialLevelObjects()
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
         initializing_ = false;
         initialized_ = true;
+        // 準備前にチュートリアルを指定されていたら、ここでステージを切り替える
+        if (tutorialMode_) { EnableTutorial(); }
     });
 }

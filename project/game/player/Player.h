@@ -123,6 +123,12 @@ public:
     // 現在の武器に残っている弾数を返す
     int GetCurrentAmmo() const;
 
+    // UIへ、まだ投げていないグレネードの残数を渡す。
+    int GetGrenadeCount() const { return grenadeCount_; }
+    // チュートリアルでは残数を減らさず、何度でも投げられるようにする。
+    void SetUnlimitedGrenades(bool unlimited) { unlimitedGrenades_ = unlimited; }
+    bool HasUnlimitedGrenades() const { return unlimitedGrenades_; }
+
     // 現在の武器の最大弾数を返す
     int GetCurrentMaxAmmo() const;
 
@@ -130,6 +136,8 @@ public:
     void AddReserveAmmo(AttackMode weapon, int rounds);
     // 選択中の銃の予備弾数を返す。銃以外は -1 を返す。
     int GetCurrentReserveAmmo() const;
+    // チュートリアル用。ハンドガンは予備弾を減らさず、何度でもリロードできる。
+    void SetUnlimitedHandgunReserve(bool unlimited) { unlimitedHandgunReserve_ = unlimited; }
 
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
@@ -339,6 +347,7 @@ private:
 
     // ハンドガンは予備弾10発を持って開始する。
     int handgunReserveAmmo_ = 10;
+    bool unlimitedHandgunReserve_ = false;
 
     // アサルトライフルは空の弾倉で開始する。
     int assaultRifleAmmo_ = 0;
@@ -450,6 +459,11 @@ private:
     std::vector<SphereCollider> bulletAimSpheres_;
 
     // プレイヤーが投げたグレネード
+    // 通常プレイは3個から始め、投げた分だけ残数を減らす。
+    static constexpr int kInitialGrenadeCount = 3;
+    int grenadeCount_ = kInitialGrenadeCount;
+    // 無限設定は復活しても維持し、練習を続けられるようにする。
+    bool unlimitedGrenades_ = false;
     std::vector<std::unique_ptr<PlayerGrenade>> grenades_;
 
     // GamePlaySceneへまだ渡していないカメラシェイク要求

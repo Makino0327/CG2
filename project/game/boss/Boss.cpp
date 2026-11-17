@@ -47,6 +47,9 @@ void Boss::Initialize(
     attackCenter_ = position_;
     attackRadius_ = 0.0f;
     walkPhase_ = 0.0f;
+    charge_.Reset();
+    chargeCooldown_ = 0;
+    chargeRecovery_ = false;
 
     // ボス専用の3Dオブジェクトを作る
     object_ = std::make_unique<Object3d>();
@@ -59,10 +62,17 @@ void Boss::Initialize(
     object_->SetRotate(rotation_);
     object_->SetScale(baseScale_);
     object_->Update();
+
+    // 赤い帯と矢印を、床の少し上へ表示する専用モデル。
+    chargeWarning_ = std::make_unique<Object3d>();
+    chargeWarning_->Initialize(object3dCommon);
+    chargeWarning_->SetCamera(camera);
+    chargeWarning_->SetModel("boss/charge_warning.obj");
 }
 
 void Boss::Update(const Vector3& targetPosition, bool canAttack)
 {
+    charge_.BeginFrame();
     // 攻撃判定は着地した瞬間だけ発生させ、連続ダメージを防ぐ
     impactThisFrame_ = false;
     if (!object_) {
@@ -93,6 +103,7 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             isReadyToRemove_ = true;
         }
     } else {
+        if (chargeCooldown_ > 0) { --chargeCooldown_; }
         // 描画だけを揺らし、当たり判定の中心は地上の移動位置に保つ
         Vector3 drawPosition = position_;
         Vector3 drawRotation = rotation_;
@@ -103,6 +114,8 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             // プレイヤー死亡後は追跡と攻撃を中止する
             action_ = Action::Chase;
             actionTimer_ = 0;
+            charge_.Reset();
+            chargeRecovery_ = false;
         } else if (action_ == Action::Chase) {
             const float dx = targetPosition.x - position_.x;
             const float dz = targetPosition.z - position_.z;
@@ -115,6 +128,8 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             }
             if (distance <= colliderRadius_ + 4.0f) {
                 BeginAttack(targetPosition);
+            } else if (distance >= 14.0f && chargeCooldown_ == 0 && BeginCharge(targetPosition)) {
+                // 遠い相手には、追跡の代わりに1秒の予告付き突進を選ぶ。
             } else {
                 MoveTowards(targetPosition);
                 walkPhase_ += 0.09f;
@@ -123,9 +138,29 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             drawRotation = rotation_;
             drawRotation.z += std::sin(walkPhase_) * 0.045f;
             drawPosition.y += std::abs(std::sin(walkPhase_)) * 0.12f;
+        } else if (action_ == Action::Charge) {
+            const bool windingUp = charge_.IsWindingUp();
+            charge_.Update();
+            position_ = charge_.GetPosition();
+            drawPosition = position_;
+            drawRotation = rotation_;
+            // 溜めでは身を引き、走り出したら前傾して勢いを見せる。
+            drawRotation.x += windingUp ? -0.2f * charge_.GetWindupProgress() : 0.3f;
+            if (windingUp) {
+                object_->SetColor({ 1.0f, 0.25f, 0.15f, 1.0f });
+            } else {
+                walkPhase_ += 0.55f;
+                drawPosition.y += std::abs(std::sin(walkPhase_)) * 0.2f;
+            }
+            if (charge_.IsFinished()) {
+                action_ = Action::Recovery;
+                actionTimer_ = 0;
+                chargeRecovery_ = true;
+                chargeCooldown_ = 180;
+            }
         } else if (action_ == Action::Windup) {
-            // 叩きつけは1秒、広い踏みつけは1.4秒溜めて回避時間を確保する
-            const int windupFrames = stompAttack_ ? 84 : 60;
+            // 叩きつけは0.9秒、踏みつけは1.2秒溜めてから攻撃する。
+            const int windupFrames = stompAttack_ ? 72 : 54;
             const float progress = static_cast<float>(++actionTimer_) /
                 static_cast<float>(windupFrames);
             drawRotation.x -= progress * (stompAttack_ ? 0.12f : 0.35f);
@@ -143,8 +178,8 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
                 object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
             }
         } else {
-            // 攻撃後は立ち止まり、プレイヤーが反撃できる隙を作る
-            const int recoveryFrames = stompAttack_ ? 105 : 75;
+            // 攻撃後の隙を短くし、叩きつけは1秒、踏みつけは1.4秒で次の行動へ戻る。
+            const int recoveryFrames = chargeRecovery_ ? 90 : (stompAttack_ ? 84 : 60);
             const float recovery = 1.0f - std::clamp(
                 static_cast<float>(++actionTimer_) / 24.0f, 0.0f, 1.0f);
             drawRotation.x += recovery * (stompAttack_ ? 0.12f : 0.45f);
@@ -152,6 +187,8 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             if (actionTimer_ >= recoveryFrames) {
                 action_ = Action::Chase;
                 actionTimer_ = 0;
+                chargeRecovery_ = false;
+                charge_.Reset();
             }
         }
 
@@ -216,6 +253,8 @@ void Boss::MoveTowards(const Vector3& targetPosition)
 
 void Boss::BeginAttack(const Vector3& targetPosition)
 {
+    chargeRecovery_ = false;
+    charge_.Reset();
     action_ = Action::Windup;
     actionTimer_ = 0;
     stompAttack_ = (++attackCount_ % 3 == 0);
@@ -238,8 +277,41 @@ void Boss::BeginAttack(const Vector3& targetPosition)
     }
 }
 
-bool Boss::IsAttackHit(const SphereCollider& target) const
+bool Boss::BeginCharge(const Vector3& targetPosition)
 {
+    // 壁で進めない場合は通常の追跡へ戻し、次の再判定まで少し間を空ける。
+    chargeCooldown_ = 60;
+    if (!charge_.Begin(position_, targetPosition, colliderRadius_, wallColliders_)) { return false; }
+    action_ = Action::Charge;
+    actionTimer_ = 0;
+    stompAttack_ = false;
+    chargeRecovery_ = false;
+    rotation_.y = std::atan2(charge_.GetDirection().x, charge_.GetDirection().z);
+    return true;
+}
+
+void Boss::DrawAttackWarning()
+{
+    if (isDead_ || action_ != Action::Charge || !charge_.IsWindingUp() || !chargeWarning_) { return; }
+    const Vector3& direction = charge_.GetDirection();
+    const Vector3& start = charge_.GetStart();
+    const Vector3& end = charge_.GetEnd();
+    const float length = std::hypot(end.x - start.x, end.z - start.z);
+    // 本体の半径を含む通過範囲を示し、予告の外へ横に避けられるようにする。
+    chargeWarning_->SetTranslate({ start.x - direction.x * colliderRadius_,
+        position_.y - std::abs(baseScale_.y) + 0.07f, start.z - direction.z * colliderRadius_ });
+    chargeWarning_->SetRotate({ 0.0f, rotation_.y, 0.0f });
+    chargeWarning_->SetScale({ colliderRadius_, 1.0f, length + colliderRadius_ * 2.0f });
+    chargeWarning_->SetColor({ 1.0f, 0.08f, 0.02f, 0.25f + charge_.GetWindupProgress() * 0.2f });
+    chargeWarning_->UpdateTransform();
+    chargeWarning_->Draw();
+}
+
+bool Boss::IsAttackHit(const SphereCollider& target)
+{
+    if (isDead_) { return false; }
+    // 終点へ到着したフレームも含め、突進した移動区間で命中を判定する。
+    if (action_ == Action::Charge || chargeRecovery_) { return charge_.TryHit(target); }
     if (!IsImpactFrame()) {
         return false;
     }

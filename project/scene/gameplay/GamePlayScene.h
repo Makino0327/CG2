@@ -29,6 +29,7 @@
 #include "../../game/minimap/Minimap.h"
 #include "../../game/generator/GeneratorActivation.h"
 #include "../../game/generator/GeneratorDoorLink.h"
+#include "../../game/tutorial/TutorialFlow.h"
 #include "PauseState.h"
 #include "../TransitionScanEffect.h"
 #include "../FrameLoadQueue.h"
@@ -66,6 +67,10 @@ public:
     void EnableGameOverDemo() { gameOverDemo_ = true; }
     // タイトルのフェードから、緑の演出の動きを途切れず引き継ぐ。
     void SetIntroScanFrameOffset(float frame) { introScanFrameOffset_ = frame; }
+    // 準備済みの本編を、チュートリアル用のステージと案内に切り替える。
+    void EnableTutorial();
+    // 突進や補給箱を確認するときは、ボス部屋から直接開始できる。
+    void EnableBossPreview() { levelFilePath_ = "Resources/level/bossStage.json"; }
     void Finalize() override;
     void DrawImGui() override;
 
@@ -127,6 +132,10 @@ private:
     void CheckCollisions();
     // 撃破された通常敵から弾薬を出し、接近したプレイヤーに渡す。
     void UpdateAmmoDrops();
+    // 敵と木箱の両方から、同じ拾える弾薬を出す。
+    void SpawnAmmoDrop(const Vector3& groundPosition, size_t styleIndex);
+    // 木箱の耐久を減らし、壊れたときだけ2種類の弾薬を出す。
+    void DamageAmmoCrate(size_t index, int damage);
     // 一番近い弾薬に種類を示すラベルを重ねる。
     void DrawAmmoDropLabel();
     // ダメージが成立したときだけ、カメラ揺れと画面ノイズを発生させる。
@@ -161,6 +170,8 @@ private:
     void UpdateAmmoUiSprites();
     // 左下の残弾UI用Spriteを描画する
     void DrawAmmoUiSprites();
+    // 残弾UIの上へ、グレネードのモデルと残数を表示する。
+    void DrawGrenadeUi();
     // ボスHPバー用Spriteを現在HPに合わせて更新する
     void UpdateBossHpUiSprites();
     // ボスHPバー用Spriteを描画する
@@ -183,6 +194,59 @@ private:
     bool IsBossTeleportUsable() const;
     // 踏めるテレポーターの周りに回転するパーティクルを出し、ミニマップにも表示する
     void UpdateTeleporterEffects();
+
+    // チュートリアル(GamePlayTutorial.cpp)
+    // ステージから目印を集め、敵と弾薬を課題の最初の状態へ戻す。
+    void ResetTutorial(const std::vector<LevelObjectData>& allObjects);
+    // Enemy_T5_00 のような名前から、課題の番号と練習用かどうかを設定する。
+    void ConfigureTutorialEnemy(Enemy& enemy, const std::string& name);
+    // 敵を1体作り、ステージ上の設定を渡す。初回読み込みと再読み込みで共有する。
+    std::unique_ptr<Enemy> CreateLevelEnemy(const std::string& name, const Vector3& position,
+        const std::vector<Vector3>& waypoints);
+    // 課題の達成を調べ、目印の光とお知らせの時間を進める。
+    void UpdateTutorial();
+    // 倒れたら少し待ってから、課題の入口へ戻す。
+    void UpdateTutorialDeath();
+    void RespawnTutorialPlayer();
+    void EmitTutorialMarker(const Vector3& center, float radius, const Vector4& color);
+    // 課題の番号の敵のうち、まだ生きている数と最初の数
+    int CountTutorialEnemies(int step, bool aliveOnly) const;
+    // 今の課題のチェック項目(最大2つ)。表示と達成判定で同じ内容を使う。
+    struct TutorialCheck {
+        int label = 0;  // tutorial_labels.png のチェック項目の行
+        int value = 0;  // 今の数
+        int target = 0; // 目標の数。0なら数を出さない
+        bool done = false;
+    };
+    int GetTutorialChecks(std::array<TutorialCheck, 2>& checks) const;
+    void InitializeTutorialUi();
+    void DrawTutorialUi();
+    void DrawTutorialNotice();
+private:
+    bool tutorialMode_ = false;
+    TutorialFlow tutorial_;
+    // 課題の番号ごとの、最初にいた敵の数(倒した数の表示に使う)
+    std::unordered_map<int, int> tutorialEnemyTotals_;
+    std::unordered_map<int, Vector3> tutorialCheckpoints_;
+    Vector3 tutorialGoal_{};
+    size_t tutorialAmmoTotal_ = 0;
+    uint32_t tutorialFiredWeapons_ = 0; // 撃った銃の種類をビットで覚える
+    int tutorialDeathFrames_ = 0;
+    bool tutorialLeaving_ = false;
+    std::unique_ptr<Sprite> tutorialPanel_;
+    std::unique_ptr<Sprite> tutorialAccent_;
+    std::array<std::unique_ptr<Sprite>, 3> tutorialTextRows_;
+    std::array<std::unique_ptr<Sprite>, 2> tutorialCheckLabels_;
+    std::array<std::unique_ptr<Sprite>, 2> tutorialCheckBoxes_;
+    std::array<std::unique_ptr<Sprite>, 2> tutorialCheckFills_;
+    std::array<std::array<std::unique_ptr<Sprite>, 3>, 2> tutorialCheckCounts_;
+    std::array<std::unique_ptr<Sprite>, TutorialFlow::kStepCount> tutorialStepPips_;
+    std::unique_ptr<Sprite> tutorialBannerBack_;
+    std::unique_ptr<Sprite> tutorialControls_; // 右下の操作説明
+    std::unique_ptr<Sprite> tutorialControlsAccent_;
+    std::unique_ptr<Sprite> tutorialDivider_; // 説明とチェック項目の間の線
+    std::array<std::unique_ptr<Sprite>, 2> tutorialBannerLines_; // お知らせの上下の緑の線
+    std::array<std::unique_ptr<Sprite>, 2> tutorialBannerLabels_;
 private:
     std::unique_ptr<Object3d> object3d_;
 
@@ -251,9 +315,19 @@ private:
         size_t styleIndex = 0;
         int pickupDelay = 30; // 出現直後に重なっていても、少しの間は弾薬を表示する。
         float hoverPhase = 0.0f; // 箱の向きを固定したまま上下させるための角度。
+        bool tutorial = false; // チュートリアルで最初から置いてある弾薬
     };
     std::vector<AmmoDrop> ammoDrops_;
     std::unique_ptr<Sprite> ammoDropLabel_;
+
+    // ボス部屋の補給用木箱。壁配列の要素は残し、破壊時に判定だけ無効にする。
+    struct AmmoCrate {
+        std::unique_ptr<Object3d> object;
+        BoxCollider collider{};
+        size_t wallColliderIndex = 0;
+        int hp = 2; // 銃弾2発、またはナイフ1回で壊せる。
+    };
+    std::vector<AmmoCrate> ammoCrates_;
 
     /// ボス
     // 現在出現しているボス
@@ -285,6 +359,12 @@ private:
 
     // 残弾UIを見えやすくする黒い半透明の背景パネル用Sprite
     std::unique_ptr<Sprite> ammoBackgroundSprite_;
+
+    // ワールド用カメラから独立して、UIのモデルを正面から映す。
+    Camera grenadeUiCamera_;
+    std::unique_ptr<Object3d> grenadeUiModel_;
+    // 左側にx、右側に残数または無限記号を表示する。
+    std::array<std::unique_ptr<Sprite>, 2> grenadeCountSprites_;
 
     // 発射した弾が前へ飛び出して消える演出の状態
     struct AmmoFireEffect {
@@ -361,6 +441,8 @@ private:
         Vector3 closedPosition{};
         Vector3 closedColliderCenter{};
         float liftDistance = 0.0f;
+        int tutorialStep = 0; // TutorialDoor_N のN。0は発電機で開く通常のドア
+        double tutorialOpenSeconds = 0.0;
     };
     std::vector<DoorData> doors_;
     GeneratorDoorLink generatorDoorLink_;
