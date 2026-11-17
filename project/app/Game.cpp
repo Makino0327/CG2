@@ -124,9 +124,13 @@ void Game::Initialize() {
 
     // 起動指定に合わせて、通常プレイ・展示・演出確認の入口を選ぶ。
     const std::wstring_view commandLine = GetCommandLineW();
-    if (commandLine.find(L"--gameover-demo") != std::wstring_view::npos) {
+    if (commandLine.find(L"--clear-demo") != std::wstring_view::npos) {
+        // 起動時に、ボス撃破からリザルトまでの自動デモを始める。
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableClearDemo();
+        sceneManager_->SetNextScene(std::move(scene));
+    } else if (commandLine.find(L"--gameover-demo") != std::wstring_view::npos) {
         // 展示用の起動では、タイトル操作なしで自動プレイを始める。
-        gameOverDemoActive_ = true;
         auto scene = std::make_unique<GamePlayScene>();
         scene->EnableGameOverDemo();
         sceneManager_->SetNextScene(std::move(scene));
@@ -169,37 +173,37 @@ void Game::Update() {
         }
     }
 
+    const bool demoActive = sceneManager_ && sceneManager_->IsDemo();
     if (offscreenRenderer_ && input_) {
         offscreenRenderer_->Update(
             // ポーズ中は衝撃波などの画面エフェクトも同じ状態で止める。
             sceneManager_ && sceneManager_->IsPaused() ? 0.0f : 1.0f / 60.0f,
             input_->GetMousePosition(),
             // デモ中は右クリックによる画面側の操作も受け付けない。
-            !gameOverDemoActive_ && input_->PushMouseRight());
+            !demoActive && input_->PushMouseRight());
     }
 
 
-    // F6は通常ビルドでも使え、自動プレイ終了時はタイトルへ戻す。
+    // F6でボス戦の自動デモを始め、デモ中にもう一度押すとタイトルへ戻す。
     const bool toggleDemo = winApp_ && winApp_->ConsumeDemoToggleRequest();
     if (toggleDemo && sceneManager_ && !sceneManager_->IsLoading()) {
-        gameOverDemoActive_ = !gameOverDemoActive_;
-        if (gameOverDemoActive_) {
-            auto scene = std::make_unique<GamePlayScene>();
-            scene->EnableGameOverDemo();
-            sceneManager_->SetNextScene(std::move(scene));
-        } else {
+        if (demoActive) {
             sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+        } else {
+            auto scene = std::make_unique<GamePlayScene>();
+            scene->EnableClearDemo();
+            sceneManager_->SetNextScene(std::move(scene));
         }
     }
 
 #ifdef USE_IMGUI
     // 調整中の画面を、タイトルや本編からF8ですぐに確認できるようにする。
-    if (!gameOverDemoActive_ && input_ && sceneManager_ && input_->TriggerKey(DIK_F8)) {
+    if (!demoActive && !toggleDemo && input_ && sceneManager_ && input_->TriggerKey(DIK_F8)) {
         sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
     }
 
     // F1を押した瞬間にデバッグモードを切り替える
-    if (!gameOverDemoActive_ && input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
+    if (!demoActive && !toggleDemo && input_->TriggerKey(DIK_F1) && !(sceneManager_ && sceneManager_->IsPaused())) {
         isDebugMode_ = !isDebugMode_;
     }
 #endif
@@ -282,7 +286,13 @@ void Game::Draw() {
 
 void Game::DrawDemoStatus() {
     // 通常プレイへ戻ったら、デモ専用の表示も消す。
-    if (!gameOverDemoActive_ || !demoStatusLabel_) { return; }
+    if (!sceneManager_ || !sceneManager_->IsDemo() || !demoStatusLabel_) { return; }
+    // 画面効果の後にも、デモ表示のSpriteが使う深度バッファを設定する。
+    auto* commandList = dxCommon_->GetCommandList();
+    const auto rtv = dxCommon_->GetCurrentBackBufferRTVHandle();
+    const auto dsv = dxCommon_->GetDSVHandle();
+    commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+    commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     spriteCommon_->CommonDrawSetting();
     demoStatusLabel_->Draw();
 }

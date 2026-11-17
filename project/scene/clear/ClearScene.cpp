@@ -1,4 +1,4 @@
 #include "ClearScene.h"
 
-// 見た目と操作はResultSceneで共通化し、クリア用の見出しとボタンを選ぶ
-ClearScene::ClearScene() : ResultScene(Type::Clear) {}
+// 撃破時点の戦績を、見た目と操作を担当するResultSceneへ渡す。
+ClearScene::ClearScene(const ClearResult& result) : ResultScene(result) {}

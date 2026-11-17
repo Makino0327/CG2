@@ -45,6 +45,10 @@ public:
 
     bool IsDead() const { return isDead_; }
 
+    // 同じ発砲で出た弾には、同じ番号を付けて命中率の集計に使う。
+    void SetShotNumber(size_t number) { shotNumber_ = number; }
+    size_t GetShotNumber() const { return shotNumber_; }
+
     // 命中エフェクトへ弾の進行方向を渡すため速度を返す
     const Vector3& GetVelocity() const { return velocity_; }
 
@@ -82,6 +86,7 @@ private:
 
 private:
     std::unique_ptr<Object3d> object_;
+    size_t shotNumber_ = 0;
 
     // 弾が通過した位置へ軌跡を生成する共有パーティクルシステム
     ParticleSystem* particleSystem_ = nullptr;

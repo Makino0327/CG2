@@ -231,13 +231,6 @@ bool GamePlayScene::CheckBossTeleport()
             return false;
         }
 
-        // テレポーターを踏んだらボスステージへ移動する
-        constexpr bool kTeleportGoesToClear = false;
-        if (kTeleportGoesToClear) {
-            GetSceneManager()->SetNextScene(std::make_unique<ClearScene>());
-            return true;
-        }
-
         // 指定されたJSONを監視対象にしてレベルを読み直す
         levelFilePath_ = teleport.targetLevel;
         levelHotReload_.Initialize(levelFilePath_);
@@ -276,6 +269,10 @@ void GamePlayScene::ReloadLevel(bool isManualReload)
     // Recreate enemies from the current level data.
     SpawnEnemies(allObjects);
     SpawnBosses(allObjects);
+    // ボスを作り直したときは、ボス戦タイムと撃破時の記録を取り直す。
+    runStats_.bossSeconds = 0.0;
+    completedRun_.reset();
+    bossDefeatFrame_ = 0;
     // 敵を作り直した後に、課題の進み具合と置いてある弾薬を最初へ戻す。
     if (tutorialMode_) { ResetTutorial(allObjects); }
 
@@ -305,16 +302,25 @@ GamePlayScene::PreparedLevel GamePlayScene::ReadInitialLevel(const std::string& 
 void GamePlayScene::Update()
 {
     const float dt = 1.0f / 60.0f;
-    if (demoGameOverActive_) {
+    if (demoResult_) {
         // 黒くなった画面を1フレーム描いてから、同じ本編を初期状態へ戻す。
-        if (demoGameOver_->IsDemoRestartReady()) { RestartDemoRound(); }
-        else { demoGameOver_->Update(); }
+        if (demoResult_->IsDemoRestartReady()) { RestartDemoRound(); }
+        else { demoResult_->Update(); }
         return;
     }
     if (player_ && player_->IsDead()) {
         // チュートリアルではゲームオーバーにせず、課題の入口からやり直す。
         if (tutorialMode_) { UpdateTutorialDeath(); }
         else { UpdateDeathSequence(); }
+        return;
+    }
+    if (clearShutterFrame_ > 0) {
+        // シャッターが閉まる間は、戦闘画面をその場で止める。
+        UpdateClearTransition();
+        return;
+    }
+    if (completedRun_) {
+        UpdateBossDefeatSequence();
         return;
     }
     playerDeadFrames_ = 0;
@@ -330,7 +336,7 @@ void GamePlayScene::Update()
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
         return;
     }
-    if (!gameOverDemo_ && UpdatePauseMenu(dt)) {
+    if (!IsDemo() && UpdatePauseMenu(dt)) {
         // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
         generatorPreviousUpdate_ = std::chrono::steady_clock::now();
         return;
@@ -347,7 +353,7 @@ void GamePlayScene::Update()
 
 #ifdef USE_IMGUI
     // F7で通常の被弾を確認できる。無敵時間中はダメージも演出も再発生しない。
-    if (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
+    if (!IsDemo() && GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
         Vector3 attackerPosition = player_->GetWorldPosition();
         attackerPosition.x += 2.0f;
         ApplyPlayerDamage(attackerPosition);
@@ -356,7 +362,7 @@ void GamePlayScene::Update()
     // 動作確認用の自動再生とF9からも、通常と同じ倒れる処理へ入る。
     bool previewDeath = deathPreviewFrames_ > 0 && --deathPreviewFrames_ == 0;
 #ifdef USE_IMGUI
-    previewDeath = previewDeath || (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F9));
+    previewDeath = previewDeath || (!IsDemo() && GetContext().input && GetContext().input->TriggerKey(DIK_F9));
 #endif
     if (previewDeath && player_) {
         player_->Die();
@@ -378,12 +384,12 @@ void GamePlayScene::Update()
     }
 
     // Reload the level JSON manually when F5 is pressed.
-    if (!gameOverDemo_ && GetContext().input && GetContext().input->TriggerKey(DIK_F5)) {
+    if (!IsDemo() && GetContext().input && GetContext().input->TriggerKey(DIK_F5)) {
         ReloadLevel(true);
     }
 
     // Mキーを押した瞬間にミニマップの大きさを切り替える
-    if (!gameOverDemo_ && GetContext().input &&
+    if (!IsDemo() && GetContext().input &&
         GetContext().input->TriggerKey(DIK_M)) {
         if (minimap_) {
             minimap_->ToggleExpanded();
@@ -391,7 +397,7 @@ void GamePlayScene::Update()
     }
 
     // Reload the level automatically after the file update becomes stable.
-    if (!gameOverDemo_ && levelHotReload_.Update()) {
+    if (!IsDemo() && levelHotReload_.Update()) {
         ReloadLevel(false);
     }
 
@@ -401,7 +407,7 @@ void GamePlayScene::Update()
     if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(dt); }
 
     // デモ中は移動キーやマウスでデバッグカメラを操作できないようにする。
-    if (!gameOverDemo_ && debugCamera_ && GetContext().isDebugMode) {
+    if (!IsDemo() && debugCamera_ && GetContext().isDebugMode) {
         debugCamera_->Update(
             GetContext().camera,
             GetContext().input,
@@ -446,6 +452,12 @@ void GamePlayScene::Update()
         return;
     }
 
+    // 説明・開始演出・ポーズ・デバッグカメラを抜けた通常更新で実時間を加算する。
+    if (player_ && !tutorialMode_ && demoMode_ != DemoMode::GameOver && !completedRun_) {
+        runStats_.clearSeconds += generatorDeltaSeconds;
+        if (!bosses_.empty()) { runStats_.bossSeconds += generatorDeltaSeconds; }
+    }
+
     if (player_) {
         // 発射する瞬間に描画されている敵の位置で、マウスの狙い先を調べる。
         std::vector<BoxCollider> aimBoxes;
@@ -463,8 +475,9 @@ void GamePlayScene::Update()
             if (!boss->IsDead()) { aimSpheres.push_back(boss->GetCollider()); }
         }
         player_->SetBulletAimTargets(aimBoxes, aimSpheres);
-        // 展示中の入力は自動移動だけに絞り、射撃やメニュー操作を混ぜない。
-        if (gameOverDemo_) { player_->UpdateDemo(GetContext().camera, UpdateDemoMovement()); }
+        // 展示中は、モードに合わせた自動操作だけでプレイヤーを動かす。
+        if (demoMode_ == DemoMode::Clear) { UpdateClearDemoPlayer(); }
+        else if (demoMode_ == DemoMode::GameOver) { player_->UpdateDemo(GetContext().camera, UpdateDemoMovement()); }
         else { player_->Update(GetContext().camera); }
 
         // Player更新中に発生したグレネード爆発を敵へ反映する
@@ -540,8 +553,10 @@ void GamePlayScene::Update()
 
     for (auto& boss : bosses_) {
         // 巨大ゾンビが生存中のプレイヤーを追跡して攻撃する
+        boss->SetBloodParticleSystem(bloodParticleSystem_.get());
         boss->Update(player_ ? player_->GetWorldPosition() : Vector3{},
             player_ && !player_->IsDead());
+        if (boss->IsDeathBurstFrame()) { EmitBossDeathBurst(*boss); }
 
         // 溜め中は赤い予告円、着地時は外へ広がる土煙色の衝撃を出す
         if (particleSystem_ && (boss->IsWindingUp() || boss->IsImpactFrame())) {
@@ -571,24 +586,8 @@ void GamePlayScene::Update()
         }
     }
 
-    // ボスがいない通常ステージではクリアにしないため、削除前の状態を保存する
-    const bool hadBoss = !bosses_.empty();
-
-    bosses_.erase(
-        std::remove_if(
-            bosses_.begin(),
-            bosses_.end(),
-            [](const std::unique_ptr<Boss>& boss) {
-                // 撃破演出が終わったボスを消す
-                return boss->IsReadyToRemove();
-            }),
-        bosses_.end());
-
-    // 全ボスの撃破演出が終わったらクリア画面へ進む。プレイヤー死亡時はゲームオーバーを優先する
-    if (hadBoss && bosses_.empty() && player_ && !player_->IsDead()) {
-        GetSceneManager()->SetNextScene(std::make_unique<ClearScene>());
-        return;
-    }
+    // ボスが複数いる場合、先に倒したボスは破片が消えたあとに片付ける。
+    std::erase_if(bosses_, [](const auto& boss) { return boss->IsReadyToRemove(); });
 
     // ミニマップへ渡す生存中の敵位置を集める
     std::vector<Vector3> minimapEnemyPositions;
@@ -615,15 +614,36 @@ void GamePlayScene::Update()
     UpdateBossHpUiSprites();
 
     // 全敵の視界判定後に近接攻撃を処理する
-    if (!gameOverDemo_) { UpdateMeleeAttack(); }
+    if (!IsDemo()) { UpdateMeleeAttack(); }
 
     CheckCollisions();
+
+    // とどめの弾や、このフレームの撃破・被弾を含めてから戦績を確定する。
+    if (!completedRun_ && !bosses_.empty() && player_ && !player_->IsDead() &&
+        std::all_of(bosses_.begin(), bosses_.end(), [](const auto& boss) { return boss->IsDead(); })) {
+        runStats_.shotsFired = player_->GetShotCount();
+        runStats_.shotsHit = player_->GetHitShotCount();
+        completedRun_ = runStats_;
+        // 撃破と被弾が重なっても、撃破演出には白黒のノイズを持ち越さない。
+        if (auto* renderer = GetContext().offscreenRenderer) {
+            renderer->ResetDamageFeedback();
+            renderer->SetVignetteIntensity(0.0f);
+            renderer->SetPostEffectEnabled(PostEffectType::Vignette, false);
+            renderer->StopShockwave();
+            renderer->SetPostEffectEnabled(PostEffectType::RandomNoise, false);
+            if (renderer->GetPostEffectType() == PostEffectType::RandomNoise) {
+                renderer->SetPostEffectType(PostEffectType::Copy);
+            }
+        }
+        // 撃破時点で入力を止め、次のフレームからカメラと撃破演出だけを進める。
+        return;
+    }
 
     // 回収した予備弾も、そのフレームの左下の表示に反映する。
     UpdateAmmoUiSprites();
 
     // 移動とダメージ判定の後に、近くの発電機へのE入力を処理する
-    if (!gameOverDemo_) { UpdateGeneratorInteraction(generatorDeltaSeconds); }
+    if (!IsDemo()) { UpdateGeneratorInteraction(generatorDeltaSeconds); }
     UpdateGeneratorWorld(generatorDeltaSeconds);
     UpdateTeleporterEffects();
     if (tutorialMode_) {
@@ -639,7 +659,7 @@ void GamePlayScene::Update()
             player_->IsDead() ? 0.0f : missingHp/warningRange);
         const bool isAimingGun =
             GetContext().input &&
-            !gameOverDemo_ &&
+            !IsDemo() &&
             GetContext().input->PushMouseRight() &&
             !player_->IsDead();
 
@@ -706,14 +726,8 @@ void GamePlayScene::UpdateDeathSequence()
         }
     }
     if (playerDeadFrames_ >= 150 && (!renderer || renderer->HasDeathSceneCapture())) {
-        if (gameOverDemo_) {
-            // 展示はシーンを破棄せず、同じゲームオーバー画面を本編の上で再生する。
-            if (!demoGameOver_) { demoGameOver_ = std::make_unique<GameOverScene>(); }
-            demoGameOver_->SetContext(GetContext());
-            demoGameOver_->SetSceneManager(GetSceneManager());
-            demoGameOver_->SetDemoMode(true);
-            demoGameOver_->Initialize();
-            demoGameOverActive_ = true;
+        if (IsDemo()) {
+            ShowDemoResult(std::make_unique<GameOverScene>());
             Logger::Log("[GameOverDemo] Game over displayed.");
         } else {
             GetSceneManager()->SetNextScene(std::make_unique<GameOverScene>());
@@ -726,6 +740,18 @@ void GamePlayScene::PrepareDemoRound()
     demoFrames_ = 0;
     ++demoRound_;
     demoEnemy_ = nullptr;
+    if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
+    if (demoMode_ == DemoMode::Clear) {
+        // ボス戦の終盤から始め、実際に当たった最後の数発で撃破する。
+        constexpr int kDemoBossHp = 3;
+        runStats_ = {};
+        player_->ResetDemoShooting();
+        for (auto& boss : bosses_) {
+            for (int hp = boss->GetHp(); hp > kDemoBossHp; --hp) { boss->OnHit(); }
+        }
+        Logger::Log("[ClearDemo] Boss round started: " + std::to_string(demoRound_));
+        return;
+    }
     const Vector3 origin = player_->GetWorldPosition();
     Vector3 spawn = origin;
     float bestDistance = 0.0f;
@@ -765,7 +791,6 @@ void GamePlayScene::PrepareDemoRound()
             if (distance < nearest) { nearest = distance; demoEnemy_ = enemy.get(); }
         }
     }
-    if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
     Logger::Log("[GameOverDemo] Round started: " + std::to_string(demoRound_));
 }
 
@@ -786,11 +811,40 @@ Vector3 GamePlayScene::UpdateDemoMovement()
     return { direction.x/distance*0.065f, 0.0f, direction.z/distance*0.065f };
 }
 
+void GamePlayScene::UpdateClearDemoPlayer()
+{
+    ++demoFrames_;
+    const auto activeBoss = std::find_if(bosses_.begin(), bosses_.end(),
+        [](const auto& boss) { return !boss->IsDead(); });
+    if (activeBoss == bosses_.end()) {
+        player_->UpdateDemo(GetContext().camera, {});
+        return;
+    }
+
+    // 構えが終わってから、同じボスを狙ってハンドガンを一定間隔で撃つ。
+    constexpr int kFirstShotFrame = 42;
+    constexpr int kShotInterval = 18;
+    const bool shoot = demoFrames_ >= kFirstShotFrame &&
+        (demoFrames_ - kFirstShotFrame) % kShotInterval == 0;
+    const Vector3 target = (*activeBoss)->GetCollider().center;
+    player_->UpdateDemo(GetContext().camera, {}, &target, shoot);
+}
+
+void GamePlayScene::ShowDemoResult(std::unique_ptr<ResultScene> result)
+{
+    // シーンを破棄せずにリザルトを再生し、暗転後に同じボス部屋を読み直す。
+    result->SetContext(GetContext());
+    result->SetSceneManager(GetSceneManager());
+    result->SetDemoMode(true);
+    result->Initialize();
+    demoResult_ = std::move(result);
+}
+
 void GamePlayScene::RestartDemoRound()
 {
     // 共有のモデルやプレイヤーは保ち、配置と体力だけを毎回戻す。
-    demoGameOver_->Finalize();
-    demoGameOverActive_ = false;
+    demoResult_->Finalize();
+    demoResult_.reset();
     demoEnemy_ = nullptr;
     playerDeadFrames_ = 0;
     ReloadLevel(false);
@@ -802,12 +856,12 @@ void GamePlayScene::RestartDemoRound()
         GetContext().offscreenRenderer->SetDeathBlur(0.0f);
     }
     OnActivated(0.0f);
-    Logger::Log("[GameOverDemo] Restart completed.");
+    Logger::Log(demoMode_ == DemoMode::Clear ? "[ClearDemo] Restart completed." : "[GameOverDemo] Restart completed.");
 }
 
 void GamePlayScene::DrawShadow()
 {
-    if (demoGameOverActive_) { return; }
+    if (demoResult_) { return; }
     // 影の描画では、空・UI・煙・弾の軌跡を含めない。
     if (player_) { player_->Draw(); }
     for (auto& enemy : enemies_) { enemy->Draw(); }
@@ -820,7 +874,7 @@ void GamePlayScene::DrawShadow()
 
 void GamePlayScene::Draw()
 {
-    if (demoGameOverActive_) { demoGameOver_->Draw(); return; }
+    if (demoResult_) { demoResult_->Draw(); return; }
     assert(GetContext().dxCommon);
     assert(GetContext().spriteCommon);
     assert(GetContext().object3dCommon);
@@ -890,6 +944,9 @@ void GamePlayScene::Draw()
         particleSystem_->Draw();
     }
 
+    // 撃破演出中はHUDを隠し、黒帯の間にボスと破片を見せる。
+    if (completedRun_) { return; }
+
     // 死亡後の背景には、ミニマップや残弾などのHUDを残さない。
     if (player_ && player_->IsDead()) {
         // チュートリアルでは、やり直しのお知らせだけは表示する
@@ -947,10 +1004,125 @@ namespace {
     // 合わせ目の緑の線が左右へ伸びる時間と、扉が開き切るまでの時間（60FPS）
     constexpr int kIntroSeamFrames = 8;
     constexpr int kIntroOpenFrames = 28;
+    constexpr int kShutterFrames = kIntroSeamFrames + kIntroOpenFrames;
     // シャッターが開き始めてから少し接写を見せ、その後90フレームで引く。
     constexpr int kMissionPullbackStart = 24;
     constexpr int kMissionPullbackFrames = 90;
     constexpr int kMissionEndFrame = kMissionPullbackStart + kMissionPullbackFrames;
+}
+
+void GamePlayScene::UpdateClearTransition()
+{
+    if (clearShutterFrame_ == kShutterFrames) {
+        auto result = std::make_unique<ClearScene>(*completedRun_);
+        if (demoMode_ == DemoMode::Clear) {
+            ShowDemoResult(std::move(result));
+            Logger::Log("[ClearDemo] Clear results displayed.");
+        } else {
+            GetSceneManager()->SetNextScene(std::move(result));
+        }
+        return;
+    }
+
+    // ミッション開始で使う扉・緑の縁・走査線を、同じフレーム数で逆再生する。
+    UpdateShutterFrame(kShutterFrames - ++clearShutterFrame_);
+}
+
+void GamePlayScene::UpdateBossDefeatSequence()
+{
+    // 上下の黒帯を短くせり出させ、戦闘を止めたままボスを中央へ寄せる。
+    constexpr float kBarHeight = 84.0f;
+    constexpr int kBarOpenFrames = 14;
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    const float progress = std::min(static_cast<float>(++bossDefeatFrame_) / kBarOpenFrames, 1.0f);
+    const float height = kBarHeight * progress * progress * (3.0f - 2.0f * progress);
+    bossDefeatBars_[0]->SetPosition({ 0.0f, 0.0f });
+    bossDefeatBars_[1]->SetPosition({ 0.0f, WinApp::kClientHeight - height });
+    for (auto& bar : bossDefeatBars_) {
+        bar->SetSize({ static_cast<float>(WinApp::kClientWidth), height });
+        bar->Update();
+    }
+
+    if (particleSystem_) { particleSystem_->Update(kDeltaTime); }
+    if (bloodParticleSystem_) { bloodParticleSystem_->Update(kDeltaTime); }
+    if (grenadeSmokeParticleSystem_) { grenadeSmokeParticleSystem_->Update(kDeltaTime); }
+    for (auto& boss : bosses_) {
+        boss->SetBloodParticleSystem(bloodParticleSystem_.get());
+        boss->Update(bossDefeatFocus_, false);
+        if (boss->IsDeathBurstFrame()) { EmitBossDeathBurst(*boss); }
+    }
+    if (followCamera_) {
+        followCamera_->SetTarget(bossDefeatFocus_);
+        followCamera_->Update();
+    }
+    UpdateWorldRenderOnly();
+
+    // 通常の敵と同じく破片が縮んで消えてから、リザルト用の扉を閉じる。
+    if (std::all_of(bosses_.begin(), bosses_.end(), [](const auto& boss) { return boss->IsReadyToRemove(); })) {
+        UpdateClearTransition();
+    }
+}
+
+void GamePlayScene::EmitBossDeathBurst(const Boss& boss)
+{
+    // ボスの中心から暗赤色の血しぶきと短い赤橙色の爆発を出す。
+    constexpr int kBloodCount = 96;
+    constexpr float kTwoPi = 6.2831853f;
+    const SphereCollider body = boss.GetCollider();
+    Vector3 origin = body.center;
+    origin.y += body.radius * 0.34f;
+    static std::mt19937 burstRandom{ std::random_device{}() };
+    std::uniform_real_distribution<float> variation(0.0f, 1.0f);
+    for (int index = 0; index < kBloodCount && bloodParticleSystem_; ++index) {
+        const float angle = kTwoPi * (static_cast<float>(index) + variation(burstRandom)) / kBloodCount;
+        const float x = std::cos(angle);
+        const float z = std::sin(angle);
+        const float speed = 4.5f + 8.0f * variation(burstRandom);
+        const float size = 0.42f + 0.96f * variation(burstRandom);
+        const Vector3 spawn{ origin.x + x * 0.54f, origin.y + variation(burstRandom), origin.z + z * 0.54f };
+        // 暗めの赤を混ぜ、透け方を少し抑えて血の色を濃くする。
+        const Vector4 color = index % 3 == 0 ? Vector4{ 0.66f, 0.018f, 0.010f, 0.77f }
+            : Vector4{ 0.32f, 0.004f, 0.003f, 0.83f };
+        bloodParticleSystem_->Emit(spawn, { size, size, size },
+            { x * speed, 0.2f + 4.0f * variation(burstRandom), z * speed }, color,
+            0.46f + 0.38f * variation(burstRandom));
+    }
+    if (bloodParticleSystem_) {
+        // 上下にも全方向へ飛ぶ血を、細かい飛沫から大きな塊まで大きさを変えて重ねる。
+        struct BloodLayer { int count; float minSize; float maxSize; float minSpeed; float maxSpeed; float life; };
+        constexpr BloodLayer kLayers[] = {
+            { 140, 0.12f, 0.35f, 7.0f, 15.0f, 0.55f }, // 遠くまで飛ぶ細かい飛沫
+            { 90, 0.45f, 1.1f, 3.5f, 9.0f, 0.85f },    // 中くらいのしずく
+            { 28, 1.4f, 2.6f, 1.0f, 3.5f, 1.2f },      // 中心付近に残る大きな塊
+        };
+        for (const BloodLayer& layer : kLayers) {
+            for (int index = 0; index < layer.count; ++index) {
+                // 球面上のランダムな向きを作り、上向きを少し強めて噴き上がって見せる。
+                const float theta = kTwoPi * variation(burstRandom);
+                const float y = variation(burstRandom) * 1.6f - 0.6f;
+                const float ring = std::sqrt((std::max)(0.0f, 1.0f - (std::min)(y * y, 1.0f)));
+                const Vector3 direction{ std::cos(theta) * ring, y, std::sin(theta) * ring };
+                const float speed = layer.minSpeed + (layer.maxSpeed - layer.minSpeed) * variation(burstRandom);
+                const float size = layer.minSize + (layer.maxSize - layer.minSize) * variation(burstRandom);
+                const Vector3 spawn{ origin.x + direction.x * body.radius * 0.4f,
+                    origin.y + direction.y * body.radius * 0.4f, origin.z + direction.z * body.radius * 0.4f };
+                const Vector4 color = index % 3 == 0 ? Vector4{ 0.70f, 0.02f, 0.012f, 0.8f }
+                    : Vector4{ 0.30f, 0.004f, 0.003f, 0.86f };
+                bloodParticleSystem_->Emit(spawn, { size, size, size },
+                    { direction.x * speed, direction.y * speed + 1.0f, direction.z * speed }, color,
+                    layer.life * (0.75f + 0.6f * variation(burstRandom)));
+            }
+        }
+        // 敵の撃破と同じく、中央にしばらく残る大きな血煙を置く。
+        const float clump = body.radius * 1.1f;
+        bloodParticleSystem_->Emit(origin, { clump, clump, clump }, { 0.0f, 0.3f, 0.0f },
+            { 0.42f, 0.005f, 0.003f, 0.72f }, 1.5f);
+    }
+    if (particleSystem_) {
+        const float size = body.radius * 1.35f;
+        particleSystem_->Emit(origin, { size, size, size }, {}, { 0.95f, 0.29f, 0.08f, 0.68f }, 0.14f, 0.9f);
+    }
+    if (followCamera_) { followCamera_->StartShake(0.72f, 18); }
 }
 
 void GamePlayScene::UpdateMissionStart()
@@ -980,13 +1152,7 @@ void GamePlayScene::UpdateMissionStart()
 
     // カメラ行列だけは全モデルへ反映し、位置やAIの時間は動かさない。
     player_->SuppressFireUntilRelease();
-    player_->UpdateRenderOnly();
-    for (auto& enemy : enemies_) { enemy->UpdateRenderOnly(); }
-    for (auto& boss : bosses_) { boss->UpdateRenderOnly(); }
-    for (auto& floor : floorObjects_) { floor->Update(); }
-    for (auto& wall : wallObjects_) { wall->Update(); }
-    for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->UpdateTransform(); } }
-    if (skybox_) { skybox_->Update(); }
+    UpdateWorldRenderOnly();
     constexpr float dt = 1.0f / 60.0f;
     if (particleSystem_) { particleSystem_->Update(dt); }
     if (bloodParticleSystem_) { bloodParticleSystem_->Update(dt); }
@@ -995,9 +1161,22 @@ void GamePlayScene::UpdateMissionStart()
     if (missionStartFrame_ >= kMissionEndFrame) { missionStartActive_ = false; }
 }
 
+void GamePlayScene::UpdateWorldRenderOnly()
+{
+    // 演出中にカメラが動いても、停止中のキャラクターと背景の行列は更新する。
+    player_->UpdateRenderOnly();
+    for (auto& enemy : enemies_) { enemy->UpdateRenderOnly(); }
+    for (auto& boss : bosses_) { boss->UpdateRenderOnly(); }
+    for (auto& floor : floorObjects_) { floor->Update(); }
+    for (auto& wall : wallObjects_) { wall->Update(); }
+    for (auto& crate : ammoCrates_) { if (crate.hp > 0) { crate.object->UpdateTransform(); } }
+    for (auto& drop : ammoDrops_) { drop.object->UpdateTransform(); }
+    if (skybox_) { skybox_->Update(); }
+}
+
 void GamePlayScene::DrawBloom()
 {
-    if (demoGameOverActive_) { return; }
+    if (demoResult_) { return; }
     // 通常の画面が明るくても、発光を指定していない粒子や3Dモデルは対象にしない。
     if (particleSystem_) { particleSystem_->DrawBloom(); }
     if (bloodParticleSystem_) { bloodParticleSystem_->DrawBloom(); }
@@ -1006,58 +1185,68 @@ void GamePlayScene::DrawBloom()
 
 void GamePlayScene::UpdateIntroTransition()
 {
-    if (introFrame_ > kIntroSeamFrames + kIntroOpenFrames) {
+    if (introFrame_ > kShutterFrames) {
         return;
     }
     // 読み込み直後の長いフレームで飛ばないよう、時間ではなくフレーム数で進める
-    ++introFrame_;
-    const float seam = std::clamp(static_cast<float>(introFrame_) / kIntroSeamFrames, 0.0f, 1.0f);
-    const float open = std::clamp(static_cast<float>(introFrame_ - kIntroSeamFrames) / kIntroOpenFrames, 0.0f, 1.0f);
+    UpdateShutterFrame(++introFrame_);
+    // 白緑の閃光は、扉を開ける演出で重ねる。
+    const float openAge = static_cast<float>(std::max(0, introFrame_-kIntroSeamFrames));
+    const float flash = introFrame_ >= kIntroSeamFrames ? 0.24f*std::exp(-openAge*0.32f) : 0.0f;
+    introFlash_->SetColor({ 0.65f, 1.0f, 0.76f, flash });
+    introFlash_->Update();
+}
+
+void GamePlayScene::UpdateShutterFrame(int frame)
+{
+    const float seam = std::clamp(static_cast<float>(frame) / kIntroSeamFrames, 0.0f, 1.0f);
+    const float open = std::clamp(static_cast<float>(frame - kIntroSeamFrames) / kIntroOpenFrames, 0.0f, 1.0f);
     // 線は勢いよく伸びて止まり、扉は重さを感じるように動き出しと止まりをゆっくりにする
     const float seamEase = 1.0f - (1.0f - seam) * (1.0f - seam) * (1.0f - seam);
     const float openEase = open < 0.5f
         ? 4.0f * open * open * open
         : 1.0f - std::pow(-2.0f * open + 2.0f, 3.0f) * 0.5f;
-    const float centerY = WinApp::kClientHeight * 0.5f;
     // 線の太さぶん余分に開き、最後に画面へ線が残らないようにする
+    const float centerY = WinApp::kClientHeight * 0.5f;
     const float gap = openEase * (centerY + 4.0f);
     // 中央の線は扉を開く時点から出し、扉が画面外へ出る頃には消す。
-    const float edgeAlpha = introFrame_ >= kIntroSeamFrames
+    const float edgeAlpha = frame >= kIntroSeamFrames
         ? 1.0f-std::clamp((open-0.6f)/0.4f, 0.0f, 1.0f) : 0.0f;
+    const float edgeWidth = WinApp::kClientWidth * seamEase;
     for (size_t i = 0; i < introDoors_.size(); ++i) {
         const float y = i == 0 ? centerY - gap : centerY + gap;
         introDoors_[i]->SetPosition({ 0.0f, y });
         introDoors_[i]->Update();
         introDoorEdges_[i]->SetPosition({ WinApp::kClientWidth * 0.5f, y });
-        introDoorEdges_[i]->SetSize({ WinApp::kClientWidth * seamEase, 3.0f });
+        introDoorEdges_[i]->SetSize({ edgeWidth, 3.0f });
         // 発電機の起動完了と同じ緑で、合わせ目を光らせる
         introDoorEdges_[i]->SetColor({ 0.3f, 1.0f, 0.45f, edgeAlpha });
         introDoorEdges_[i]->Update();
         // 細い芯の周囲へ薄い緑を重ね、重い扉の縁が発光しているように見せる。
         introDoorGlows_[i]->SetPosition({ WinApp::kClientWidth*0.5f, y });
-        introDoorGlows_[i]->SetSize({ WinApp::kClientWidth*seamEase, 22.0f });
+        introDoorGlows_[i]->SetSize({ edgeWidth, 22.0f });
         introDoorGlows_[i]->SetColor({ 0.12f, 0.8f, 0.3f, edgeAlpha*0.18f });
         introDoorGlows_[i]->Update();
     }
-    // 開放直後だけ白緑の閃光を重ね、続く走査線でゲーム画面を勢いよく見せる。
-    const float openAge = static_cast<float>(std::max(0, introFrame_-kIntroSeamFrames));
-    const float flash = introFrame_ >= kIntroSeamFrames ? 0.24f*std::exp(-openAge*0.32f) : 0.0f;
-    introFlash_->SetColor({ 0.65f, 1.0f, 0.76f, flash });
-    introFlash_->Update();
-    // フェード中と同じ演出・同じ時刻を使い、開くときに別の見た目へ切り替えない。
-    introScan_.Update(introScanFrameOffset_+static_cast<float>(introFrame_), 1.0f-openEase);
+    // 扉が閉じているほど走査線を濃くする。
+    introScan_.Update(introScanFrameOffset_ + static_cast<float>(frame), 1.0f - openEase);
 }
 
-void GamePlayScene::DrawIntroTransition()
+void GamePlayScene::DrawShutter()
 {
-    if (introFrame_ > kIntroSeamFrames + kIntroOpenFrames || !introDoors_[0]) {
-        return;
-    }
-    GetContext().spriteCommon->CommonDrawSetting();
     for (auto& door : introDoors_) { door->Draw(); }
     for (auto& glow : introDoorGlows_) { glow->Draw(); }
     for (auto& edge : introDoorEdges_) { edge->Draw(); }
     introScan_.Draw();
+}
+
+void GamePlayScene::DrawIntroTransition()
+{
+    if (introFrame_ > kShutterFrames || !introDoors_[0]) {
+        return;
+    }
+    GetContext().spriteCommon->CommonDrawSetting();
+    DrawShutter();
     introFlash_->Draw();
 }
 
@@ -2029,9 +2218,8 @@ void GamePlayScene::UpdateMeleeAttack()
 
 void GamePlayScene::Finalize()
 {
-    // 所有しているゲームオーバー画面は、共通描画リソースより先に片付ける。
-    if (demoGameOver_) { demoGameOver_->Finalize(); demoGameOver_.reset(); }
-    demoGameOverActive_ = false;
+    // デモ用のリザルトは、共通描画リソースより先に片付ける。
+    if (demoResult_) { demoResult_->Finalize(); demoResult_.reset(); }
     demoEnemy_ = nullptr;
     // ポーズのSpriteも、参照先のライト用リソースより先に解放する。
     loadQueue_.Clear();
@@ -2057,6 +2245,7 @@ void GamePlayScene::Finalize()
     introFlash_.reset();
     missionStartLabel_.reset();
     missionStartLine_.reset();
+    for (auto& bar : bossDefeatBars_) { bar.reset(); }
     missionStartActive_ = false;
     missionStartFrame_ = 0;
     for (auto& label : pauseLabels_) { label.reset(); }
@@ -2213,12 +2402,17 @@ void GamePlayScene::CheckGrenadeExplosions()
 }
 void GamePlayScene::ApplyPlayerDamage(const Vector3& attackerPosition, float shakePower, int shakeFrames)
 {
+    // クリアデモは射撃と撃破の流れを毎周必ず再生できるようにする。
+    if (demoMode_ == DemoMode::Clear) { return; }
     if (!player_ || !player_->OnHit(attackerPosition)) { return; }
+    // 無敵時間で弾かれた接触は、被弾回数に加えない。
+    ++runStats_.damageTakenCount;
     // 展示の確認ログには、通常攻撃で減った体力を残す。
-    if (gameOverDemo_) { Logger::Log("[GameOverDemo] Enemy hit, HP: " + std::to_string(player_->GetHp())); }
+    if (demoMode_ == DemoMode::GameOver) { Logger::Log("[GameOverDemo] Enemy hit, HP: " + std::to_string(player_->GetHp())); }
     // 無敵時間で弾かれた接触では、画面エフェクトの時間を再開しない。
     if (followCamera_) { followCamera_->StartShake(shakePower,shakeFrames); }
-    if (GetContext().offscreenRenderer) { GetContext().offscreenRenderer->StartDamageNoise(); }
+    // ボス撃破までの戦闘中だけ被弾ノイズを出す。
+    if (!completedRun_ && GetContext().offscreenRenderer) { GetContext().offscreenRenderer->StartDamageNoise(); }
 }
 
 void GamePlayScene::CheckCollisions()
@@ -2228,7 +2422,7 @@ void GamePlayScene::CheckCollisions()
     }
 
     // テレポートでレベルを作り直したフレームは、古い敵や弾との判定を続けない
-    if (!gameOverDemo_ && CheckBossTeleport()) {
+    if (!IsDemo() && CheckBossTeleport()) {
         return;
     }
 
@@ -2288,6 +2482,7 @@ void GamePlayScene::CheckCollisions()
             }
         }
         if (hitEnemy) {
+            player_->RecordShotHit(*bullet);
             bullet->OnHit(nearestTime);
             const Vector3 hitDirection = Normalize(bullet->GetVelocity());
             const BoxCollider enemyCollider = hitEnemy->GetBulletCollider(nearestTime);
@@ -2297,8 +2492,11 @@ void GamePlayScene::CheckCollisions()
             hitEnemy->OnHit(hitPosition, hitDirection);
         } else if (hitBoss) {
             // ボスへの命中位置で止めて、HPを1減らす。
+            player_->RecordShotHit(*bullet);
             bullet->OnHit(nearestTime);
             hitBoss->OnHit();
+            // ボスが複数いる場合も、最後に倒したボスを映す。
+            if (hitBoss->IsDead()) { bossDefeatFocus_ = hitBoss->GetCollider().center; }
         } else if (hitCrate < ammoCrates_.size()) {
             bullet->OnHit(nearestTime);
             DamageAmmoCrate(hitCrate, 1);
@@ -2316,7 +2514,7 @@ void GamePlayScene::CheckCollisions()
     }
 
     // 銃・ナイフ・爆発のいずれで撃破しても、敵を削除する前にドロップを出す。
-    if (!gameOverDemo_) { UpdateAmmoDrops(); }
+    if (demoMode_ != DemoMode::GameOver) { UpdateAmmoDrops(); }
 
     enemies_.erase(
         std::remove_if(
@@ -2404,6 +2602,8 @@ void GamePlayScene::UpdateAmmoDrops()
     // 撃破ごとにハンドガン50％、ライフル25％、ショットガン25％で弾種を選ぶ。
     for (auto& enemy : enemies_) {
         if (!enemy->ConsumeDeathDrop()) { continue; }
+        // 銃・ナイフ・グレネードの撃破を、ドロップと同じタイミングで1回だけ数える。
+        ++runStats_.enemiesDefeated;
         static std::mt19937 randomEngine{ std::random_device{}() };
         static std::discrete_distribution<size_t> dropStyle{ 50, 25, 25 };
         const size_t styleIndex = dropStyle(randomEngine);
@@ -2924,6 +3124,7 @@ void GamePlayScene::SpawnBosses(const std::vector<LevelObjectData>& allObjects)
 
         // 巨体がステージ外へ出ないように、壁の当たり判定を共有する
         boss->SetWallColliders(&wallColliders_);
+        boss->SetFloorColliders(&floorColliders_);
 
         bosses_.push_back(std::move(boss));
     }

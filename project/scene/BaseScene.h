@@ -30,6 +30,8 @@ public:
     virtual void DrawOverlay() {}
     // メニュー表示中は、共通の画面エフェクトの時間も止める。
     virtual bool IsPaused() const { return false; }
+    // 展示や確認用のシーンに、共通のデモ表示を重ねる。
+    virtual bool IsDemo() const { return false; }
 
     // ★ ImGui用の仮想関数を追加（必要ないシーンは空でOK）
     virtual void DrawImGui() {}

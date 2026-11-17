@@ -3,16 +3,14 @@
 #include "../../engine/utils/Logger.h"
 #include <cassert>
 #include <cmath>
-#include "../../engine/3d/obj3d/Object3d.h"
-#include "../../engine/3d/obj3d/Object3dCommon.h"
-#include "../../engine/3d/model/ModelManager.h"
+#include <format>
 #include "../../engine/2d/sprite/Sprite.h"
 #include "../../engine/2d/sprite/SpriteCommon.h"
 #include "../../engine/particle/Particle.h"
 #include "../../engine/input/Input.h"
 #include "../../engine/base/offscreen/OffscreenRenderer.h"
-#include "../../game/camera/Camera.h"
 #include "../SceneManager.h"
+#include "../TransitionScanEffect.h"
 #include "../title/TitleScene.h"
 #include "../gameplay/GamePlayScene.h"
 #include "../gameover/GameOverEffect.h"
@@ -22,22 +20,39 @@ namespace {
     constexpr int kFadeDuration = 30;
     // デモのゲームオーバーは暗転を含めて3秒（60fpsで180フレーム）で再開する。
     constexpr int kDemoRestartFrames = 3 * 60;
-    constexpr float kButtonX = 480.0f;
-    constexpr float kButtonWidth = 320.0f;
-    constexpr float kButtonHeight = 54.0f;
-    constexpr float kButtonTopY = 548.0f;
-    constexpr float kButtonSpacing = 66.0f;
-    // 前のシーンで押していたキーで、いきなり決定しないための待ち時間
-    constexpr int kInputDelayFrames = 20;
+    // クリアのデモでは、戦績を3秒見せてから決定して暗転する。
+    constexpr int kDemoClearConfirmFrame = 3 * 60;
+    constexpr float kButtonWidth = 240.0f;
+    constexpr float kButtonX = (1280.0f - kButtonWidth) * 0.5f;
+    constexpr float kButtonHeight = 44.0f;
+    constexpr float kButtonTopY = 519.0f;
+    // 上から順に戦績を出し、最後の数値のあとにランクを見せる。
+    constexpr int kFirstStatFrame = 12;
+    constexpr int kStatIntervalFrames = 12;
+    constexpr int kStatFadeFrames = 8;
+    constexpr int kRankPauseFrames = 16;
+    constexpr int kRankFadeFrames = 12;
+    // ポーズ画面の選択表示と同じ緑を、見出しとボタンの印に使う。
+    constexpr Vector4 kClearAccentColor{ 0.16f, 0.72f, 0.34f, 1 };
+    constexpr Vector4 kClearValueColor{ 0.91f, 0.93f, 0.90f, 1 };
+    // ランク文字はすべて、モニター表示に合わせた青みのある白にする。
+    constexpr Vector4 kClearRankColor{ 0.79f, 0.92f, 1.0f, 1.0f };
+    constexpr Vector2 kRankSize{ 144, 144 };
 
     // result_labels.png の切り出し位置
-    constexpr Vector2 kHeadlineTextureSize{ 1024.0f, 128.0f };
-    constexpr Vector2 kClearHeadlineLeftTop{ 0.0f, 0.0f };
-    constexpr Vector2 kGameOverHeadlineLeftTop{ 0.0f, 128.0f };
     constexpr Vector2 kButtonTextureSize{ 512.0f, 64.0f };
     constexpr Vector2 kTitleButtonLeftTop{ 0.0f, 256.0f };
     constexpr Vector2 kRestartButtonLeftTop{ 512.0f, 256.0f };
     constexpr const char* kLabelTexture = "Resources/result/result_labels.png";
+    constexpr const char* kClearStatsTexture = "Resources/result/clear_stats.png";
+
+    // ランクはクリアタイムで決める。数字はそれぞれS・A・Bの上限秒数。
+    constexpr std::array<double, 3> kRankTimeLimits{ 360.0, 540.0, 720.0 };
+
+    std::string FormatClearTime(double time) {
+        const auto seconds = static_cast<long long>(time);
+        return std::format("{:02}:{:02}", seconds / 60, seconds % 60);
+    }
 
     // 選択範囲・文字の大きさ・行間をタイトルのメニューと揃える。
     constexpr float kGameOverButtonX = 500.0f;
@@ -55,6 +70,7 @@ namespace {
 }
 
 ResultScene::ResultScene(Type type) : type_(type) {}
+ResultScene::ResultScene(const ClearResult& result) : type_(Type::Clear), clearResult_(result) {}
 ResultScene::~ResultScene() = default;
 
 Sprite* ResultScene::CreateUiRect(const Vector2& position, const Vector2& size, const Vector4& color) {
@@ -71,10 +87,10 @@ Sprite* ResultScene::CreateUiRect(const Vector2& position, const Vector2& size, 
 }
 
 Sprite* ResultScene::CreateLabel(const Vector2& textureLeftTop, const Vector2& textureSize,
-    const Vector2& position, const Vector2& size) {
+    const Vector2& position, const Vector2& size, const char* texture) {
     // 文字画像の指定範囲を切り出す。日本語フォントの実行時読み込みは不要
     auto sprite = std::make_unique<Sprite>();
-    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), kLabelTexture);
+    sprite->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), texture);
     sprite->SetTextureLeftTop(textureLeftTop);
     sprite->SetTextureSize(textureSize);
     sprite->SetPosition(position);
@@ -88,7 +104,7 @@ Sprite* ResultScene::CreateLabel(const Vector2& textureLeftTop, const Vector2& t
 void ResultScene::Initialize() {
     if (initialized_) { return; }
     initialized_ = true;
-    assert(GetContext().camera && GetContext().input && GetContext().dxCommon);
+    assert(GetContext().input && GetContext().dxCommon);
     frame_ = transitionTimer_ = selectedButton_ = 0;
     isLeaving_ = false;
     demoRestartReady_ = false; // 周回前の再開通知を持ち越さない。
@@ -96,12 +112,6 @@ void ResultScene::Initialize() {
         GetContext().offscreenRenderer->HasDeathSceneCapture();
     if (usesDeathBackground_) { Logger::Log("[DeathSequence] Game over background ready."); }
 
-    // タイトルと同じ真上に近い固定カメラ
-    if (!usesDeathBackground_) {
-        GetContext().camera->SetTranslate({ 0.0f, 68.0f, -6.2f });
-        GetContext().camera->SetRotate({ 1.48f, 0.0f, 0.0f });
-        GetContext().camera->Update();
-    }
     if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
     if (GetContext().offscreenRenderer) {
         // 本編の死亡時の白黒や構え演出を持ち越さない
@@ -120,20 +130,6 @@ void ResultScene::Initialize() {
     light->direction = { 0, -1, 0 };
     light->intensity = 1.0f;
 
-    if (type_ == Type::Clear) {
-        // クリア画面は従来の床を使い、ゲームオーバーは専用エフェクトにする。
-        ModelManager::GetInstance()->LoadModel("cube.obj");
-        floor_ = std::make_unique<Object3d>();
-        floor_->Initialize(GetContext().object3dCommon);
-        floor_->SetCamera(GetContext().camera);
-        floor_->SetModel("cube.obj");
-        floor_->SetTranslate({ 0.0f, -1.0f, 0.0f });
-        floor_->SetScale({ 50.0f, 1.0f, 50.0f });
-        floor_->SetColor({ 1, 1, 1, 1 });
-        floor_->SetLightingType(LightingType::HalfLambert);
-        floor_->Update();
-    }
-
     CreateMenu();
     UpdateMenu();
 }
@@ -143,27 +139,101 @@ void ResultScene::CreateMenu() {
         CreateGameOverMenu();
         return;
     }
-    // 上部の見出しは枠を付けず、文字だけを大きく出す(クリアは赤、ゲームオーバーは青)
-    Sprite* headline = CreateLabel(type_ == Type::Clear ? kClearHeadlineLeftTop : kGameOverHeadlineLeftTop,
-        kHeadlineTextureSize, { 160,50 }, { 960,120 });
-    headline->SetColor(type_ == Type::Clear ? Vector4{ 1.0f,0.12f,0.12f,1 } : Vector4{ 0.15f,0.45f,1.0f,1 });
+    CreateClearSummary();
 
-    // クリアはタイトルへ戻るだけ、ゲームオーバーはリスタートとタイトルへ戻るを選ぶ
-    buttonActions_.clear();
-    if (type_ == Type::GameOver) { buttonActions_.push_back(Action::Restart); }
-    buttonActions_.push_back(Action::Title);
-
-    buttonBackgrounds_.clear();
-    buttonLabels_.clear();
-    for (size_t i = 0; i < buttonActions_.size(); ++i) {
-        const float y = kButtonTopY + kButtonSpacing * static_cast<float>(i);
-        CreateUiRect({ kButtonX,y }, { kButtonWidth,kButtonHeight }, { 1,1,1,1 });
-        buttonBackgrounds_.push_back(CreateUiRect({ kButtonX+2,y+2 }, { kButtonWidth-4,kButtonHeight-4 }, { 0,0,0,0.96f }));
-        const Vector2 leftTop = buttonActions_[i] == Action::Restart ? kRestartButtonLeftTop : kTitleButtonLeftTop;
-        buttonLabels_.push_back(CreateLabel(leftTop, kButtonTextureSize, { kButtonX,y+7 }, { kButtonWidth,40 }));
-    }
+    // ポーズ画面と同じように、細い緑の印と薄い選択色を使う。
+    buttonActions_ = { Action::Title };
+    clearButtonBackground_ = CreateUiRect({ kButtonX, kButtonTopY },
+        { kButtonWidth, kButtonHeight }, { 0.035f, 0.26f, 0.10f, 0.15f });
+    clearButtonMarker_ = CreateUiRect({ kButtonX + 14, kButtonTopY + 12 }, { 3, 20 }, kClearAccentColor);
+    CreateLabel(kTitleButtonLeftTop, kButtonTextureSize,
+        { kButtonX, kButtonTopY + 7 }, { kButtonWidth, 30 }, kLabelTexture);
     // フェードは一番最後に描画して、画面全体を覆う
     fadeSprite_ = CreateUiRect({ 0,0 }, { 1280,720 }, { 0,0,0,0 });
+}
+
+void ResultScene::CreateClearSummary() {
+    const Vector4 muted{ 0.56f, 0.62f, 0.57f, 1 };
+    const Vector4 divider{ 0.043f, 0.077f, 0.053f, 1 };
+    const auto placeText = [this](const Vector2& source, const Vector2& sourceSize,
+        const Vector2& position, const Vector2& size, const Vector4& color) {
+        Sprite* label = CreateLabel(source, sourceSize, position, size, kClearStatsTexture);
+        label->SetColor(color);
+        label->Update();
+        return label;
+    };
+
+    // 操作説明と同じ黒い背景に、緑の走査線と中央のカードを重ねる。
+    clearBackground_ = CreateUiRect({ 0, 0 }, { 1280, 720 }, { 0, 0, 0, 1 });
+    clearScan_ = std::make_unique<TransitionScanEffect>();
+    clearScan_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get());
+    // 一枚のパネルに細い仕切りを引き、戦績を一覧で読めるようにする。
+    CreateUiRect({ 222, 130 }, { 836, 460 }, divider);
+    CreateUiRect({ 223, 131 }, { 834, 458 }, { 0.008f, 0.014f, 0.01f, 1 });
+    placeText({ 0, 0 }, { 480, 96 }, { 250, 149 }, { 280, 56 }, kClearAccentColor);
+    CreateUiRect({ 250, 210 }, { 780, 1 }, divider);
+    CreateUiRect({ 472, 232 }, { 1, 243 }, divider);
+    placeText({ 480, 0 }, { 224, 64 }, { 297, 259 }, { 120, 34 }, muted);
+
+    // ランクのS・A・B・Cは同じ大きさで収録している。
+    const auto rank = std::find_if(kRankTimeLimits.begin(), kRankTimeLimits.end(), [this](double limit) {
+        return clearResult_.clearSeconds < limit;
+    });
+    const float rankX = 224.0f * static_cast<float>(rank - kRankTimeLimits.begin());
+    clearRankValue_ = placeText({ rankX, 400 }, { 224, 224 }, { 357, 359 }, kRankSize, kClearRankColor);
+    clearRankValue_->SetAnchorPoint({ 0.5f, 0.5f });
+
+    // 数字を右揃えにして、タイムと回数を読み比べやすくする。
+    constexpr char glyphs[] = "0123456789:%-";
+    constexpr float digitWidth = 20.0f;
+    constexpr float digitSpacing = 13.0f;
+    constexpr float valueRight = 1006.0f;
+    const std::string accuracy = clearResult_.shotsFired == 0 ? "--" :
+        std::to_string(std::lround(100.0 * static_cast<double>(clearResult_.shotsHit) /
+            static_cast<double>(clearResult_.shotsFired))) + "%";
+    const std::array<std::string, kClearStatCount> values{ FormatClearTime(clearResult_.clearSeconds),
+        FormatClearTime(clearResult_.bossSeconds), std::to_string(clearResult_.enemiesDefeated),
+        accuracy, std::to_string(clearResult_.damageTakenCount) };
+    for (size_t row = 0; row < values.size(); ++row) {
+        const float y = 238.0f + 50.0f * static_cast<float>(row);
+        if (row > 0) { CreateUiRect({ 504, y - 8 }, { 502, 1 }, divider); }
+        placeText({ 0, 104.0f + 48.0f * static_cast<float>(row) }, { 304, 48 },
+            { 504, y + 3 }, { 190, 30 }, muted);
+        auto& rowSprites = clearStatValues_[row];
+        if (row == values.size() - 1 && clearResult_.damageTakenCount == 0) {
+            rowSprites.push_back(placeText({ 0, 344 }, { 304, 48 },
+                { valueRight - 190, y + 3 }, { 190, 30 }, kClearValueColor));
+            continue;
+        }
+        // 文字画像の余白を少し重ね、数字の間隔を詰める。
+        float x = valueRight - digitWidth - digitSpacing * static_cast<float>(values[row].size() - 1);
+        for (char digit : values[row]) {
+            const auto glyph = std::find(std::begin(glyphs), std::end(glyphs), digit);
+            rowSprites.push_back(placeText({ 48.0f * static_cast<float>(glyph - std::begin(glyphs)), 624 },
+                { 48, 64 }, { x, y }, { digitWidth, 36 }, kClearValueColor));
+            x += digitSpacing;
+        }
+    }
+}
+
+void ResultScene::UpdateClearSummary() {
+    // 同じ行の数字と記号を一緒にフェードインさせる。
+    for (size_t row = 0; row < clearStatValues_.size(); ++row) {
+        const int start = kFirstStatFrame + static_cast<int>(row) * kStatIntervalFrames;
+        Vector4 color = kClearValueColor;
+        color.w = SmoothReveal(static_cast<float>(frame_ - start) / kStatFadeFrames);
+        for (auto* value : clearStatValues_[row]) { value->SetColor(color); }
+    }
+
+    // 全行の表示が終わってから、中央を軸にランク文字を出す。
+    constexpr int rankFrame = kFirstStatFrame + (static_cast<int>(kClearStatCount) - 1) * kStatIntervalFrames
+        + kStatFadeFrames + kRankPauseFrames;
+    Vector4 rankColor = kClearRankColor;
+    rankColor.w = SmoothReveal(static_cast<float>(frame_ - rankFrame) / kRankFadeFrames);
+    clearRankValue_->SetColor(rankColor);
+    const float scale = 0.88f + 0.12f * rankColor.w;
+    clearRankValue_->SetSize({ kRankSize.x * scale, kRankSize.y * scale });
+    clearRankValue_->Update();
 }
 
 void ResultScene::CreateGameOverMenu() {
@@ -188,7 +258,6 @@ void ResultScene::CreateGameOverMenu() {
     // 見出しは背景と分け、明るい文字を中央へゆっくり浮かび上がらせる。
     gameOverHeadline_ = label({ 0,0 }, { 1280,160 }, { 128,250 }, { 1024,128 });
     buttonActions_ = { Action::Restart, Action::Title };
-    buttonBackgrounds_.clear();
     buttonLabels_.clear();
     gameOverUnderlines_.clear();
     gameOverIndicators_.clear();
@@ -202,11 +271,11 @@ void ResultScene::CreateGameOverMenu() {
         // 文字より先に薄い輪郭を描き、中央の文字を読めるまま赤い光をにじませる。
         std::array<Sprite*, 16> glows{};
         for (auto& glow : glows) {
-            glow = CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36});
+            glow = CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36},kLabelTexture);
             glow->SetColor({1.0f,0.015f,0.025f,0.0f});
         }
         gameOverButtonGlows_.push_back(glows);
-        buttonLabels_.push_back(CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36}));
+        buttonLabels_.push_back(CreateLabel(texturePosition,kButtonTextureSize,{520,y+2},{240,36},kLabelTexture));
         gameOverIndicators_.push_back(CreateUiRect({576,y+17},{3,3},{0.61f,0.14f,0.14f,0}));
         gameOverUnderlines_.push_back(CreateUiRect({602,y+40},{76,1},{0.70f,0.63f,0.61f,0}));
     }
@@ -262,7 +331,8 @@ void ResultScene::UpdateMenu() {
     const float buttonY = gameOver ? kGameOverButtonY : kButtonTopY;
     const float buttonWidth = gameOver ? kGameOverButtonWidth : kButtonWidth;
     const float buttonHeight = gameOver ? kGameOverButtonHeight : kButtonHeight;
-    const float buttonSpacing = gameOver ? kGameOverButtonSpacing : kButtonSpacing;
+    const float buttonSpacing = gameOver ? kGameOverButtonSpacing : 0.0f;
+    if (!gameOver) { UpdateClearSummary(); }
     // マウスを動かしたときだけ選択を変え、キーボード操作と競合させない
     const Vector2 mouse = GetContext().input->GetMousePosition();
     const Vector2 delta = GetContext().input->GetMouseDelta();
@@ -272,8 +342,9 @@ void ResultScene::UpdateMenu() {
         if (mouse.x >= buttonX && mouse.x <= buttonX+buttonWidth &&
             mouse.y >= y && mouse.y <= y+buttonHeight) { hovered = i; }
     }
-    // 見えないメニューを誤って決定しないよう、ゲームオーバーは表示完了まで待つ。
-    if (!demoMode_ && !isLeaving_ && frame_ >= (gameOver ? 74 : kInputDelayFrames)) {
+    // クリアはランク発表、ゲームオーバーはメニューの表示完了を待つ。
+    const bool menuReady = gameOver ? frame_ >= 74 : clearRankValue_->GetColor().w >= 1.0f;
+    if (!demoMode_ && !isLeaving_ && menuReady) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
             selectedButton_ = (selectedButton_ + buttonCount - 1) % buttonCount;
@@ -291,22 +362,28 @@ void ResultScene::UpdateMenu() {
 
     if (gameOver) {
         UpdateGameOverVisuals();
+        for (auto& sprite : uiSprites_) { sprite->Update(); }
     } else {
-        // クリア画面は従来の白黒ボタンと暗転を使う。
-        for (int i = 0; i < buttonCount; ++i) {
-            const bool selected = i == selectedButton_;
-            buttonBackgrounds_[i]->SetColor(selected ? Vector4{ 1,1,1,1 } : Vector4{ 0,0,0,0.96f });
-            buttonLabels_[i]->SetColor(selected ? Vector4{ 0,0,0,1 } : Vector4{ 1,1,1,1 });
-        }
-        fadeSprite_->SetColor({ 0,0,0,isLeaving_ ? std::clamp(static_cast<float>(transitionTimer_)/static_cast<float>(kFadeDuration),0.0f,1.0f) : 0.0f });
+        // 操作説明と同じ速度と濃さで、背景の走査線を動かす。
+        clearScan_->Update(static_cast<float>(frame_), 1.0f);
+        // ボタンと画面全体の暗転を更新する。
+        const bool highlight = demoMode_ ? isLeaving_ : menuReady && hovered == 0;
+        clearButtonBackground_->SetColor({ 0.035f, 0.26f, 0.10f, highlight ? 0.33f : 0.15f });
+        Vector4 markerColor = kClearAccentColor;
+        markerColor.w = highlight ? 1.0f : 0.6f;
+        clearButtonMarker_->SetColor(markerColor);
+        const float fade = isLeaving_ ? SmoothReveal(static_cast<float>(transitionTimer_) / kFadeDuration) : 0.0f;
+        fadeSprite_->SetColor({ 0, 0, 0, fade });
+        fadeSprite_->Update();
     }
-    for (auto& sprite : uiSprites_) { sprite->Update(); }
 }
 
 void ResultScene::Update() {
     ++frame_;
-    // 最後の0.5秒を暗転に使い、表示開始から3秒で再開通知を出す。
-    if (demoMode_ && !isLeaving_ && frame_ >= kDemoRestartFrames - kFadeDuration + 1) {
+    // デモでは決定を自動で行い、暗転が終わってから次の周回に戻す。
+    const int demoConfirmFrame = type_ == Type::Clear ? kDemoClearConfirmFrame
+        : kDemoRestartFrames - kFadeDuration + 1;
+    if (demoMode_ && !isLeaving_ && frame_ >= demoConfirmFrame) {
         selectedButton_ = 0;
         isLeaving_ = true;
         transitionTimer_ = 0;
@@ -330,20 +407,18 @@ void ResultScene::Update() {
 }
 
 void ResultScene::Draw() {
-    if (floor_) {
-        GetContext().object3dCommon->CommonDrawSetting();
-        floor_->Draw();
-    }
+    if (usesDeathBackground_) { GetContext().offscreenRenderer->DrawDeathBackground(); }
     GetContext().spriteCommon->CommonDrawSetting();
-    if (gameOverEffect_) {
-        // 保存した死亡場所を先にぼかして描き、その上へ鮮明な文字と赤い筋を重ねる。
-        if (usesDeathBackground_) { GetContext().offscreenRenderer->DrawDeathBackground(); }
+    if (clearScan_) {
+        clearBackground_->Draw();
+        clearScan_->Draw();
+    } else if (gameOverEffect_) {
         gameOverBackground_->Draw();
         gameOverEffect_->Draw(SmoothReveal(static_cast<float>(frame_)/72.0f));
     }
     for (auto& sprite : uiSprites_) {
-        // 黒い下地を二重に描いて、背景エフェクトを隠さないようにする。
-        if (gameOverEffect_ && sprite.get() == gameOverBackground_) { continue; }
+        // 先に描いた暗い下地を飛ばし、演出の上へカードと文字を重ねる。
+        if (sprite.get() == clearBackground_ || sprite.get() == gameOverBackground_) { continue; }
         sprite->Draw();
     }
 }
@@ -355,7 +430,12 @@ void ResultScene::Finalize() {
     usesDeathBackground_ = false;
     uiSprites_.clear();
     buttonActions_.clear();
-    buttonBackgrounds_.clear();
+    clearButtonBackground_ = nullptr;
+    clearButtonMarker_ = nullptr;
+    for (auto& row : clearStatValues_) { row.clear(); }
+    clearRankValue_ = nullptr;
+    clearBackground_ = nullptr;
+    clearScan_.reset();
     buttonLabels_.clear();
     gameOverUnderlines_.clear();
     gameOverIndicators_.clear();
@@ -365,7 +445,6 @@ void ResultScene::Finalize() {
     gameOverBackground_ = nullptr;
     gameOverHeadline_ = nullptr;
     fadeSprite_ = nullptr;
-    floor_.reset();
     directionalLightResource_.Reset();
     initialized_ = false;
 }

@@ -507,6 +507,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <None Include="Resources\hud\controls_briefing_buttons.png" />
     <None Include="Resources\hud\mission_start.png" />
     <None Include="Resources\hud\demo_status.png" />
+    <None Include="Resources\result\clear_stats.png" />
     <None Include="Resources\shaders\Bloom.hlsli" />
     <None Include="Resources\shaders\ShadowMap.hlsli" />
     <None Include="Resources\shaders\ShadowDepth.VS.hlsl" />
@@ -548,6 +549,20 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <MakeDir Directories="$(OutDir)Resources\hud" />
     <Copy SourceFiles="$(ProjectDir)Resources\hud\demo_status.png"
           DestinationFolder="$(OutDir)Resources\hud" SkipUnchangedFiles="true" />
+  </Target>
+  <!-- 戦績とメニューの文字画像を、実行ファイル側にもコピーする。 -->
+  <Target Name="CopyClearResultTextures" AfterTargets="Build">
+    <MakeDir Directories="$(OutDir)Resources\result" />
+    <Copy SourceFiles="$(ProjectDir)Resources\result\clear_stats.png;$(ProjectDir)Resources\result\result_labels.png"
+          DestinationFolder="$(OutDir)Resources\result" SkipUnchangedFiles="true" />
+  </Target>
+  <!-- ボスの破片モデルと断面テクスチャを実行ファイル側にもまとめる。 -->
+  <Target Name="CopyBossFragmentAssets" AfterTargets="Build">
+    <ItemGroup>
+      <BossFragmentAssets Include="$(ProjectDir)Resources\boss\fragment_*.obj;$(ProjectDir)Resources\boss\fragments.mtl;$(ProjectDir)Resources\boss\fragment_atlas.png" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)Resources\boss" />
+    <Copy SourceFiles="@(BossFragmentAssets)" DestinationFolder="$(OutDir)Resources\boss" SkipUnchangedFiles="true" />
   </Target>
   <!-- 実行時にコンパイルする画面破壊シェーダーを、実行ファイル側でも最新にする。 -->
   <Target Name="CopyTitleTransitionShaders" AfterTargets="Build">

@@ -275,10 +275,12 @@ void GamePlayScene::DrawControlsBriefing(bool beforeMission)
 void GamePlayScene::DrawOverlay()
 {
     // 倒れている最中は、開始の文字やポーズ画面を重ねない。
-    if (player_ && player_->IsDead()) { return; }
+    if (demoResult_ || (player_ && player_->IsDead())) { return; }
     const bool showBriefing = briefingBeforeMission_ || pause_.IsBriefingOpen();
     const bool showMissionStart = missionStartActive_ && missionStartLabel_ && missionStartLine_;
-    if (!showBriefing && !showMissionStart && (!pause_.IsPaused() || !pauseDim_)) { return; }
+    const bool showClearShutter = clearShutterFrame_ > 0;
+    const bool showBossDefeat = bossDefeatFrame_ > 0;
+    if (!showBossDefeat && !showClearShutter && !showBriefing && !showMissionStart && (!pause_.IsPaused() || !pauseDim_)) { return; }
     // 衝撃波やBloomの後に描画し、ポーズの文字を歪ませたり発光させたりしない。
     auto* list = GetContext().dxCommon->GetCommandList();
     const auto rtv = GetContext().dxCommon->GetCurrentBackBufferRTVHandle();
@@ -286,6 +288,16 @@ void GamePlayScene::DrawOverlay()
     list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
     GetContext().spriteCommon->CommonDrawSetting();
+    if (showBossDefeat) {
+        // 画面効果のあとに黒帯を置き、明るい爆発が帯へにじまないようにする。
+        for (auto& bar : bossDefeatBars_) { bar->Draw(); }
+    }
+    if (showClearShutter) {
+        // 黒帯の上からシャッターを閉じ、いつものリザルトへつなぐ。
+        DrawShutter();
+        return;
+    }
+    if (showBossDefeat) { return; }
     if (showBriefing) {
         DrawControlsBriefing(briefingBeforeMission_);
         return;

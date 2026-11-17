@@ -7,6 +7,8 @@ class SceneManager
 public:
     // 現在のシーンのポーズ状態を、アプリ共通の更新処理へ伝える。
     bool IsPaused() const { return scene_ && scene_->IsPaused(); }
+    // 読み込み中も、これから表示するデモの案内を出す。
+    bool IsDemo() const { return nextScene_ ? nextScene_->IsDemo() : scene_ && scene_->IsDemo(); }
     // 未完成のシーンを準備している間は、動く演出ではなくLoading画面を表示する。
     bool IsLoading() const {
         return nextScene_ && !nextReady_ && (!scene_ || !scene_->KeepDrawingWhileLoading());

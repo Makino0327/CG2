@@ -37,7 +37,9 @@ public:
 
     void Update(Camera* camera);
     // 展示中は操作入力を使わず、通常と同じ移動・被弾・アニメーションを進める。
-    void UpdateDemo(Camera* camera, const Vector3& movement);
+    void UpdateDemo(Camera* camera, const Vector3& movement, const Vector3* aimTarget = nullptr, bool shoot = false);
+    // クリアデモの次の周回に、弾薬や命中率を持ち越さない。
+    void ResetDemoShooting();
     // 再開のクリックを射撃へ持ち越さず、ボタンを離してから次の発砲を受け付ける。
     void SuppressFireUntilRelease() { suppressFireUntilRelease_ = input_ && input_->PushMouseLeft(); }
 
@@ -141,6 +143,10 @@ public:
 
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
+    // 1回の発砲で散弾が複数当たっても、命中は1回として記録する。
+    void RecordShotHit(const PlayerBullet& bullet);
+    size_t GetShotCount() const { return shotHits_.size(); }
+    size_t GetHitShotCount() const { return hitShotCount_; }
 
     // Sceneへ銃口の短い発射光の位置と強度を渡す。
     const Vector3& GetMuzzleLightPosition() const { return muzzleLightPosition_; }
@@ -208,7 +214,7 @@ private:
     void ResolveRightCollisionWithMap(Vector3& pos);
 
     // 弾を発射する
-    bool FireBullet(Camera* camera, float spreadAngle = 0.0f);
+    bool FireBullet(Camera* camera, float spreadAngle = 0.0f, const Vector3* aimTarget = nullptr);
 
     // ショットガンの弾をまとめて発射する
     bool FireShotgun(Camera* camera);
@@ -378,6 +384,9 @@ private:
 
     // このフレームに発砲したか
     bool firedThisFrame_ = false;
+    // 発砲順に命中済みかを保持する。ステージをまたいでも番号は継続する。
+    std::vector<bool> shotHits_;
+    size_t hitShotCount_ = 0;
 
     // 発射後の短い時間だけ光らせ、減衰中も実際の銃口へ追従させる。
     Vector3 muzzleLightPosition_{};

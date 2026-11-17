@@ -529,29 +529,54 @@ void Player::Update(Camera* camera)
 }
 
 
-void Player::UpdateDemo(Camera* camera, const Vector3& movement)
+void Player::UpdateDemo(Camera* camera, const Vector3& movement, const Vector3* aimTarget, bool shoot)
 {
     if (!object_) { return; }
     if (isDead_) { Update(camera); return; }
     firedThisFrame_ = false;
-    muzzleLightFrames_ = 0;
+    if (muzzleLightFrames_ > 0) { --muzzleLightFrames_; }
     prevPos_ = GetWorldPosition();
     // 自動移動でも壁を抜けず、被弾時の吹き飛ばしと無敵時間を保つ。
     MoveWithCollision({ movement.x + knockbackVelocity_.x, 0.0f,
         movement.z + knockbackVelocity_.z });
     knockbackVelocity_.x *= 0.82f;
     knockbackVelocity_.z *= 0.82f;
-    if (movement.x * movement.x + movement.z * movement.z > 0.000001f) {
-        // 進行方向へ滑らかに向け、マウス位置には反応させない。
-        const float targetYaw = std::atan2(movement.x, movement.z) + frontAngleOffset_;
+    const Vector3 position = GetWorldPosition();
+    const Vector3 facing = aimTarget
+        ? Vector3{ aimTarget->x - position.x, 0.0f, aimTarget->z - position.z } : movement;
+    if (facing.x * facing.x + facing.z * facing.z > 0.000001f) {
+        // 自動射撃ではボスへ、移動だけのデモでは進行方向へ滑らかに向く。
+        const float targetYaw = std::atan2(facing.x, facing.z) + frontAngleOffset_;
         const float difference = std::remainder(targetYaw - rotate_.y, 6.2831853f);
         rotate_.y += difference * 0.15f;
         object_->SetRotate(rotate_);
     }
-    const Vector3 position = GetWorldPosition();
-    UpdateAnimation({ position.x - prevPos_.x, 0.0f, position.z - prevPos_.z }, false);
+    const bool isAimingGun = aimTarget != nullptr;
+    attackMode_ = isAimingGun ? AttackMode::Gun : AttackMode::Knife;
+    UpdateReload();
+    UpdateAnimation({ position.x - prevPos_.x, 0.0f, position.z - prevPos_.z }, isAimingGun);
     object_->Update();
+    // 本編と同じ弾・発射炎・薬莢を使い、ボスへの命中は通常の当たり判定で決める。
+    if (shoot && aimTarget && FireBullet(camera, 0.0f, aimTarget)) {
+        object_->PlayAnimationOverlay(shootingOverlay_);
+    }
+    UpdateBullets();
+    UpdateCasings();
     if (invincibleTimer_ > 0) { --invincibleTimer_; }
+}
+
+void Player::ResetDemoShooting()
+{
+    // 各周回を装填済みのハンドガンと空の戦績で始める。
+    selectedGunMode_ = AttackMode::Gun;
+    handgunAmmo_ = handgunMaxAmmo_;
+    unlimitedHandgunReserve_ = true;
+    isReloading_ = false;
+    reloadTimer_ = 0;
+    bullets_.clear();
+    pendingBulletShockwavePositions_.clear();
+    shotHits_.clear();
+    hitShotCount_ = 0;
 }
 
 void Player::Draw()
@@ -1013,7 +1038,7 @@ Vector3 Player::CalcBulletDirection(Camera* camera, const Vector3& muzzle, float
         camera, input_, flightHeight);
 }
 
-bool Player::FireBullet(Camera* camera, float spreadAngle)
+bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTarget)
 {
     if (!object_ || !camera || !input_) {
         return false;
@@ -1042,9 +1067,16 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
     // タイトルと同じ銃口の10頂点から、弾と発射炎の位置を求める。
     const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
-    // マウスが重なる敵の胴体を優先し、近い敵を補正で飛び越さないようにする。
+    // 自動射撃は指定の位置へ向け、本編はマウスと敵の位置から弾道を決める。
     float flightHeight = 0.0f;
-    Vector3 direction = CalcBulletDirection(camera, firePosition, flightHeight);
+    Vector3 direction{};
+    if (aimTarget) {
+        flightHeight = aimTarget->y;
+        direction = Normalize(Vector3{ aimTarget->x - firePosition.x,
+            aimTarget->y - firePosition.y, aimTarget->z - firePosition.z });
+    } else {
+        direction = CalcBulletDirection(camera, firePosition, flightHeight);
+    }
 
     // 発射方向が取れない時は弾を減らさず撃たない
     if (direction.x == 0.0f && direction.y == 0.0f && direction.z == 0.0f) {
@@ -1086,6 +1118,8 @@ bool Player::FireBullet(Camera* camera, float spreadAngle)
 
     // 弾を作る
     auto bullet = std::make_unique<PlayerBullet>();
+    shotHits_.push_back(false);
+    bullet->SetShotNumber(shotHits_.size());
 
     // 弾を初期化する
     bullet->Initialize(
@@ -1196,6 +1230,9 @@ bool Player::FireShotgun(Camera* camera)
     // 1回のショットなので、弾薬はここで1つだけ減らす
     shotgunAmmo_--;
     firedThisFrame_ = true;
+    // 散弾すべてに同じ番号を使い、発砲回数は1回だけ増やす。
+    shotHits_.push_back(false);
+    const size_t shotNumber = shotHits_.size();
 
     const int pelletCount = std::max(1, shotgunPelletCount_);
     const float centerIndex = static_cast<float>(pelletCount - 1) * 0.5f;
@@ -1237,6 +1274,7 @@ bool Player::FireShotgun(Camera* camera)
         };
 
         auto bullet = std::make_unique<PlayerBullet>();
+        bullet->SetShotNumber(shotNumber);
         bullet->Initialize(
             object3dCommon_,
             pelletPosition,
@@ -1813,6 +1851,15 @@ void Player::RotateToMouse(Camera* camera)
 
     // 回転を反映する
     object_->SetRotate(rotate_);
+}
+
+void Player::RecordShotHit(const PlayerBullet& bullet)
+{
+    // 既に別の散弾で命中している発砲は、もう一度数えない。
+    const size_t number = bullet.GetShotNumber();
+    if (number == 0 || number > shotHits_.size() || shotHits_[number - 1]) { return; }
+    shotHits_[number - 1] = true;
+    ++hitShotCount_;
 }
 
 void Player::Respawn()

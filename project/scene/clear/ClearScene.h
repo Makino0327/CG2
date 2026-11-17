@@ -1,9 +1,9 @@
 #pragma once
 #include "../result/ResultScene.h"
 
-// テレポーターを踏んだときのクリア画面。床の背景に STAGE CLEAR と「タイトルへ戻る」を出す
+// ボス撃破時に確定した戦績を表示するクリア画面。
 class ClearScene : public ResultScene
 {
 public:
-    ClearScene();
+    explicit ClearScene(const ClearResult& result);
 };

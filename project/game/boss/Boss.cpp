@@ -2,11 +2,32 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <limits>
+#include <random>
 
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/3d/obj3d/Object3dCommon.h"
+#include "../../engine/3d/model/ModelManager.h"
+#include "../../engine/particle/Particle.h"
 #include "../camera/Camera.h"
 #include "../../scene/LevelLoader.h"
+
+namespace {
+    // 大きさの違う破片を混ぜ、大きな塊から細かい肉片まで飛び散らせる。
+    struct FragmentTier {
+        int count;
+        float minScale;   // ボスの大きさに対する比率
+        float maxScale;
+        float speedScale; // 小さいほど勢いよく遠くへ飛ぶ
+        float bloodSize;  // 飛行中に垂らす血の粒の大きさ。0なら出さない
+    };
+    constexpr FragmentTier kFragmentTiers[] = {
+        { 5, 0.15f, 0.24f, 0.75f, 0.55f },  // 大きな塊
+        { 14, 0.08f, 0.14f, 1.0f, 0.35f },  // 中くらいの破片
+        { 26, 0.025f, 0.07f, 1.35f, 0.0f }, // 細かい肉片
+    };
+}
 
 Boss::~Boss() = default;
 
@@ -21,6 +42,8 @@ void Boss::Initialize(
     position_ = position;
     rotation_ = rotation;
     baseScale_ = scale;
+    object3dCommon_ = object3dCommon;
+    camera_ = camera;
 
     // ボスの大きさに合わせて、ざっくり当たり判定半径を広げる
     float maxScale = baseScale_.x;
@@ -37,6 +60,7 @@ void Boss::Initialize(
     isDead_ = false;
     isReadyToRemove_ = false;
     deathTimer_ = 0;
+    deathFragments_.clear();
 
     // レベル再読み込み時に攻撃途中の状態を持ち越さない
     action_ = Action::Chase;
@@ -80,28 +104,7 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
     }
 
     if (isDead_) {
-        // 撃破中は赤白に点滅しながら小さくする
-        deathTimer_++;
-
-        float deathRate = static_cast<float>(deathTimer_) / static_cast<float>(deathDuration_);
-        deathRate = std::clamp(deathRate, 0.0f, 1.0f);
-
-        const float scaleRate = 1.0f - deathRate;
-        object_->SetScale({
-            baseScale_.x * scaleRate,
-            baseScale_.y * scaleRate,
-            baseScale_.z * scaleRate
-        });
-
-        if ((deathTimer_ / 5) % 2 == 0) {
-            object_->SetColor({ 1.0f, 0.1f, 0.05f, 1.0f });
-        } else {
-            object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
-        }
-
-        if (deathTimer_ >= deathDuration_) {
-            isReadyToRemove_ = true;
-        }
+        UpdateDeathEffect();
     } else {
         if (chargeCooldown_ > 0) { --chargeCooldown_; }
         // 描画だけを揺らし、当たり判定の中心は地上の移動位置に保つ
@@ -196,10 +199,8 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
         object_->SetTranslate(drawPosition);
         object_->SetRotate(drawRotation);
         object_->SetScale(drawScale);
+        object_->Update();
     }
-
-    // 移動・攻撃・撃破演出を描画用の行列へ反映する
-    object_->Update();
 }
 
 void Boss::UpdateRenderOnly()
@@ -208,6 +209,189 @@ void Boss::UpdateRenderOnly()
     if (object_) {
         object_->Update();
     }
+    for (auto& fragment : deathFragments_) { fragment.object->UpdateTransform(); }
+}
+
+void Boss::UpdateDeathEffect()
+{
+    if (isReadyToRemove_) { return; }
+    ++deathTimer_;
+    if (deathTimer_ < kDeathBurstFrame) {
+        // 徐々に膨らみ、爆発が近づくほど揺れを強める。足元は床の高さに残す。
+        const float progress = static_cast<float>(deathTimer_) / kDeathBurstFrame;
+        const float swell = 1.0f + 0.43f * progress * progress;
+        const float tremor = (0.025f + 0.18f * progress * progress) * colliderRadius_;
+        const float phase = static_cast<float>(deathTimer_);
+        object_->SetScale({ baseScale_.x * swell, baseScale_.y * swell, baseScale_.z * swell });
+        object_->SetTranslate({ position_.x + std::sin(phase * 1.9f) * tremor,
+            position_.y + baseScale_.y * (swell - 1.0f), position_.z + std::sin(phase * 2.7f) * tremor });
+        object_->SetRotate({ rotation_.x + std::sin(phase * 1.5f) * 0.09f * progress,
+            rotation_.y, rotation_.z + std::cos(phase * 2.3f) * 0.12f * progress });
+        object_->SetColor({ 1.0f, 1.0f - 0.74f * progress, 1.0f - 0.90f * progress, 1.0f });
+        object_->Update();
+        return;
+    }
+
+    if (deathTimer_ == kDeathBurstFrame) { SpawnDeathFragments(); }
+
+    // 通常の敵と同じく、重力で落として床で数回跳ね、時間が来たら縮めて消す。
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    constexpr float kGravity = 12.0f;
+    const int fragmentFrame = deathTimer_ - kDeathBurstFrame;
+    float shrinkRatio = 1.0f;
+    if (fragmentFrame > kFragmentShrinkStartFrames) {
+        shrinkRatio = 1.0f - static_cast<float>(fragmentFrame - kFragmentShrinkStartFrames) /
+            static_cast<float>(kFragmentLifeFrames - kFragmentShrinkStartFrames);
+        shrinkRatio = (std::max)(shrinkRatio, 0.0f);
+    }
+    for (auto& fragment : deathFragments_) {
+        if (!fragment.landed) {
+            const float previousHeight = fragment.position.y;
+            fragment.velocity.y -= kGravity * kDeltaTime;
+            fragment.position.x += fragment.velocity.x * kDeltaTime;
+            fragment.position.y += fragment.velocity.y * kDeltaTime;
+            fragment.position.z += fragment.velocity.z * kDeltaTime;
+            fragment.rotation.x += fragment.spin.x * kDeltaTime;
+            fragment.rotation.y += fragment.spin.y * kDeltaTime;
+            fragment.rotation.z += fragment.spin.z * kDeltaTime;
+            // 大きめの破片は、飛んでいる間に血の筋を引く。
+            if (!fragment.hasSplashed && --fragment.trailTimer <= 0) {
+                fragment.trailTimer = 3;
+                EmitFragmentBlood(fragment.position, fragment.bloodSize, 1, false);
+            }
+            // OBJは中心から上下1の箱なので、Yの拡大率が床から中心までの高さになる。
+            float floorY = 0.0f;
+            if (FindFragmentFloor(fragment.position, previousHeight, floorY) &&
+                fragment.position.y <= floorY + fragment.scale.y) {
+                fragment.position.y = floorY + fragment.scale.y;
+                if (!fragment.hasSplashed) {
+                    // 最初に床へ叩きつけられた瞬間だけ、足元へ血を跳ねさせる。
+                    fragment.hasSplashed = true;
+                    EmitFragmentBlood({ fragment.position.x, floorY + 0.05f, fragment.position.z },
+                        fragment.bloodSize, 6, true);
+                }
+                if (fragment.velocity.y < -1.2f) {
+                    // 落下の勢いが残っている間は小さく跳ね返す
+                    fragment.velocity.y *= -0.22f;
+                    fragment.velocity.x *= 0.55f;
+                    fragment.velocity.z *= 0.55f;
+                } else {
+                    fragment.velocity = {};
+                    fragment.spin = {};
+                    fragment.landed = true;
+                }
+            }
+        }
+        // 床との判定に使う大きさは変えず、描画だけを縮める。
+        fragment.object->SetScale({ fragment.scale.x * shrinkRatio,
+            fragment.scale.y * shrinkRatio, fragment.scale.z * shrinkRatio });
+        fragment.object->SetTranslate(fragment.position);
+        fragment.object->SetRotate(fragment.rotation);
+        fragment.object->Update();
+    }
+    isReadyToRemove_ = deathTimer_ >= kDeathDuration;
+}
+
+void Boss::SpawnDeathFragments()
+{
+    // 通常の敵と同じく、本体のOBJを小さくした破片を中心付近からランダムに飛ばす。
+    // ボスは体が大きいので、出現範囲・飛ぶ速さ・破片の大きさを体格に合わせて広げる。
+    const Vector3 center = object_->GetTranslate();
+    const Vector3 bodyScale = object_->GetScale();
+    const float bodySize = (std::max)({ std::abs(bodyScale.x), std::abs(bodyScale.y), std::abs(bodyScale.z), 1.0f });
+    const float speedScale = std::sqrt(bodySize);
+    static std::mt19937 randomEngine{ std::random_device{}() };
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    std::uniform_real_distribution<float> offsetDistribution(-0.45f, 0.45f);
+    std::uniform_real_distribution<float> sideVelocityDistribution(-2.8f, 2.8f);
+    std::uniform_real_distribution<float> upVelocityDistribution(3.5f, 6.0f);
+    std::uniform_real_distribution<float> rotationDistribution(-3.14f, 3.14f);
+    std::uniform_real_distribution<float> angularDistribution(-7.0f, 7.0f);
+    std::uniform_real_distribution<float> stretchDistribution(0.6f, 1.35f);
+    deathFragments_.reserve(std::size(kFragmentTiers) * 26);
+    for (const FragmentTier& tier : kFragmentTiers) {
+        std::uniform_real_distribution<float> scaleDistribution(tier.minScale, tier.maxScale);
+        for (int index = 0; index < tier.count; ++index) {
+            auto& fragment = deathFragments_.emplace_back();
+            fragment.position = {
+                center.x + offsetDistribution(randomEngine) * bodyScale.x,
+                center.y + offsetDistribution(randomEngine) * bodyScale.y,
+                center.z + offsetDistribution(randomEngine) * bodyScale.z,
+            };
+            const float speed = speedScale * tier.speedScale;
+            fragment.velocity = {
+                sideVelocityDistribution(randomEngine) * speed,
+                upVelocityDistribution(randomEngine) * speed,
+                sideVelocityDistribution(randomEngine) * speed,
+            };
+            fragment.rotation = {
+                rotationDistribution(randomEngine),
+                rotationDistribution(randomEngine),
+                rotationDistribution(randomEngine),
+            };
+            // 小さい欠片ほど速く回し、大きな塊には重さを残す。
+            fragment.spin = {
+                angularDistribution(randomEngine) * tier.speedScale,
+                angularDistribution(randomEngine) * tier.speedScale,
+                angularDistribution(randomEngine) * tier.speedScale,
+            };
+            // 軸ごとに伸び縮みさせ、同じOBJでも形の違う肉片に見せる。
+            const float fragmentScale = scaleDistribution(randomEngine);
+            fragment.scale = {
+                fragmentScale * stretchDistribution(randomEngine) * bodyScale.x,
+                fragmentScale * stretchDistribution(randomEngine) * 0.7f * bodyScale.y,
+                fragmentScale * stretchDistribution(randomEngine) * bodyScale.z,
+            };
+            fragment.bloodSize = tier.bloodSize * bodySize * 0.35f;
+            fragment.trailTimer = static_cast<int>(unit(randomEngine) * 3.0f);
+            fragment.object = std::make_unique<Object3d>();
+            fragment.object->Initialize(object3dCommon_);
+            fragment.object->SetCamera(camera_);
+            fragment.object->SetModel("boss/boss.obj");
+            // 血に濡れた肉片を混ぜ、暗い赤みの差で破片の見分けをつける。
+            const float wet = unit(randomEngine);
+            fragment.object->SetColor({ 1.0f - 0.25f * wet, 1.0f - 0.65f * wet, 1.0f - 0.68f * wet, 1.0f });
+            fragment.object->SetScale(fragment.scale);
+            fragment.object->SetRotate(fragment.rotation);
+            fragment.object->SetTranslate(fragment.position);
+            fragment.object->Update();
+        }
+    }
+}
+
+void Boss::EmitFragmentBlood(const Vector3& position, float size, int count, bool splash)
+{
+    if (!bloodParticleSystem_ || size <= 0.0f) { return; }
+    static std::mt19937 randomEngine{ std::random_device{}() };
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    std::uniform_real_distribution<float> side(-1.0f, 1.0f);
+    for (int index = 0; index < count; ++index) {
+        // 粒ごとに大きさを変え、細かい飛沫と大きなしずくを混ぜる。
+        const float dropSize = size * (0.4f + 0.9f * unit(randomEngine));
+        const Vector3 velocity = splash
+            ? Vector3{ side(randomEngine) * 3.2f, 0.6f + 1.8f * unit(randomEngine), side(randomEngine) * 3.2f }
+            : Vector3{ side(randomEngine) * 0.5f, -0.3f - 0.8f * unit(randomEngine), side(randomEngine) * 0.5f };
+        const Vector4 color = (index % 2 == 0)
+            ? Vector4{ 0.55f, 0.01f, 0.005f, 0.75f }
+            : Vector4{ 0.32f, 0.004f, 0.003f, 0.82f };
+        bloodParticleSystem_->Emit(position, { dropSize, dropSize, dropSize }, velocity, color,
+            (splash ? 0.5f : 0.35f) + 0.4f * unit(randomEngine));
+    }
+}
+
+bool Boss::FindFragmentFloor(const Vector3& position, float previousHeight, float& floorY) const
+{
+    if (!floorColliders_) { return false; }
+    // 破片の足元にある床のうち、前フレームの中心より低い最上面を選ぶ。
+    floorY = std::numeric_limits<float>::lowest();
+    for (const auto& floor : *floorColliders_) {
+        if (!floor.hasCollider || floor.type != "BOX" ||
+            std::abs(position.x - floor.center.x) > floor.size.x * 0.5f ||
+            std::abs(position.z - floor.center.z) > floor.size.z * 0.5f) { continue; }
+        const float top = floor.center.y + floor.size.y * 0.5f;
+        if (top <= previousHeight + 0.05f) { floorY = (std::max)(floorY, top); }
+    }
+    return floorY != std::numeric_limits<float>::lowest();
 }
 
 void Boss::MoveTowards(const Vector3& targetPosition)
@@ -326,6 +510,10 @@ bool Boss::IsAttackHit(const SphereCollider& target)
 
 void Boss::Draw()
 {
+    if (deathTimer_ >= kDeathBurstFrame) {
+        for (auto& fragment : deathFragments_) { fragment.object->Draw(); }
+        return;
+    }
     if (!object_) {
         return;
     }

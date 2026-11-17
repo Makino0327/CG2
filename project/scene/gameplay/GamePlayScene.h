@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <future>
+#include <optional>
 #include <unordered_map>
 
 #include "../engine/math/Math.h"
@@ -59,12 +60,15 @@ public:
     void DrawBloom() override;
     void DrawOverlay() override;
     bool IsPaused() const override { return briefingBeforeMission_ || pause_.IsPaused(); }
+    bool IsDemo() const override { return demoMode_ != DemoMode::Off; }
     // 展示を終了するときは読み込み画面へ切り替え、次のタイトルの描画設定を混ぜない。
-    bool KeepDrawingWhileLoading() const override { return !gameOverDemo_ && player_ && player_->IsDead(); }
+    bool KeepDrawingWhileLoading() const override { return !IsDemo() && player_ && player_->IsDead(); }
     // 確認用の起動では、開始演出の後に死亡から遷移までを自動再生する。
     void EnableDeathPreview() { deathPreviewFrames_ = 60; }
     // プレイ会用に、移動・敵の攻撃・ゲームオーバーを自動で繰り返す。
-    void EnableGameOverDemo() { gameOverDemo_ = true; }
+    void EnableGameOverDemo() { demoMode_ = DemoMode::GameOver; }
+    // クリアの展示は、ボス部屋から始めて撃破とリザルトを繰り返す。
+    void EnableClearDemo() { demoMode_ = DemoMode::Clear; EnableBossPreview(); }
     // タイトルのフェードから、緑の演出の動きを途切れず引き継ぐ。
     void SetIntroScanFrameOffset(float frame) { introScanFrameOffset_ = frame; }
     // 準備済みの本編を、チュートリアル用のステージと案内に切り替える。
@@ -120,12 +124,22 @@ private:
     // 開始時に上下へ開くシャッターの位置を進め、HUDより手前に描く
     void UpdateIntroTransition();
     void DrawIntroTransition();
+    // クリア時は、開始演出と同じ上下のシャッターを閉じる。
+    void UpdateClearTransition();
+    void UpdateShutterFrame(int frame);
+    void DrawShutter();
+    // 最後のボスを映し、黒帯と爆発を出してからクリア画面へ進む。
+    void UpdateBossDefeatSequence();
+    void EmitBossDeathBurst(const Boss& boss);
+    void UpdateWorldRenderOnly();
     // 接写から通常の追従位置までカメラを引き、作戦開始の文字を表示する。
     void UpdateMissionStart();
     // 倒れる動作、視界のぼかし、背景保存を順番に進める。
     void UpdateDeathSequence();
     void PrepareDemoRound();
     Vector3 UpdateDemoMovement();
+    void UpdateClearDemoPlayer();
+    void ShowDemoResult(std::unique_ptr<ResultScene> result);
     void RestartDemoRound();
 
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
@@ -283,12 +297,12 @@ private:
     int playerDeadFrames_ = 0;
     int deathPreviewFrames_ = -1;
     // 本編の描画リソースを再利用し、長時間の展示でも周回ごとに増やさない。
-    bool gameOverDemo_ = false;
+    enum class DemoMode { Off, GameOver, Clear };
+    DemoMode demoMode_ = DemoMode::Off;
     int demoFrames_ = 0;
     int demoRound_ = 0;
     Enemy* demoEnemy_ = nullptr;
-    std::unique_ptr<GameOverScene> demoGameOver_;
-    bool demoGameOverActive_ = false;
+    std::unique_ptr<ResultScene> demoResult_;
 
     /// 敵
     // 現在出現している敵
@@ -434,6 +448,11 @@ private:
     double generatorCompleteNoticeSeconds_ = 0.0;
     std::chrono::steady_clock::time_point generatorPreviousUpdate_{};
 
+    // 通常ステージから戦績を集計し、最後のボスが倒れたフレームの値を保存する。
+    ClearResult runStats_{};
+    std::optional<ClearResult> completedRun_;
+    int clearShutterFrame_ = 0;
+
     // 描画オブジェクトと壁コライダーの対応を保ったまま、ドアを上へ動かす
     struct DoorData {
         Object3d* object = nullptr; // 所有権はwallObjects_にある
@@ -476,6 +495,10 @@ private:
     Vector3 missionCameraRotate_{};
     std::unique_ptr<Sprite> missionStartLabel_;
     std::unique_ptr<Sprite> missionStartLine_;
+    // 撃破中は、ボスへ寄せたカメラと上下の黒帯で画面を構成する。
+    std::array<std::unique_ptr<Sprite>, 2> bossDefeatBars_;
+    Vector3 bossDefeatFocus_{};
+    int bossDefeatFrame_ = 0;
 
     // ボスステージへ移動するテレポーター情報
     struct BossTeleportData {

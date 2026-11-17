@@ -10,6 +10,7 @@
 class Camera;
 class Object3d;
 class Object3dCommon;
+class ParticleSystem;
 struct LevelColliderData;
 
 class Boss
@@ -34,6 +35,10 @@ public:
 
     // ステージの壁を参照して、追跡中の壁抜けを防ぐ
     void SetWallColliders(const std::vector<LevelColliderData>* walls) { wallColliders_ = walls; }
+    // 飛び散った破片が、実際の床に着地するよう当たり判定を共有する。
+    void SetFloorColliders(const std::vector<LevelColliderData>* floors) { floorColliders_ = floors; }
+    // 飛んでいる破片から血を垂らすため、シーンの血しぶき用パーティクルを共有する。
+    void SetBloodParticleSystem(ParticleSystem* particleSystem) { bloodParticleSystem_ = particleSystem; }
 
     // 予告円と着地エフェクトに使う攻撃範囲を返す
     bool IsWindingUp() const { return !isDead_ && action_ == Action::Windup; }
@@ -64,11 +69,24 @@ public:
 
     // 撃破済みかを返す
     bool IsDead() const { return isDead_; }
+    // 膨張しきったフレームだけ、外側の血しぶきやカメラ揺れを発生させる。
+    bool IsDeathBurstFrame() const { return isDead_ && deathTimer_ == kDeathBurstFrame; }
 
     // 撃破演出が終わり、削除してよいかを返す
     bool IsReadyToRemove() const { return isReadyToRemove_; }
 
 private:
+    static constexpr int kDeathBurstFrame = 70;
+    // 爆発後は通常の敵と同じく、1.2秒で縮み始めて2.2秒で破片が消える。
+    static constexpr int kFragmentShrinkStartFrames = 72;
+    static constexpr int kFragmentLifeFrames = 132;
+    static constexpr int kDeathDuration = kDeathBurstFrame + kFragmentLifeFrames;
+    void UpdateDeathEffect();
+    void SpawnDeathFragments();
+    bool FindFragmentFloor(const Vector3& position, float previousHeight, float& floorY) const;
+    // 破片の位置から血の粒を出す。着地時は横へ広がるしぶきにする。
+    void EmitFragmentBlood(const Vector3& position, float size, int count, bool splash);
+
     // 巨大ゾンビは追跡、溜め、攻撃後の隙を順に繰り返す
     enum class Action { Chase, Windup, Charge, Recovery };
 
@@ -95,9 +113,12 @@ private:
     float walkPhase_ = 0.0f; // 重い歩行の揺れに使う位相
     float moveSpeed_ = 0.085f; // 追跡を少し速くして、距離を取り続けにくくする。
     const std::vector<LevelColliderData>* wallColliders_ = nullptr; // シーン所有の壁
+    const std::vector<LevelColliderData>* floorColliders_ = nullptr;
 
     // ボスの3Dモデル本体
     std::unique_ptr<Object3d> object_;
+    Object3dCommon* object3dCommon_ = nullptr;
+    Camera* camera_ = nullptr;
 
     // 現在位置
     Vector3 position_ = { 0.0f, 0.0f, 0.0f };
@@ -126,6 +147,19 @@ private:
     // 撃破演出の経過フレーム
     int deathTimer_ = 0;
 
-    // 撃破演出の長さ
-    int deathDuration_ = 90;
+    // 通常の敵と同じく、ボスのOBJを小さくした破片を飛ばし、跳ねてから縮めて消す。
+    struct DeathFragment {
+        std::unique_ptr<Object3d> object;
+        Vector3 position{};
+        Vector3 velocity{};
+        Vector3 rotation{};
+        Vector3 spin{};
+        Vector3 scale{};
+        float bloodSize = 0.0f; // 0なら血を垂らさない細かい欠片
+        int trailTimer = 0;     // 次に血の粒を出すまでのフレーム
+        bool hasSplashed = false;
+        bool landed = false;
+    };
+    ParticleSystem* bloodParticleSystem_ = nullptr;
+    std::vector<DeathFragment> deathFragments_;
 };

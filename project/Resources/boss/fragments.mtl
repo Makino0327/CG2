@@ -1,0 +1,3 @@
+newmtl BossFragment
+Kd 1.0 1.0 1.0
+map_Kd fragment_atlas.png

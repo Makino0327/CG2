@@ -294,6 +294,14 @@ void GamePlayScene::BeginInitialize()
         introScan_.Initialize(GetContext().spriteCommon, directionalLightResource_.Get());
     });
     loadQueue_.Add([this] {
+        // 撃破した瞬間に描けるよう、映画風の黒帯を先に用意する。
+        for (auto& bar : bossDefeatBars_) {
+            bar = std::make_unique<Sprite>();
+            bar->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/white2x2.png");
+            bar->SetColor({ 0, 0, 0, 1 });
+        }
+    });
+    loadQueue_.Add([this] {
         // 作戦開始の文字と赤い線は先に作り、演出中のリソース生成を避ける。
         missionStartLabel_ = std::make_unique<Sprite>();
         missionStartLabel_->Initialize(GetContext().spriteCommon, directionalLightResource_.Get(), "Resources/hud/mission_start.png");
@@ -402,10 +410,12 @@ bool GamePlayScene::ContinueInitialize()
 void GamePlayScene::OnActivated(float transitionFrame)
 {
     // 準備完了後にだけ展示用の敵を配置し、周回の移動時間をリセットする。
-    if (gameOverDemo_) { PrepareDemoRound(); }
+    if (IsDemo()) { PrepareDemoRound(); }
     // 直前のタイトル演出の時刻を受け取り、準備完了後に初めて扉を開く。
     introScanFrameOffset_ = transitionFrame;
     introFrame_ = 0;
+    clearShutterFrame_ = 0;
+    bossDefeatFrame_ = 0;
     generatorPreviousUpdate_ = std::chrono::steady_clock::now();
     player_->SuppressFireUntilRelease();
     followCamera_->SetTarget(player_->GetWorldPosition());
@@ -425,7 +435,7 @@ void GamePlayScene::OnActivated(float transitionFrame)
     missionStartActive_ = true;
     // 通常の作戦だけは確認を待つ。自動デモと死亡演出の確認起動は従来どおり進める。
     // チュートリアルは操作を1つずつ教えるので、最初の操作説明は出さない。
-    briefingBeforeMission_ = !gameOverDemo_ && deathPreviewFrames_ < 0 && !tutorialMode_;
+    briefingBeforeMission_ = !IsDemo() && deathPreviewFrames_ < 0 && !tutorialMode_;
     if (briefingBeforeMission_) { BeginControlsBriefing(); }
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
@@ -478,6 +488,7 @@ void GamePlayScene::QueueInitialLevelObjects()
             boss->Initialize(GetContext().object3dCommon, GetContext().camera,
                 object.translation, object.rotation, object.scaling);
             boss->SetWallColliders(&wallColliders_);
+            boss->SetFloorColliders(&floorColliders_);
             bosses_.push_back(std::move(boss));
         });
     }
