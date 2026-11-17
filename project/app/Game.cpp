@@ -39,7 +39,8 @@ void Game::Initialize() {
     demoStatusLabel_ = std::make_unique<Sprite>();
     demoStatusLabel_->Initialize(spriteCommon_.get(), demoStatusLight_.Get(), "Resources/hud/demo_status.png");
     demoStatusLabel_->SetPosition({ static_cast<float>(WinApp::kClientWidth) - 276.0f, 20.0f });
-    demoStatusLabel_->SetSize({ 256.0f, 48.0f });
+    // 「デモプレイ中」の下に「F6で解除」を並べた2段の画像（512x160）を半分の大きさで出す。
+    demoStatusLabel_->SetSize({ 256.0f, 80.0f });
     demoStatusLabel_->Update();
 
     // 3d オブジェクト共通を初期化する
@@ -150,8 +151,14 @@ void Game::Initialize() {
         sceneManager_->SetNextScene(std::move(scene));
     } else if (commandLine.find(L"--preview-gameover") != std::wstring_view::npos) {
         sceneManager_->SetNextScene(std::make_unique<GameOverScene>());
-    } else {
+    } else if (commandLine.find(L"--title") != std::wstring_view::npos) {
+        // デモを飛ばして、タイトル画面から通常プレイを始める。
         sceneManager_->SetNextScene(std::make_unique<TitleScene>());
+    } else {
+        // 展示向けに、起動直後からボス戦の自動デモを流す。F6でタイトルへ戻る。
+        auto scene = std::make_unique<GamePlayScene>();
+        scene->EnableClearDemo();
+        sceneManager_->SetNextScene(std::move(scene));
     }
 
 }
