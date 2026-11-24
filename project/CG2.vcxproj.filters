@@ -55,6 +55,11 @@
     <ClCompile Include="engine\audio\SoundManager.cpp" />
     <ClCompile Include="app\Framework.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayScene.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayHud.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayLevel.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayCombat.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlayGenerator.cpp" />
+    <ClCompile Include="scene\gameplay\GamePlaySequence.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayPause.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayTutorial.cpp" />
     <ClCompile Include="scene\gameplay\GamePlayLoading.cpp" />

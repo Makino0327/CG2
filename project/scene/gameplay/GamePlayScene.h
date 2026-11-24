@@ -142,6 +142,15 @@ private:
     void ShowDemoResult(std::unique_ptr<ResultScene> result);
     void RestartDemoRound();
 
+    // 衝撃波やラベルの表示位置を、ワールド座標から画面のUVへ変換する。
+    static bool TryConvertWorldToScreenUV(const Vector3& worldPosition,
+        const Matrix4x4& viewProjectionMatrix, Vector2& outUV);
+
+    // 通常プレイ中のボス、ミニマップ、画面効果をそれぞれ更新する。
+    void UpdateBosses();
+    void UpdateMinimap();
+    void UpdatePlayerScreenEffects();
+
     // プレイヤー、敵、弾の当たり判定をまとめて処理する
     void CheckCollisions();
     // 撃破された通常敵から弾薬を出し、接近したプレイヤーに渡す。
