@@ -35,6 +35,11 @@ public:
     // Update movement and internal Object3d.
     void Update();
 
+    // 巡回移動を進めず、設定済みの姿勢だけを描画へ反映する。
+    void UpdateRenderOnly();
+    // 接触による位置補正では、アニメーションも進めない。
+    void UpdateTransform();
+
     // Return from chase state to normal waypoint patrol.
     void ResumePatrol();
 
@@ -47,7 +52,10 @@ public:
     // Debug getters.
     uint32_t GetCurrentWaypointIndex() const { return currentWaypointIndex_; }
     uint32_t GetWaypointCount() const { return static_cast<uint32_t>(waypoints_.size()); }
-    Object3d* GetObject3d() const { return object3d_.get(); }
+    // 内部オブジェクトは渡さず、必要な状態だけを値で返す。
+    bool IsInitialized() const { return object3d_ != nullptr; }
+    Vector3 GetPosition() const;
+    Vector3 GetRotation() const;
 
     // 現在向かっているウェイポイント位置を返す
     Vector3 GetCurrentWaypointPosition() const;

@@ -73,8 +73,15 @@ public:
     // 床と壁を確認しながらノックバックで移動する。
     void MoveWithCollision(const Vector3& movement);
 
-    // プレイヤーが持つ弾一覧を参照できるようにする
-    const std::vector<std::unique_ptr<PlayerBullet>>& GetBullets() const { return bullets_; }
+    // 弾の所有コンテナは公開せず、判定に必要な情報だけを読み取らせる。
+    size_t GetBulletCount() const { return bullets_.size(); }
+    const PlayerBullet* GetBullet(size_t index) const {
+        return index < bullets_.size() ? bullets_[index].get() : nullptr;
+    }
+    // 命中記録と弾の停止をまとめる。木箱への命中は命中率に数えない。
+    void ResolveBulletHit(size_t index, float hitTime, bool countAsShotHit);
+    // 判定後の壁への命中確定と軌跡生成を、弾の所有者から実行する。
+    void FinishBulletUpdate(size_t index);
 
     // マウスが重なる敵を調べるため、発射直前の当たり判定を受け取る。
     void SetBulletAimTargets(const std::vector<BoxCollider>& boxes,
@@ -143,8 +150,6 @@ public:
 
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
-    // 1回の発砲で散弾が複数当たっても、命中は1回として記録する。
-    void RecordShotHit(const PlayerBullet& bullet);
     size_t GetShotCount() const { return shotHits_.size(); }
     size_t GetHitShotCount() const { return hitShotCount_; }
 
@@ -169,7 +174,7 @@ public:
         wallColliders_ = wallColliders;
     }
 
-    // // デバッグカメラ確認用に描画行列だけ更新する
+    // デバッグカメラ確認用に描画行列だけ更新する。
     void UpdateRenderOnly();
 
     // Blenderから読んだプレイヤー開始位置を保存する
@@ -179,6 +184,9 @@ public:
     }
 
 private:
+    // 命中記録は弾の命中処理からだけ更新し、散弾の二重計上を防ぐ。
+    void RecordShotHit(const PlayerBullet& bullet);
+
     // 公式モデルのモーションを操作状態に合わせて選ぶ。
     enum class Motion : size_t {
         Idle, Run, RunBack, RunLeft, RunRight,

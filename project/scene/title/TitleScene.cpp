@@ -485,25 +485,25 @@ void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& dir
     if (!particleSystem_) { return; }
     if (isShotgun) {
         particleSystem_->Emit(firePosition, { 1.0f,1.0f,1.0f }, { 0,0,0 }, { 1.0f,0.38f,0.06f,0.48f },
-            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
         particleSystem_->Emit(firePosition, { 0.50f,0.50f,0.50f }, { 0,0,0 }, { 1.0f,0.92f,0.58f,0.9f },
-            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
         return;
     }
     // 発射炎には発光の強さを明示し、他のエフェクトは省略時のOFFを使う。
     particleSystem_->Emit(firePosition, { 0.70f,0.70f,0.70f }, { 0,0,0 }, { 1.0f,0.34f,0.05f,0.38f },
-        0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     particleSystem_->Emit(firePosition, { 0.40f,0.40f,0.40f }, { 0,0,0 }, { 1.0f,0.72f,0.22f,0.9f },
-        0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     particleSystem_->Emit(firePosition, { 0.20f,0.20f,0.20f }, { 0,0,0 }, { 1.0f,0.95f,0.72f,1.0f },
-        0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     const Vector3 side{ -direction.z,0.0f,direction.x };
     particleSystem_->Emit({ firePosition.x+side.x*0.30f,firePosition.y,firePosition.z+side.z*0.30f },
         { 0.18f,0.18f,0.18f }, { side.x*0.6f,0.0f,side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f },
-        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     particleSystem_->Emit({ firePosition.x-side.x*0.30f,firePosition.y,firePosition.z-side.z*0.30f },
         { 0.18f,0.18f,0.18f }, { -side.x*0.6f,0.0f,-side.z*0.6f }, { 1.0f,0.46f,0.08f,0.4f },
-        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+        0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 }
 
 void TitleScene::StartShockwave(const Vector3& firePosition) {
@@ -704,9 +704,8 @@ void TitleScene::DrawShadow() {
 void TitleScene::Draw() {
     // 演出終了後に黒画面を一度描き、読み込み中も最後の破片が残らないようにする。
     if (isStarting_ && GetContext().offscreenRenderer && !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
-        const float black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        GetContext().dxCommon->GetCommandList()->ClearRenderTargetView(
-            GetContext().offscreenRenderer->GetRenderTexture()->GetRTVHandle(), black, 0, nullptr);
+        // 描画先の内部構造を参照せず、専用の操作から画面を消す。
+        GetContext().offscreenRenderer->ClearScene({ 0.0f, 0.0f, 0.0f, 1.0f });
         return;
     }
 
@@ -716,8 +715,8 @@ void TitleScene::Draw() {
         const float fadeFrames = static_cast<float>(ShootingBloom::muzzleLightDurationFrames - 2);
         const float fade = std::clamp(static_cast<float>(muzzleLightFrames_) / fadeFrames, 0.0f, 1.0f);
         GetContext().object3dCommon->SetMuzzleLight(
-            GetMuzzlePosition(), { 1.0f, 0.65f, 0.30f }, ShootingBloom::muzzleLightRadius,
-            ShootingBloom::muzzleLightIntensity * fade * fade);
+            GetMuzzlePosition(), { 1.0f, 0.65f, 0.30f }, ShootingBloom::GetMuzzleLightRadius(),
+            ShootingBloom::GetMuzzleLightIntensity() * fade * fade);
     }
 
     // 通常時は背景の戦闘だけを描き、波動をかける対象を分離する

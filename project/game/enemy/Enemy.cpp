@@ -241,8 +241,7 @@ void Enemy::Update()
         return;
     }
 
-    Object3d* object = waypointMover_.GetObject3d();
-    if (!object) {
+    if (!waypointMover_.IsInitialized()) {
         return;
     }
 
@@ -261,7 +260,7 @@ void Enemy::Update()
     const bool wasTargetInSight = isTargetInSight_;
 
     // 次に使う位置を現在の描画位置から取得する
-    Vector3 nextPosition = object->GetTranslate();
+    Vector3 nextPosition = waypointMover_.GetPosition();
 
     // 壁に遮られている場合は、このフレームの位置を記憶しない
     isTargetInSight_ = CheckTargetInSight();
@@ -467,8 +466,8 @@ void Enemy::Update()
             waypointMover_.Update();
 
             // 巡回更新後の位置と回転を反映する
-            nextPosition = object->GetTranslate();
-            rotation_ = object->GetRotate();
+            nextPosition = waypointMover_.GetPosition();
+            rotation_ = waypointMover_.GetRotation();
         }
     }
 
@@ -481,11 +480,8 @@ void Enemy::Update()
     // 計算後の位置を確定する
     position_ = nextPosition;
 
-    // transform を更新して描画へ反映する
-    object->SetScale(scale_);
-    object->SetRotate(rotation_);
-    object->SetTranslate(position_);
-    object->Update();
+    // 内部オブジェクトを取り出さず、巡回クラスの専用関数から描画へ反映する。
+    UpdateRenderOnly();
 }
 
 void Enemy::Draw()
@@ -509,12 +505,11 @@ void Enemy::SetPosition(const Vector3& position)
     // 補正後の位置を設定する
     position_ = position;
 
-    // 内部 Object3d の位置も更新する
-    Object3d* object = waypointMover_.GetObject3d();
-    if (object) {
-        object->SetTranslate(position_);
+    // 描画オブジェクトの操作は所有者の関数に任せる。
+    if (waypointMover_.IsInitialized()) {
+        waypointMover_.SetPosition(position_);
         // 押し戻し後の位置を、通常更新を繰り返さずに描画へ反映する。
-        object->UpdateTransform();
+        waypointMover_.UpdateTransform();
     }
 }
 
@@ -1871,12 +1866,11 @@ void Enemy::ResolveWallCollision(Vector3& pos)
 
 void Enemy::UpdateRenderOnly()
 {
-    // デバッグカメラ用に transform だけ更新する
-    Object3d* object = waypointMover_.GetObject3d();
-    if (object && !isDead_) {
-        object->SetScale(scale_);
-        object->SetRotate(rotation_);
-        object->SetTranslate(position_);
-        object->Update();
+    // デバッグカメラ用の姿勢更新も、巡回クラスの公開操作だけを使う。
+    if (waypointMover_.IsInitialized() && !isDead_) {
+        waypointMover_.SetScale(scale_);
+        waypointMover_.SetRotation(rotation_);
+        waypointMover_.SetPosition(position_);
+        waypointMover_.UpdateRenderOnly();
     }
 }

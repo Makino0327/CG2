@@ -20,7 +20,9 @@ inline Vector3 GetPlayerMuzzlePosition(const Object3d& object) {
         vertexOffset += static_cast<uint32_t>(mesh.vertices.size());
     }
     assert(gunMesh && gunMesh->vertices.size() > kBarrelRearVertices.back());
-    const SkinCluster& skinCluster = object.GetSkinCluster();
+    // 読み取り専用の要素だけを取得し、骨の重みや行列を変更させない。
+    const auto influences = object.GetVertexInfluences();
+    const auto palette = object.GetSkinningPalette();
     // 足元補正も含め、実際の描画に渡したワールド行列をそのまま使う。
     const Matrix4x4& worldMatrix = object.GetWorldMatrix();
     const auto transformPoint = [](const Vector3& value, const Matrix4x4& matrix) {
@@ -35,14 +37,14 @@ inline Vector3 GetPlayerMuzzlePosition(const Object3d& object) {
         for (uint32_t index : vertexIndices) {
             const Vector4& position = gunMesh->vertices[index].position;
             const Vector3 bindPosition{ position.x,position.y,position.z };
-            const VertexInfluence& influence = skinCluster.mappedInfluence[vertexOffset+index];
+            const VertexInfluence& influence = influences[vertexOffset+index];
             Vector3 skinnedPosition{};
             // GPUと同じ骨番号・重みで頂点を変形し、移動や射撃反動にも追従する。
             for (uint32_t slot = 0; slot < kNumMaxInfluence; ++slot) {
                 const float weight = influence.weights[slot];
                 if (weight <= 0.0f) { continue; }
                 const Vector3 point = transformPoint(bindPosition,
-                    skinCluster.mappedPalette[influence.jointIndices[slot]].skeletonSpaceMatrix);
+                    palette[influence.jointIndices[slot]].skeletonSpaceMatrix);
                 skinnedPosition.x += point.x*weight;
                 skinnedPosition.y += point.y*weight;
                 skinnedPosition.z += point.z*weight;

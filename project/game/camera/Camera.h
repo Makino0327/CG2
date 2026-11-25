@@ -1,5 +1,6 @@
 #pragma once
 #include "../../engine/math/Math.h"
+#include <cmath>
 class Camera
 {
 private:
@@ -35,19 +36,23 @@ public:
 
     // === Projection 関連 ===
     void SetFovY(float fovY) {
-        fovY_ = fovY;
+        // 透視投影が成立する範囲の角度だけを受け付ける。
+        if (std::isfinite(fovY) && fovY > 0.0f && fovY < 3.14159265f) { fovY_ = fovY; }
     }
 
     void SetAspectRatio(float aspect) {
-        aspectRatio_ = aspect;
+        // ゼロ除算や無効な縦横比による投影行列の破損を防ぐ。
+        if (std::isfinite(aspect) && aspect > 0.0f) { aspectRatio_ = aspect; }
     }
 
     void SetNearClip(float nearClip) {
-        nearClip_ = nearClip;
+        // 手前の面は正の距離とし、奥の面より手前に保つ。
+        if (std::isfinite(nearClip) && nearClip > 0.0f && nearClip < farClip_) { nearClip_ = nearClip; }
     }
 
     void SetFarClip(float farClip) {
-        farClip_ = farClip;
+        // 奥の面が手前の面を越える状態だけを受け付ける。
+        if (std::isfinite(farClip) && farClip > nearClip_) { farClip_ = farClip; }
     }
 
     // 書き換えは SetRotate / SetTranslate を通し、ここでは読み取りだけを許す

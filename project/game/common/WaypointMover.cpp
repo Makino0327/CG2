@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
 
 #include "../../engine/3d/obj3d/Object3d.h"
 #include "../../engine/3d/obj3d/Object3dCommon.h"
@@ -76,7 +77,28 @@ void WaypointMover::SetWaypoints(const std::vector<Vector3>& waypoints) {
 }
 
 void WaypointMover::SetMoveSpeed(float moveSpeed) {
-    moveSpeed_ = moveSpeed;
+    // 負の速度や無効な数値で巡回状態が壊れることを防ぐ。
+    if (std::isfinite(moveSpeed)) { moveSpeed_ = (std::max)(0.0f, moveSpeed); }
+}
+
+Vector3 WaypointMover::GetPosition() const {
+    // 未初期化の確認にも使えるよう、描画オブジェクトがなければ原点を返す。
+    return object3d_ ? object3d_->GetTranslate() : Vector3{};
+}
+
+Vector3 WaypointMover::GetRotation() const {
+    // 外部へはコピーを渡し、内部の姿勢への直接書き込みを防ぐ。
+    return object3d_ ? object3d_->GetRotate() : Vector3{};
+}
+
+void WaypointMover::UpdateRenderOnly() {
+    // 巡回の状態を変えず、描画に必要な更新だけを実行する。
+    if (object3d_) { object3d_->Update(); }
+}
+
+void WaypointMover::UpdateTransform() {
+    // 押し戻しでは位置だけを反映し、通常更新の重複を避ける。
+    if (object3d_) { object3d_->UpdateTransform(); }
 }
 
 void WaypointMover::SetLoop(bool isLoop) {

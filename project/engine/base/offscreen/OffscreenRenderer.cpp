@@ -9,6 +9,14 @@
 #include "../../../externals/imgui/imgui.h"
 #endif
 
+void OffscreenRenderer::ClearScene(const Vector4& color)
+{
+    // シーン画像のリソースと描画先ハンドルは描画クラスの内部で扱う。
+    if (!dxCommon_ || !renderTexture_) { return; }
+    const float clearColor[] = { color.x, color.y, color.z, color.w };
+    dxCommon_->GetCommandList()->ClearRenderTargetView(renderTexture_->GetRTVHandle(), clearColor, 0, nullptr);
+}
+
 void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManager)
 {
     dxCommon_ = dxCommon;
@@ -975,11 +983,13 @@ void OffscreenRenderer::DrawImGui()
 
     if (IsPostEffectEnabled(PostEffectType::Bloom) || postEffectType_ == PostEffectType::Bloom) {
         // 弾の光り方を実画面で調整できるよう、抽出・強さ・広がりを編集する。
-        auto& parameters = bloom_->GetParameters();
+        // 内部データではなくコピーを編集し、専用関数から反映する。
+        auto parameters = bloom_->GetSettings();
         ImGui::SliderFloat("Bloom Threshold", &parameters.threshold, 0.0f, 1.0f);
         ImGui::SliderFloat("Bloom Soft Knee", &parameters.knee, 0.0f, 0.5f);
         ImGui::SliderFloat("Bloom Intensity", &parameters.intensity, 0.0f, 6.0f);
         ImGui::SliderFloat("Bloom Radius", &parameters.radius, 0.5f, 5.0f);
+        bloom_->SetSettings(parameters);
     }
 
     if (isDissolveSelected) {

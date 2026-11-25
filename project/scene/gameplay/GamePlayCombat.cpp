@@ -273,9 +273,10 @@ void GamePlayScene::CheckCollisions()
         }
     }
 
-    const auto& bullets = player_->GetBullets();
-    for (const auto& bullet : bullets) {
-        if (bullet->IsDead()) { continue; }
+    // 弾は読み取り専用で判定し、状態の変更はPlayerの専用関数へ任せる。
+    for (size_t bulletIndex = 0; bulletIndex < player_->GetBulletCount(); ++bulletIndex) {
+        const PlayerBullet* bullet = player_->GetBullet(bulletIndex);
+        if (!bullet || bullet->IsDead()) { continue; }
         float nearestTime = 1.0f;
         Enemy* hitEnemy = nullptr;
         Boss* hitBoss = nullptr;
@@ -313,8 +314,7 @@ void GamePlayScene::CheckCollisions()
             }
         }
         if (hitEnemy) {
-            player_->RecordShotHit(*bullet);
-            bullet->OnHit(nearestTime);
+            player_->ResolveBulletHit(bulletIndex, nearestTime, true);
             const Vector3 hitDirection = Normalize(bullet->GetVelocity());
             const BoxCollider enemyCollider = hitEnemy->GetBulletCollider(nearestTime);
             const Vector3 bulletPosition = bullet->GetCollider().center;
@@ -323,17 +323,16 @@ void GamePlayScene::CheckCollisions()
             hitEnemy->OnHit(hitPosition, hitDirection);
         } else if (hitBoss) {
             // ボスへの命中位置で止めて、HPを1減らす。
-            player_->RecordShotHit(*bullet);
-            bullet->OnHit(nearestTime);
+            player_->ResolveBulletHit(bulletIndex, nearestTime, true);
             hitBoss->OnHit();
             // ボスが複数いる場合も、最後に倒したボスを映す。
             if (hitBoss->IsDead()) { bossDefeatFocus_ = hitBoss->GetCollider().center; }
         } else if (hitCrate < ammoCrates_.size()) {
-            bullet->OnHit(nearestTime);
+            player_->ResolveBulletHit(bulletIndex, nearestTime, false);
             DamageAmmoCrate(hitCrate, 1);
         }
         // 敵に当たらなかった場合は壁への命中を確定し、軌跡を生成する。
-        bullet->FinishUpdate();
+        player_->FinishBulletUpdate(bulletIndex);
     }
 
     // 弾によるボス撃破を先に処理し、生きているボスの着地攻撃だけを当てる

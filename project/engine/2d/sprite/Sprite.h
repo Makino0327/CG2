@@ -41,14 +41,6 @@ public:
 	void Update();
 	// 描画
 	void Draw();
-	// 頂点データ作成
-	void CreateVertexData();
-	// マテリアルデータ作成
-	void CreateMaterialData();
-	//	座標変換行列データ作成
-	void CreateTransformationMatrixData();
-
-	void AdjustTextureSize();
 
 	// getter
 	const Vector2& GetPosition() const { return position_; }
@@ -76,6 +68,12 @@ public:
 
 
 private:
+	// 初期化の順序を外部から変更させず、生成処理を内部に隠す。
+	void CreateVertexData();
+	void CreateMaterialData();
+	void CreateTransformationMatrixData();
+	void AdjustTextureSize();
+
 	SpriteCommon* spriteCommon_=nullptr;
 
 	// ライト情報リソース（ConstantBuffer）

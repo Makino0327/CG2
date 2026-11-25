@@ -56,20 +56,11 @@ public:
 		const std::string& mtlFileName,
 		MaterialData& material);
 
-	// 座標変換行列初期化
-	void InitializeTransformationMatrix();
-
-	// 
-	void InitializeDirectionalLight();
-	void InitializeCameraForGPU();
-
 	void SetModel(const std::string& filePath);
 
 	// セッター
 	void SetModel(Model* model) { model_ = model; }
 	void SetTexture(const std::string& filePath);
-
-	void InitializeMaterial();
 
 
 	// ----- setter -----
@@ -130,11 +121,19 @@ public:
 	void SetSkeletonVisible(bool visible) { isSkeletonVisible_ = visible; } // Skeleton のデバッグ表示切替
 	bool IsSkeletonVisible() const { return isSkeletonVisible_; }           // 表示状態を返す
 
-	const SkinCluster& GetSkinCluster() const { return skinCluster_; }
+	// GPUリソースや書き込み可能なビューを隠し、頂点計算用の読み取りだけを許す。
+	std::span<const VertexInfluence> GetVertexInfluences() const { return skinCluster_.mappedInfluence; }
+	std::span<const WellForGPU> GetSkinningPalette() const { return skinCluster_.mappedPalette; }
 
 	bool HasSkinCluster() const { return hasSkinCluster_; }
 
 private:
+	// 初期化の入口をInitializeへまとめ、内部リソースの再生成を防ぐ。
+	void InitializeTransformationMatrix();
+	void InitializeDirectionalLight();
+	void InitializeCameraForGPU();
+	void InitializeMaterial();
+
 	// ComputeShader に渡す頂点数情報
 	struct SkinningInformationForGPU {
 		uint32_t numVertices;

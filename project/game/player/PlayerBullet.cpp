@@ -199,7 +199,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
                 { 0.60f * kVisualScale, 0.60f * kVisualScale, 0.60f * kVisualScale },
                 { 0.0f, 0.0f, 0.0f },
                 { 1.0f, 0.45f, 0.08f, 0.08f },
-                0.06f, ShootingBloom::bulletTrailStrength);
+                0.06f, ShootingBloom::GetBulletTrailStrength());
         }
 
         // 後ろ側の赤橙色から先端側の黄色へ滑らかに変化させる
@@ -212,7 +212,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             { 0.30f * kVisualScale, 0.30f * kVisualScale, 0.30f * kVisualScale },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, trailGreen, trailBlue, 0.32f },
-            0.11f, ShootingBloom::bulletTrailStrength);
+            0.11f, ShootingBloom::GetBulletTrailStrength());
 
         // 細く短い白黄色の芯を重ね、周囲の薄い光との明るさの差を付ける。
         particleSystem_->Emit(
@@ -220,7 +220,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
             { 0.10f * kVisualScale, 0.10f * kVisualScale, 0.10f * kVisualScale },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.95f, 0.72f, 0.32f },
-            0.045f, ShootingBloom::bulletTrailStrength);
+            0.045f, ShootingBloom::GetBulletTrailStrength());
     }
 
     // 軌跡の先端は白黄色へ寄せ、弾の現在位置が最も明るく見えるようにする。
@@ -229,7 +229,7 @@ void PlayerBullet::EmitTrail(const Vector3& start, const Vector3& end)
         { 0.38f * kVisualScale, 0.38f * kVisualScale, 0.38f * kVisualScale },
         { 0.0f, 0.0f, 0.0f },
         { 1.0f, 0.95f, 0.65f, 0.45f },
-        0.045f, ShootingBloom::bulletTrailStrength);
+        0.045f, ShootingBloom::GetBulletTrailStrength());
 }
 
 void PlayerBullet::EmitSparks()

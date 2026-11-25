@@ -2,33 +2,56 @@
 #include <cassert>
 #include <cstring>
 #include <algorithm> // ★追加：リストからの削除用
+#include <atomic>
 
 // ------------------------------
 // 再生終了を検知するコールバック
 // ------------------------------
 class VoiceCallback final : public IXAudio2VoiceCallback {
 public:
-    IXAudio2SourceVoice* voice = nullptr;
-    bool isFinished = false; // ★追加：再生が終わったかどうかのフラグ
+    // ボイスの寿命をコールバック自身にまとめ、破棄漏れを防ぐ。
+    ~VoiceCallback() { DestroyVoice(); }
+
+    // 生成直後のボイスだけを関連付け、外部からの直接書き換えを禁止する。
+    void AttachVoice(IXAudio2SourceVoice* voice) {
+        assert(voice && !voice_);
+        voice_ = voice;
+    }
+
+    // 終了通知は音声スレッドから届くので、アトミック変数を通して読む。
+    bool IsFinished() const { return isFinished_.load(); }
+
+    // メインスレッドから破棄し、音声側の処理が終わってから所有を解除する。
+    void DestroyVoice() {
+        if (voice_) {
+            voice_->DestroyVoice();
+            voice_ = nullptr;
+        }
+    }
 
     void __stdcall OnBufferEnd(void*) override {}
 
     // ストリーム終了
     void __stdcall OnStreamEnd() override {
         // ★XAudio2の別スレッド内なので、ここでは消さずにフラグを立てるだけ！
-        isFinished = true;
+        isFinished_.store(true);
     }
 
     // エラー時
     void __stdcall OnVoiceError(void*, HRESULT) override {
         // ★同じくフラグを立てるだけ
-        isFinished = true;
+        isFinished_.store(true);
     }
 
     void __stdcall OnVoiceProcessingPassStart(UINT32) override {}
     void __stdcall OnVoiceProcessingPassEnd() override {}
     void __stdcall OnBufferStart(void*) override {}
     void __stdcall OnLoopEnd(void*) override {}
+
+private:
+    // 内部状態は公開せず、終了確認と寿命管理の操作だけを提供する。
+    IXAudio2SourceVoice* voice_ = nullptr;
+    std::atomic_bool isFinished_{ false };
 };
 
 SoundManager::SoundManager() = default;
@@ -106,11 +129,8 @@ bool SoundManager::Initialize() {
 void SoundManager::Update() {
     for (auto it = activeVoices_.begin(); it != activeVoices_.end(); ) {
         VoiceCallback* cb = it->get();
-        if (cb->isFinished) {
-            if (cb->voice) {
-                cb->voice->DestroyVoice();
-                cb->voice = nullptr;
-            }
+        if (cb->IsFinished()) {
+            // 削除時のデストラクタでボイスも解放する。
             it = activeVoices_.erase(it);
         } else {
             ++it;
@@ -119,13 +139,7 @@ void SoundManager::Update() {
 }
 
 void SoundManager::Finalize() {
-    // ★追加：終了時にまだ再生中のボイスがあれば強制終了させる
-    for (auto& cb : activeVoices_) {
-        if (cb && cb->voice) {
-            cb->voice->DestroyVoice();
-            cb->voice = nullptr;
-        }
-    }
+    // マスターボイスを破棄する前に、所有する再生ボイスをすべて解放する。
     activeVoices_.clear();
 
     // XAudio2
@@ -245,7 +259,7 @@ void SoundManager::SoundPlayWave(const SoundData& soundData) {
     );
     assert(SUCCEEDED(hr));
 
-    callback->voice = sourceVoice;
+    callback->AttachVoice(sourceVoice);
 
     XAUDIO2_BUFFER buf{};
     buf.pAudioData = soundData.buffer.data();
@@ -259,6 +273,5 @@ void SoundManager::SoundPlayWave(const SoundData& soundData) {
     assert(SUCCEEDED(hr));
 
     // ★追加：破棄リストに登録して管理下に置く
-    callback->voice = sourceVoice;
     activeVoices_.push_back(std::move(callback));
 }

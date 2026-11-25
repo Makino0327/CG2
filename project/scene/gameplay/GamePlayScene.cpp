@@ -512,7 +512,7 @@ void GamePlayScene::Draw()
     if (player_) {
         GetContext().object3dCommon->SetMuzzleLight(
             player_->GetMuzzleLightPosition(), { 1.0f, 0.65f, 0.30f },
-            ShootingBloom::muzzleLightRadius, player_->GetMuzzleLightIntensity());
+            ShootingBloom::GetMuzzleLightRadius(), player_->GetMuzzleLightIntensity());
     }
 
     ID3D12GraphicsCommandList* commandList = GetContext().dxCommon->GetCommandList();
@@ -979,12 +979,28 @@ void GamePlayScene::DrawImGui()
     }
     // 弾の軌跡と発射炎を別々に変更できるようにする。0にするとその対象だけOFFになる。
     ImGui::Begin("Shooting Bloom");
-    ImGui::SliderFloat("Bullet Trail", &ShootingBloom::bulletTrailStrength, 0.0f, 3.0f);
-    ImGui::SliderFloat("Muzzle Flash", &ShootingBloom::muzzleFlashStrength, 0.0f, 3.0f);
+    // 編集用のコピーを使い、変更時に設定クラスで範囲を確認する。
+    float bulletTrailStrength = ShootingBloom::GetBulletTrailStrength();
+    if (ImGui::SliderFloat("Bullet Trail", &bulletTrailStrength, 0.0f, 3.0f)) {
+        ShootingBloom::SetBulletTrailStrength(bulletTrailStrength);
+    }
+    float muzzleFlashStrength = ShootingBloom::GetMuzzleFlashStrength();
+    if (ImGui::SliderFloat("Muzzle Flash", &muzzleFlashStrength, 0.0f, 3.0f)) {
+        ShootingBloom::SetMuzzleFlashStrength(muzzleFlashStrength);
+    }
     // 発射炎のBloomとは別に、周囲へ当たる実際のライトを調整する。
-    ImGui::SliderFloat("Muzzle Light Intensity", &ShootingBloom::muzzleLightIntensity, 0.0f, 20.0f);
-    ImGui::SliderFloat("Muzzle Light Radius", &ShootingBloom::muzzleLightRadius, 1.0f, 10.0f);
-    ImGui::Checkbox("Preview Muzzle Light", &ShootingBloom::previewMuzzleLight);
+    float muzzleLightIntensity = ShootingBloom::GetMuzzleLightIntensity();
+    if (ImGui::SliderFloat("Muzzle Light Intensity", &muzzleLightIntensity, 0.0f, 20.0f)) {
+        ShootingBloom::SetMuzzleLightIntensity(muzzleLightIntensity);
+    }
+    float muzzleLightRadius = ShootingBloom::GetMuzzleLightRadius();
+    if (ImGui::SliderFloat("Muzzle Light Radius", &muzzleLightRadius, 1.0f, 10.0f)) {
+        ShootingBloom::SetMuzzleLightRadius(muzzleLightRadius);
+    }
+    bool previewMuzzleLight = ShootingBloom::IsMuzzleLightPreviewEnabled();
+    if (ImGui::Checkbox("Preview Muzzle Light", &previewMuzzleLight)) {
+        ShootingBloom::SetMuzzleLightPreviewEnabled(previewMuzzleLight);
+    }
     ImGui::End();
 #endif
 }

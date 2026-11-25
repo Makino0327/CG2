@@ -1144,7 +1144,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
             { 0.70f, 0.70f, 0.70f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.34f, 0.05f, 0.38f },
-            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 
         // 発射口の中央へ黄色い強い光を重ねる
         particleSystem_->Emit(
@@ -1152,7 +1152,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
             { 0.40f, 0.40f, 0.40f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.72f, 0.22f, 0.9f },
-            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 
         // 最も明るい白い中心を重ねる
         particleSystem_->Emit(
@@ -1160,7 +1160,7 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
             { 0.20f, 0.20f, 0.20f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.95f, 0.72f, 1.0f },
-            0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.025f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 
         // 発射方向に対して左右へ小さな火花を配置する
         Vector3 sideDirection = { -direction.z, 0.0f, direction.x };
@@ -1180,14 +1180,14 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
             { 0.18f, 0.18f, 0.18f },
             { sideDirection.x * 0.6f, 0.0f, sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 
         particleSystem_->Emit(
             rightFlashPosition,
             { 0.18f, 0.18f, 0.18f },
             { -sideDirection.x * 0.6f, 0.0f, -sideDirection.z * 0.6f },
             { 1.0f, 0.46f, 0.08f, 0.4f },
-            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.04f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     }
 
     // 弾をリストに追加する
@@ -1303,7 +1303,7 @@ bool Player::FireShotgun(Camera* camera)
             { 1.0f, 1.0f, 1.0f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.38f, 0.06f, 0.48f },
-            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.05f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
 
         // 中心に短い白い閃光を重ねる
         particleSystem_->Emit(
@@ -1311,7 +1311,7 @@ bool Player::FireShotgun(Camera* camera)
             { 0.50f, 0.50f, 0.50f },
             { 0.0f, 0.0f, 0.0f },
             { 1.0f, 0.92f, 0.58f, 0.9f },
-            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::muzzleFlashStrength);
+            0.035f * ShootingBloom::muzzleFlashDurationScale, ShootingBloom::GetMuzzleFlashStrength());
     }
 
     return true;
@@ -1323,13 +1323,13 @@ float Player::GetMuzzleLightIntensity() const
         return 0.0f;
     }
     // 点灯プレビューでは寿命を無視し、銃口から光が当たる位置を確認する。
-    if (ShootingBloom::previewMuzzleLight) {
-        return ShootingBloom::muzzleLightIntensity;
+    if (ShootingBloom::IsMuzzleLightPreviewEnabled()) {
+        return ShootingBloom::GetMuzzleLightIntensity();
     }
     // 最初の数フレームは明るさを保ち、その後急速に減衰させる。
     const float fadeFrames = static_cast<float>(ShootingBloom::muzzleLightDurationFrames - 2);
     const float fade = std::clamp(static_cast<float>(muzzleLightFrames_) / fadeFrames, 0.0f, 1.0f);
-    return ShootingBloom::muzzleLightIntensity * fade * fade;
+    return ShootingBloom::GetMuzzleLightIntensity() * fade * fade;
 }
 
 void Player::EjectCasing(const Vector3& muzzlePosition, const Vector3& direction)
@@ -1851,6 +1851,22 @@ void Player::RotateToMouse(Camera* camera)
 
     // 回転を反映する
     object_->SetRotate(rotate_);
+}
+
+void Player::ResolveBulletHit(size_t index, float hitTime, bool countAsShotHit)
+{
+    // 無効な番号や処理済みの弾は受け付けず、所有する弾だけを変更する。
+    if (index >= bullets_.size() || !bullets_[index] || bullets_[index]->IsDead() ||
+        !std::isfinite(hitTime)) { return; }
+    PlayerBullet& bullet = *bullets_[index];
+    if (countAsShotHit) { RecordShotHit(bullet); }
+    bullet.OnHit(std::clamp(hitTime, 0.0f, 1.0f));
+}
+
+void Player::FinishBulletUpdate(size_t index)
+{
+    // 命中した弾も含め、保留されている演出を一度だけ確定する。
+    if (index < bullets_.size() && bullets_[index]) { bullets_[index]->FinishUpdate(); }
 }
 
 void Player::RecordShotHit(const PlayerBullet& bullet)

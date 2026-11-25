@@ -38,7 +38,8 @@ public:
     void StartScreenShatter(const Vector2& impactUV) { screenShatter_->Start(impactUV); }
     bool IsScreenShatterPlaying() const { return screenShatter_ && screenShatter_->IsPlaying(); }
 
-    RenderTexture* GetRenderTexture() const { return renderTexture_.get(); }
+    // 内部の描画先を公開せず、シーン画像を指定色で消す操作だけを提供する。
+    void ClearScene(const Vector4& color);
     // セッター
     void SetPostEffectType(PostEffectType type) { postEffectType_ = type; }
     PostEffectType GetPostEffectType() const { return postEffectType_; }

@@ -52,23 +52,9 @@ public:
     static DirectX::ScratchImage LoadTexture(const std::string& filePath);
 
     void Initialize(WinApp* winApp);
-    void InitializeDevice();
-    void InitializeCommand();
-    void InitializeSwapChain();
-    void InitializeDepthBuffer();
-    void InitializeDescriptorHeaps();
-    void InitializeRenderTargetView();
-    void InitializeDepthStencilView();
-    void InitializeFence();
-    void InitializeScissorRect();
-    void InitializeDXC();
-    void InitializeImGui();
 
     void PreDraw();
     void PostDraw();
-
-    void InitializeFixFPS();
-    void UpdateFixFPS();
 
     ID3D12Device* GetDevice() const { return device.Get(); }
     ID3D12GraphicsCommandList* GetCommandList() const { return commandList_.Get(); }
@@ -101,7 +87,7 @@ public:
     }
 
     ID3D12Resource* GetDepthStencilResource() const {
-        return depthStencilResource_.Get(); // // Outline用にDepthResourceを参照できるようにする
+        return depthStencilResource_.Get(); // アウトライン描画で使う深度リソースを参照する。
     }
 
     ~DirectXCommon();
@@ -133,6 +119,21 @@ public:
     }
 
 private:
+    // リソースの生成順序とフレーム制御は、このクラスの内部で管理する。
+    void InitializeDevice();
+    void InitializeCommand();
+    void InitializeSwapChain();
+    void InitializeDepthBuffer();
+    void InitializeDescriptorHeaps();
+    void InitializeRenderTargetView();
+    void InitializeDepthStencilView();
+    void InitializeFence();
+    void InitializeScissorRect();
+    void InitializeDXC();
+    void InitializeImGui();
+    void InitializeFixFPS();
+    void UpdateFixFPS();
+
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> commandQueue_;
