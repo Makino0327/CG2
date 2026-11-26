@@ -12,6 +12,7 @@
 #include "../collision/Collision.h"
 #include "PlayerBullet.h"
 #include "PlayerGrenade.h"
+#include "Gun.h"
 
 #include "../../scene/LevelLoader.h"
 
@@ -143,10 +144,10 @@ public:
 
     // 拾った弾を種類ごとの予備弾に追加する。
     void AddReserveAmmo(AttackMode weapon, int rounds);
-    // 選択中の銃の予備弾数を返す。銃以外は -1 を返す。
+    // 選択中の銃が管理する予備弾数を返す。
     int GetCurrentReserveAmmo() const;
     // チュートリアル用。ハンドガンは予備弾を減らさず、何度でもリロードできる。
-    void SetUnlimitedHandgunReserve(bool unlimited) { unlimitedHandgunReserve_ = unlimited; }
+    void SetUnlimitedHandgunReserve(bool unlimited) { guns_[0]->SetUnlimitedReserve(unlimited); }
 
     // このフレームに発砲したかを返す(銃声の発生検知用)
     bool HasFiredThisFrame() const { return firedThisFrame_; }
@@ -161,10 +162,10 @@ public:
     float GetGunshotSoundRange() const { return gunshotSoundRange_; }
 
     // 現在リロード中かどうかを返す
-    bool IsReloading() const { return isReloading_; }
+    bool IsReloading() const { return GetSelectedGun().IsReloading(); }
 
     // リロードの残りフレームを返す
-    int GetReloadTimer() const { return reloadTimer_; }
+    int GetReloadTimer() const { return GetSelectedGun().GetReloadTimer(); }
 
     // プレイヤーを復活させる
     void Respawn();
@@ -225,7 +226,7 @@ private:
     bool FireBullet(Camera* camera, float spreadAngle = 0.0f, const Vector3* aimTarget = nullptr);
 
     // ショットガンの弾をまとめて発射する
-    bool FireShotgun(Camera* camera);
+    bool FireShotgun(Camera* camera, const ScatterShot& pattern);
 
     // マウスの位置か射線上に敵がいれば胴体を狙い、それ以外は高さの平面を狙う。
     Vector3 CalcBulletDirection(Camera* camera, const Vector3& muzzle, float& flightHeight);
@@ -239,8 +240,6 @@ private:
     // 現在の武器の最大弾数を返す
     int GetMaxAmmoForCurrentWeapon() const;
 
-    // 現在の武器のリロード時間を返す
-    int GetReloadDurationForCurrentWeapon() const;
 
     // 弾を更新する
     void UpdateBullets();
@@ -333,62 +332,12 @@ private:
     AttackMode attackMode_ = AttackMode::Knife;
     AttackMode selectedGunMode_ = AttackMode::Gun; // 右クリック中に使う銃の種類を保存する
 
-    // アサルトライフルの連射間隔
-    int assaultFireInterval_ = 6;
-
-    // アサルトライフルの連射タイマー
-    int assaultFireTimer_ = 0;
-
-    // アサルトライフルを連射した回数
-    int assaultContinuousShotCount_ = 0;
-
-    // アサルトライフルの最大ばらけ角度
-    float assaultMaxSpreadAngle_ = 0.08f;
-
-    // アサルトライフルの連射ごとに増えるばらけ角度
-    float assaultSpreadIncrease_ = 0.008f;
-    // ハンドガンの弾倉に入る最大弾数。
-    int handgunMaxAmmo_ = 7;
-
-    // アサルトライフルの最大弾数
-    int assaultRifleMaxAmmo_ = 30;
-
-    // ショットガンの最大弾数
-    int shotgunMaxAmmo_ = 6;
-
-    // ハンドガンは満タンで開始する。
-    int handgunAmmo_ = handgunMaxAmmo_;
-
-    // ハンドガンは予備弾10発を持って開始する。
-    int handgunReserveAmmo_ = 10;
-    bool unlimitedHandgunReserve_ = false;
-
-    // アサルトライフルは空の弾倉で開始する。
-    int assaultRifleAmmo_ = 0;
-
-    // アサルトライフルの予備弾は、弾薬を拾うまで0発。
-    int assaultRifleReserveAmmo_ = 0;
-
-    // ショットガンは空の弾倉で開始する。
-    int shotgunAmmo_ = 0;
-
-    // ショットガンの予備弾は、弾薬を拾うまで0発。
-    int shotgunReserveAmmo_ = 0;
-
-    // ハンドガンのリロード時間
-    int handgunReloadDuration_ = 70;
-
-    // アサルトライフルのリロード時間
-    int assaultRifleReloadDuration_ = 110;
-
-    // ショットガンのリロード時間
-    int shotgunReloadDuration_ = 95;
-
-    // 現在リロード中かどうか
-    bool isReloading_ = false;
-
-    // リロードの残りフレーム
-    int reloadTimer_ = 0;
+    // 武器は基底型で所有し、個別の弾薬や連射状態は銃の内部に隠す。
+    std::array<std::unique_ptr<Gun>,3> guns_{
+        std::make_unique<Handgun>(), std::make_unique<AssaultRifle>(), std::make_unique<Shotgun>() };
+    Gun& GetSelectedGun() { return *guns_.at(static_cast<size_t>(selectedGunMode_)); }
+    const Gun& GetSelectedGun() const { return *guns_.at(static_cast<size_t>(selectedGunMode_)); }
+    bool FireSelectedGun(Camera* camera, const GunTrigger& trigger, const Vector3* aimTarget = nullptr);
 
     // このフレームに発砲したか
     bool firedThisFrame_ = false;
@@ -499,18 +448,6 @@ private:
     // マウスの地面座標に対する狙いの高さ。発射位置は銃口の実頂点から求める。
     float bulletAimHeight_ = 0.7f;
 
-    // ショットガンで一度に出す弾の数
-    int shotgunPelletCount_ = 5;
-
-    // ショットガン弾が広がる角度
-    float shotgunSpreadAngle_ = 0.34f;
-
-    // ショットガン弾ごとのランダムな角度ブレ
-    float shotgunRandomSpreadAngle_ = 0.08f;
-
-    // ショットガン弾ごとの速度ブレ
-    float shotgunMinSpeedScale_ = 0.85f;
-    float shotgunMaxSpeedScale_ = 1.08f;
 
     // グレネードの投擲開始位置の高さ
     float grenadeSpawnHeight_ = 0.8f;

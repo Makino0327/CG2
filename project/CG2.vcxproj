@@ -424,6 +424,10 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="game\player\Gun.h" />
+    <ClInclude Include="game\collision\IBulletTarget.h" />
+    <ClInclude Include="engine\particle\IParticleMesh.h" />
+    <ClInclude Include="engine\base\offscreen\PostEffect.h" />
     <ClInclude Include="game\minimap\Minimap.h" />
     <ClInclude Include="scene\gameover\GameOverScene.h" />
     <ClInclude Include="scene\gameover\GameOverEffect.h" />

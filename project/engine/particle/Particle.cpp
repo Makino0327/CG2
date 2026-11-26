@@ -16,6 +16,23 @@
 
 using Microsoft::WRL::ComPtr;
 
+namespace {
+    // 通常モデルは粒子専用のアダプターを介して使い、Model自体へ継承を強制しない。
+    class PlaneParticleMesh final : public IParticleMesh {
+    public:
+        explicit PlaneParticleMesh(std::string modelName) : modelName_(std::move(modelName)) {}
+        void DrawInstanced(uint32_t instanceCount) override {
+            if (Model* model = ModelManager::GetInstance()->FindModel(modelName_)) {
+                model->DrawInstancedForParticle(instanceCount);
+            }
+        }
+    private:
+        std::string modelName_;
+    };
+}
+
+
+
 // =============================
 // パーティクルのプリセット一覧
 // =============================
@@ -147,18 +164,7 @@ void ParticleSystem::Initialize(
     }
 
     // // 現在の形状設定に応じて描画オブジェクトを作る
-    if (meshType_ == EffectMeshType::Ring) {
-        ring_ = std::make_unique<Ring>();
-        ring_->Initialize(dxCommon_);
-        cylinder_.reset();
-    } else if (meshType_ == EffectMeshType::Cylinder) {
-        cylinder_ = std::make_unique<Cylinder>();
-        cylinder_->Initialize(dxCommon_);
-        ring_.reset();
-    } else {
-        ring_.reset();
-        cylinder_.reset();
-    }
+    RebuildMesh();
 
 }
 
@@ -194,18 +200,7 @@ void ParticleSystem::ApplyPreset(ParticleType type)
     }
 
     if (dxCommon_) {
-        if (meshType_ == EffectMeshType::Ring) {
-            ring_ = std::make_unique<Ring>();
-            ring_->Initialize(dxCommon_);
-            cylinder_.reset();
-        } else if (meshType_ == EffectMeshType::Cylinder) {
-            cylinder_ = std::make_unique<Cylinder>();
-            cylinder_->Initialize(dxCommon_);
-            ring_.reset();
-        } else {
-            ring_.reset();
-            cylinder_.reset();
-        }
+        RebuildMesh();
     }
 
 }
@@ -612,40 +607,15 @@ void ParticleSystem::Draw()
 
 
     // 形状の種類に応じて描画方法を切り替える
-    if (meshType_ == EffectMeshType::Plane) {
-        Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
-        if (model) {
-            model->DrawInstancedForParticle(kNumInstance);
-        }
-    } else if (meshType_ == EffectMeshType::Ring) {
-        if (ring_) {
-            ring_->DrawInstanced(kNumInstance);
-        }
-    }
-    else if (meshType_ == EffectMeshType::Cylinder) {
-        if (cylinder_) {
-            cylinder_->DrawInstanced(kNumInstance);
-        }
-    }
+    // 通常粒子・手動粒子・発光粒子で、同じ形状の仮想関数を使う。
+    if (mesh_) { mesh_->DrawInstanced(kNumInstance); }
 
     // t0を手動パーティクルのStructuredBufferへ切り替える
     cmd->SetGraphicsRootDescriptorTable(0, manualParticleSrvHandleGPU_);
 
     // 手動パーティクルも同じ加算合成設定で描画する
-    if (meshType_ == EffectMeshType::Plane) {
-        Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
-        if (model) {
-            model->DrawInstancedForParticle(kNumInstance);
-        }
-    } else if (meshType_ == EffectMeshType::Ring) {
-        if (ring_) {
-            ring_->DrawInstanced(kNumInstance);
-        }
-    } else if (meshType_ == EffectMeshType::Cylinder) {
-        if (cylinder_) {
-            cylinder_->DrawInstanced(kNumInstance);
-        }
-    }
+    // 通常粒子・手動粒子・発光粒子で、同じ形状の仮想関数を使う。
+    if (mesh_) { mesh_->DrawInstanced(kNumInstance); }
 
 }
 
@@ -684,14 +654,8 @@ void ParticleSystem::DrawBloom()
     cmd->SetGraphicsRootDescriptorTable(0, bloomParticleSrvHandleGPU_);
     cmd->SetGraphicsRootDescriptorTable(1, TextureManager::GetInstance()->GetSrvHandleGPU(textureFilePath_));
     cmd->SetGraphicsRootConstantBufferView(2, perViewResource_->GetGPUVirtualAddress());
-    if (meshType_ == EffectMeshType::Plane) {
-        Model* model = ModelManager::GetInstance()->FindModel(modelFileName_);
-        if (model) { model->DrawInstancedForParticle(kNumInstance); }
-    } else if (meshType_ == EffectMeshType::Ring) {
-        if (ring_) { ring_->DrawInstanced(kNumInstance); }
-    } else if (meshType_ == EffectMeshType::Cylinder) {
-        if (cylinder_) { cylinder_->DrawInstanced(kNumInstance); }
-    }
+    // 通常粒子・手動粒子・発光粒子で、同じ形状の仮想関数を使う。
+    if (mesh_) { mesh_->DrawInstanced(kNumInstance); }
 }
 
 void ParticleSystem::ShowImGui(const char* windowName)
@@ -758,18 +722,7 @@ void ParticleSystem::SetMeshType(EffectMeshType type)
     }
 
     // // 形状に応じて描画オブジェクトを作り直す
-    if (meshType_ == EffectMeshType::Ring) {
-        ring_ = std::make_unique<Ring>();
-        ring_->Initialize(dxCommon_);
-        cylinder_.reset();
-    } else if (meshType_ == EffectMeshType::Cylinder) {
-        cylinder_ = std::make_unique<Cylinder>();
-        cylinder_->Initialize(dxCommon_);
-        ring_.reset();
-    } else {
-        ring_.reset();
-        cylinder_.reset();
-    }
+    RebuildMesh();
 
     // // 形状を変えたときに以前の粒子を消しておく
     for (uint32_t i = 0; i < kNumInstance; ++i) {
@@ -1086,4 +1039,26 @@ void ParticleSystem::DispatchUpdateParticleCS()
     barrierToSrv.Transition.StateAfter = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
     barrierToSrv.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     commandList->ResourceBarrier(1, &barrierToSrv);
+}
+
+void ParticleSystem::RebuildMesh() {
+    if (!dxCommon_) { return; }
+    // 種類の選択は生成時に限定し、その後は共通インターフェースで所有する。
+    switch (meshType_) {
+    case EffectMeshType::Ring: {
+        auto mesh = std::make_unique<Ring>();
+        mesh->Initialize(dxCommon_);
+        mesh_ = std::move(mesh);
+        break;
+    }
+    case EffectMeshType::Cylinder: {
+        auto mesh = std::make_unique<Cylinder>();
+        mesh->Initialize(dxCommon_);
+        mesh_ = std::move(mesh);
+        break;
+    }
+    case EffectMeshType::Plane:
+        mesh_ = std::make_unique<PlaneParticleMesh>(modelFileName_);
+        break;
+    }
 }

@@ -9,6 +9,7 @@
 #include "../base/srv/SrvManager.h"
 #include "Ring.h"
 #include "Cylinder.h"
+#include "IParticleMesh.h"
 #include "ParticleCommon.h"
 
 class DirectXCommon;
@@ -270,9 +271,9 @@ private:
 
     // 描画に使う形状
     EffectMeshType meshType_ = EffectMeshType::Plane; // 現在使う形状
-    std::unique_ptr<Ring> ring_;                      // Ring 描画用オブジェクト
-    // // Cylinder 描画用オブジェクト
-    std::unique_ptr<Cylinder> cylinder_;
+    // 形状の所有権を一本化し、描画時は基底型の仮想関数だけを呼ぶ。
+    std::unique_ptr<IParticleMesh> mesh_;
+    void RebuildMesh();
 
     // GPU発生用エミッター本体
     EmitterSphere emitterSphere_{};

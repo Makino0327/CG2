@@ -1,4 +1,5 @@
-﻿#include "Enemy.h"
+﻿#include "../player/PlayerBullet.h"
+#include "Enemy.h"
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -233,6 +234,226 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     waypointMover_.Update();
 }
 
+// 各行動はEnemyの内部クラスとし、外部へ状態の書き換え権限を公開しない。
+class Enemy::Behavior {
+public:
+    virtual ~Behavior() = default;
+    virtual void Update(Enemy& enemy, Vector3& nextPosition) const = 0;
+};
+
+class Enemy::ChaseBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        // 追跡中と記憶した場所への移動中は、音への警戒を打ち切る
+        enemy.hearingTimer_ = 0;
+
+        // 見えていれば最新位置、見失っていれば最後に見た位置へ壁を回り込んで進む
+        Vector3 direction = enemy.CalculateNavMeshChaseDirection(enemy.lastSeenPosition_);
+        const float distanceToLastSeen = std::sqrt(GetDistanceSqXZ(enemy.position_, enemy.lastSeenPosition_));
+        const float step = (distanceToLastSeen < enemy.moveSpeed_) ? distanceToLastSeen : enemy.moveSpeed_;
+
+        // 回り込める方向がある場合だけ移動する
+        if (direction.x != 0.0f || direction.z != 0.0f) {
+            nextPosition.x += direction.x * step;
+            nextPosition.z += direction.z * step;
+
+            // 実際に進む方向へ少しずつ向く
+            const float targetYaw = std::atan2(direction.x, direction.z);
+            enemy.rotation_.y = ApproachAngle(enemy.rotation_.y, targetYaw, 0.05f, 0.04f);
+        }
+    }
+};
+
+class Enemy::GeneratorBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        // 発電機の中心へは入らず、外周の到着地点で停止する
+        const float distance = std::sqrt(GetDistanceSqXZ(enemy.position_, enemy.generatorApproachPosition_));
+        if (distance <= 0.35f) {
+            enemy.hasReachedGenerator_ = true;
+        }
+        if (!enemy.hasReachedGenerator_) {
+            Vector3 direction;
+            // 最後の短い距離は直線で合わせ、経路平滑化による行き過ぎを防ぐ
+            if (distance < 1.0f && !enemy.IsSegmentBlockedByWall(enemy.position_, enemy.generatorApproachPosition_, nullptr)) {
+                direction = {
+                    (enemy.generatorApproachPosition_.x - enemy.position_.x) / distance,
+                    0.0f,
+                    (enemy.generatorApproachPosition_.z - enemy.position_.z) / distance
+                };
+            } else {
+                direction = enemy.CalculateNavMeshChaseDirection(enemy.generatorApproachPosition_);
+            }
+            const float step = (std::min)(distance, enemy.moveSpeed_);
+            nextPosition.x += direction.x * step;
+            nextPosition.z += direction.z * step;
+            if (direction.x != 0.0f || direction.z != 0.0f) {
+                enemy.rotation_.y = ApproachAngle(enemy.rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
+            }
+        } else {
+            // 到着後は発電機を向いて待機し、繰り返し聞こえる音では移動を再開しない
+            const float yaw = std::atan2(enemy.generatorSoundPosition_.x - enemy.position_.x,
+                enemy.generatorSoundPosition_.z - enemy.position_.z);
+            enemy.rotation_.y = ApproachAngle(enemy.rotation_.y, yaw, enemy.hearingTurnSpeed_, 0.04f);
+        }
+    }
+};
+
+class Enemy::LookAroundBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        // 記憶した場所へ到着したら、その場に止まって左右を見渡す
+        enemy.lostSightLookTimer_--;
+
+        const float lookProgress = 1.0f - static_cast<float>(enemy.lostSightLookTimer_) /
+            static_cast<float>(enemy.lostSightLookDuration_);
+        const float lookOffset = std::sin(lookProgress * 6.28318530f) * 1.0f;
+        enemy.rotation_.y = enemy.lostSightLookStartYaw_ + lookOffset;
+
+        if (enemy.lostSightLookTimer_ == 0) {
+            // 見回しが終わったら巡回ルートへ戻る
+            enemy.waypointMover_.ResumePatrol();
+            enemy.isReturningToPatrol_ = true;
+            enemy.navMeshPath_.clear();
+            enemy.navMeshPathRefreshTimer_ = 0;
+            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        }
+    }
+};
+
+class Enemy::HearTurnBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        // 音を聞いたときは移動を止めて、音のした方向へその場で振り向く
+        enemy.hearingTimer_--;
+
+        const Vector3 toSound = {
+            enemy.heardSoundPosition_.x - enemy.position_.x,
+            0.0f,
+            enemy.heardSoundPosition_.z - enemy.position_.z
+        };
+
+        if (std::fabs(toSound.x) > 0.001f || std::fabs(toSound.z) > 0.001f) {
+            const float targetYaw = std::atan2(toSound.x, toSound.z);
+
+            // 最短の回転方向を求めて一定速度で旋回する
+            constexpr float kPi = 3.14159265f;
+            float yawDiff = targetYaw - enemy.rotation_.y;
+            while (yawDiff > kPi) { yawDiff -= kPi * 2.0f; }
+            while (yawDiff < -kPi) { yawDiff += kPi * 2.0f; }
+
+            if (std::fabs(yawDiff) <= enemy.hearingTurnSpeed_) {
+                enemy.rotation_.y = targetYaw;
+            } else {
+                enemy.rotation_.y +=
+                    (yawDiff > 0.0f) ? enemy.hearingTurnSpeed_ : -enemy.hearingTurnSpeed_;
+            }
+        }
+
+        // 振り向き終わったら、音のした位置まで調べに行く
+        if (enemy.hearingTimer_ == 0) {
+            enemy.isInvestigatingSound_ = true;
+            enemy.soundSearchTimer_ = 0;
+            enemy.navMeshPath_.clear();
+            enemy.navMeshPathRefreshTimer_ = 0;
+            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        }
+    }
+};
+
+class Enemy::InvestigateBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        // 銃声のした位置へ壁を回り込みながら近づく
+        enemy.soundSearchTimer_++;
+        const float distance = std::sqrt(GetDistanceSqXZ(enemy.position_, enemy.heardSoundPosition_));
+
+        if (distance <= enemy.soundReachDistance_ || enemy.soundSearchTimer_ >= enemy.soundSearchMaxFrames_) {
+            // 到着したら(または到達できなければ)、その場で左右を見渡してから巡回へ戻る
+            enemy.isInvestigatingSound_ = false;
+            enemy.soundSearchTimer_ = 0;
+            enemy.lostSightLookTimer_ = enemy.lostSightLookDuration_;
+            enemy.lostSightLookStartYaw_ = enemy.rotation_.y;
+            enemy.navMeshPath_.clear();
+            enemy.navMeshPathRefreshTimer_ = 0;
+            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+        } else {
+            const Vector3 direction = enemy.CalculateNavMeshChaseDirection(enemy.heardSoundPosition_);
+            const float step = (std::min)(distance, enemy.moveSpeed_);
+            if (direction.x != 0.0f || direction.z != 0.0f) {
+                nextPosition.x += direction.x * step;
+                nextPosition.z += direction.z * step;
+                enemy.rotation_.y = ApproachAngle(enemy.rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
+            }
+        }
+    }
+};
+
+class Enemy::PatrolBehavior final : public Enemy::Behavior {
+public:
+    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        if (enemy.isReturningToPatrol_ && enemy.waypointMover_.HasWaypoints()) {
+            // 追跡終了後の戻りだけはNavMeshで移動して、壁へ直線で突っ込まないようにする
+            const Vector3 patrolTarget = enemy.waypointMover_.GetCurrentWaypointPosition();
+            Vector3 toPatrolTarget = {
+                patrolTarget.x - enemy.position_.x,
+                0.0f,
+                patrolTarget.z - enemy.position_.z
+            };
+            const float patrolDistanceSq =
+                toPatrolTarget.x * toPatrolTarget.x +
+                toPatrolTarget.z * toPatrolTarget.z;
+            const float reachDistance = 0.05f;
+
+            if (patrolDistanceSq <= reachDistance * reachDistance) {
+                // ほぼ戻れたら現在位置のまま通常巡回へ戻す
+                enemy.isReturningToPatrol_ = false;
+                enemy.waypointMover_.SetPosition(nextPosition);
+                enemy.waypointMover_.SetRotation(enemy.rotation_);
+            } else {
+                Vector3 direction = enemy.CalculateNavMeshChaseDirection(patrolTarget);
+                if (direction.x != 0.0f || direction.z != 0.0f) {
+                    nextPosition.x += direction.x * enemy.moveSpeed_;
+                    nextPosition.z += direction.z * enemy.moveSpeed_;
+
+                    // 戻り中も急に向きを変えず、進行方向へ少しずつ向く
+                    const float targetYaw = std::atan2(direction.x, direction.z);
+                    enemy.rotation_.y = ApproachAngle(enemy.rotation_.y, targetYaw, 0.05f, 0.04f);
+                }
+            }
+        } else {
+            // 追跡していないときは巡回を更新する
+            enemy.waypointMover_.Update();
+
+            // 巡回更新後の位置と回転を反映する
+            nextPosition = enemy.waypointMover_.GetPosition();
+            enemy.rotation_ = enemy.waypointMover_.GetRotation();
+        }
+    }
+};
+
+const Enemy::Behavior& Enemy::SelectBehavior() const {
+    // 既存の優先順位を一か所に固定し、行動本体は基底型から呼び出す。
+    static const ChaseBehavior chase;
+    static const GeneratorBehavior generator;
+    static const LookAroundBehavior look;
+    static const HearTurnBehavior hear;
+    static const InvestigateBehavior investigate;
+    static const PatrolBehavior patrol;
+    if (isChasing_) { return chase; }
+    if (isInvestigatingGenerator_) { return generator; }
+    if (lostSightLookTimer_ > 0) { return look; }
+    if (hearingTimer_ > 0) { return hear; }
+    if (isInvestigatingSound_) { return investigate; }
+    return patrol;
+}
+
 void Enemy::Update()
 {
     // 死亡後は通常移動を止め、破片だけを更新する
@@ -308,168 +529,8 @@ void Enemy::Update()
         }
     }
 
-    if (isChasing_) {
-        // 追跡中と記憶した場所への移動中は、音への警戒を打ち切る
-        hearingTimer_ = 0;
-
-        // 見えていれば最新位置、見失っていれば最後に見た位置へ壁を回り込んで進む
-        Vector3 direction = CalculateNavMeshChaseDirection(lastSeenPosition_);
-        const float distanceToLastSeen = std::sqrt(GetDistanceSqXZ(position_, lastSeenPosition_));
-        const float step = (distanceToLastSeen < moveSpeed_) ? distanceToLastSeen : moveSpeed_;
-
-        // 回り込める方向がある場合だけ移動する
-        if (direction.x != 0.0f || direction.z != 0.0f) {
-            nextPosition.x += direction.x * step;
-            nextPosition.z += direction.z * step;
-
-            // 実際に進む方向へ少しずつ向く
-            const float targetYaw = std::atan2(direction.x, direction.z);
-            rotation_.y = ApproachAngle(rotation_.y, targetYaw, 0.05f, 0.04f);
-        }
-    } else if (isInvestigatingGenerator_) {
-        // 発電機の中心へは入らず、外周の到着地点で停止する
-        const float distance = std::sqrt(GetDistanceSqXZ(position_, generatorApproachPosition_));
-        if (distance <= 0.35f) {
-            hasReachedGenerator_ = true;
-        }
-        if (!hasReachedGenerator_) {
-            Vector3 direction;
-            // 最後の短い距離は直線で合わせ、経路平滑化による行き過ぎを防ぐ
-            if (distance < 1.0f && !IsSegmentBlockedByWall(position_, generatorApproachPosition_, nullptr)) {
-                direction = {
-                    (generatorApproachPosition_.x - position_.x) / distance,
-                    0.0f,
-                    (generatorApproachPosition_.z - position_.z) / distance
-                };
-            } else {
-                direction = CalculateNavMeshChaseDirection(generatorApproachPosition_);
-            }
-            const float step = (std::min)(distance, moveSpeed_);
-            nextPosition.x += direction.x * step;
-            nextPosition.z += direction.z * step;
-            if (direction.x != 0.0f || direction.z != 0.0f) {
-                rotation_.y = ApproachAngle(rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
-            }
-        } else {
-            // 到着後は発電機を向いて待機し、繰り返し聞こえる音では移動を再開しない
-            const float yaw = std::atan2(generatorSoundPosition_.x - position_.x,
-                generatorSoundPosition_.z - position_.z);
-            rotation_.y = ApproachAngle(rotation_.y, yaw, hearingTurnSpeed_, 0.04f);
-        }
-    } else if (lostSightLookTimer_ > 0) {
-        // 記憶した場所へ到着したら、その場に止まって左右を見渡す
-        lostSightLookTimer_--;
-
-        const float lookProgress = 1.0f - static_cast<float>(lostSightLookTimer_) /
-            static_cast<float>(lostSightLookDuration_);
-        const float lookOffset = std::sin(lookProgress * 6.28318530f) * 1.0f;
-        rotation_.y = lostSightLookStartYaw_ + lookOffset;
-
-        if (lostSightLookTimer_ == 0) {
-            // 見回しが終わったら巡回ルートへ戻る
-            waypointMover_.ResumePatrol();
-            isReturningToPatrol_ = true;
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        }
-    } else if (hearingTimer_ > 0) {
-        // 音を聞いたときは移動を止めて、音のした方向へその場で振り向く
-        hearingTimer_--;
-
-        const Vector3 toSound = {
-            heardSoundPosition_.x - position_.x,
-            0.0f,
-            heardSoundPosition_.z - position_.z
-        };
-
-        if (std::fabs(toSound.x) > 0.001f || std::fabs(toSound.z) > 0.001f) {
-            const float targetYaw = std::atan2(toSound.x, toSound.z);
-
-            // 最短の回転方向を求めて一定速度で旋回する
-            constexpr float kPi = 3.14159265f;
-            float yawDiff = targetYaw - rotation_.y;
-            while (yawDiff > kPi) { yawDiff -= kPi * 2.0f; }
-            while (yawDiff < -kPi) { yawDiff += kPi * 2.0f; }
-
-            if (std::fabs(yawDiff) <= hearingTurnSpeed_) {
-                rotation_.y = targetYaw;
-            } else {
-                rotation_.y +=
-                    (yawDiff > 0.0f) ? hearingTurnSpeed_ : -hearingTurnSpeed_;
-            }
-        }
-
-        // 振り向き終わったら、音のした位置まで調べに行く
-        if (hearingTimer_ == 0) {
-            isInvestigatingSound_ = true;
-            soundSearchTimer_ = 0;
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        }
-    } else if (isInvestigatingSound_) {
-        // 銃声のした位置へ壁を回り込みながら近づく
-        soundSearchTimer_++;
-        const float distance = std::sqrt(GetDistanceSqXZ(position_, heardSoundPosition_));
-
-        if (distance <= soundReachDistance_ || soundSearchTimer_ >= soundSearchMaxFrames_) {
-            // 到着したら(または到達できなければ)、その場で左右を見渡してから巡回へ戻る
-            isInvestigatingSound_ = false;
-            soundSearchTimer_ = 0;
-            lostSightLookTimer_ = lostSightLookDuration_;
-            lostSightLookStartYaw_ = rotation_.y;
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        } else {
-            const Vector3 direction = CalculateNavMeshChaseDirection(heardSoundPosition_);
-            const float step = (std::min)(distance, moveSpeed_);
-            if (direction.x != 0.0f || direction.z != 0.0f) {
-                nextPosition.x += direction.x * step;
-                nextPosition.z += direction.z * step;
-                rotation_.y = ApproachAngle(rotation_.y, std::atan2(direction.x, direction.z), 0.05f, 0.04f);
-            }
-        }
-    } else {
-        if (isReturningToPatrol_ && waypointMover_.HasWaypoints()) {
-            // 追跡終了後の戻りだけはNavMeshで移動して、壁へ直線で突っ込まないようにする
-            const Vector3 patrolTarget = waypointMover_.GetCurrentWaypointPosition();
-            Vector3 toPatrolTarget = {
-                patrolTarget.x - position_.x,
-                0.0f,
-                patrolTarget.z - position_.z
-            };
-            const float patrolDistanceSq =
-                toPatrolTarget.x * toPatrolTarget.x +
-                toPatrolTarget.z * toPatrolTarget.z;
-            const float reachDistance = 0.05f;
-
-            if (patrolDistanceSq <= reachDistance * reachDistance) {
-                // ほぼ戻れたら現在位置のまま通常巡回へ戻す
-                isReturningToPatrol_ = false;
-                waypointMover_.SetPosition(nextPosition);
-                waypointMover_.SetRotation(rotation_);
-            } else {
-                Vector3 direction = CalculateNavMeshChaseDirection(patrolTarget);
-                if (direction.x != 0.0f || direction.z != 0.0f) {
-                    nextPosition.x += direction.x * moveSpeed_;
-                    nextPosition.z += direction.z * moveSpeed_;
-
-                    // 戻り中も急に向きを変えず、進行方向へ少しずつ向く
-                    const float targetYaw = std::atan2(direction.x, direction.z);
-                    rotation_.y = ApproachAngle(rotation_.y, targetYaw, 0.05f, 0.04f);
-                }
-            }
-        } else {
-            // 追跡していないときは巡回を更新する
-            waypointMover_.Update();
-
-            // 巡回更新後の位置と回転を反映する
-            nextPosition = waypointMover_.GetPosition();
-            rotation_ = waypointMover_.GetRotation();
-        }
-    }
+    // 現在の行動を仮想関数で更新し、その後に共通の衝突補正を行う。
+    SelectBehavior().Update(*this, nextPosition);
 
     // 床コライダーで高さを補正する
     ResolveGroundHeight(nextPosition);
@@ -1873,4 +1934,15 @@ void Enemy::UpdateRenderOnly()
         waypointMover_.SetPosition(position_);
         waypointMover_.UpdateRenderOnly();
     }
+}
+
+// 移動する箱の判定は敵自身が担当し、シーンに形状の違いを持ち込まない。
+bool Enemy::CheckBulletHit(const PlayerBullet& bullet, float& hitTime) const {
+    return bullet.CheckHit(GetBulletCollider(), GetPreviousPosition(), hitTime);
+}
+
+BulletHitFeedback Enemy::ApplyBulletHit(const PlayerBullet& bullet, float hitTime) {
+    const Vector3 position = Collision::ClosestPointOnBox(bullet.GetCollider().center, GetBulletCollider(hitTime));
+    OnHit(position, Normalize(bullet.GetVelocity()));
+    return {};
 }

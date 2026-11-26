@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include "../collision/IBulletTarget.h"
 
 #include <array>
 #include <memory>
@@ -15,9 +16,13 @@
 class Object3dCommon;
 class ParticleSystem;
 
-class Enemy
+class Enemy : public IBulletTarget
 {
 public:
+    // 弾との判定と被弾処理を、共通の対象インターフェースから実行する。
+    bool CheckBulletHit(const PlayerBullet& bullet, float& hitTime) const override;
+    BulletHitFeedback ApplyBulletHit(const PlayerBullet& bullet, float hitTime) override;
+
     // 敵を初期化する
     void Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vector3& position);
 
@@ -56,7 +61,7 @@ public:
     int GetHp() const { return hp_; }
 
     // 撃破済みかを返す
-    bool IsDead() const { return isDead_; }
+    bool IsDead() const override { return isDead_; }
 
     // チュートリアルの練習用の敵は、その場に立ったまま見たり聞いたり攻撃したりしない。
     void SetPassive(bool passive) { isPassive_ = passive; }
@@ -119,6 +124,16 @@ public:
     // デバッグカメラ用に描画だけ更新する
     void UpdateRenderOnly();
 private:
+    // 派生する行動クラスも非公開とし、状態へのアクセスをEnemy内部へ限定する。
+    class Behavior;
+    class ChaseBehavior;
+    class GeneratorBehavior;
+    class LookAroundBehavior;
+    class HearTurnBehavior;
+    class InvestigateBehavior;
+    class PatrolBehavior;
+    const Behavior& SelectBehavior() const;
+
     // 左方向のマップ衝突を解決する
     void ResolveLeftCollisionWithMap(Vector3& pos);
 

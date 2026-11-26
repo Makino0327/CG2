@@ -129,6 +129,7 @@ void OffscreenRenderer::Initialize(DirectXCommon* dxCommon, SrvManager* srvManag
     shockwaveData_->whiteWave = shockwaveWhiteWaveEnabled_ ? 1.0f : 0.0f;
 
 
+    InitializePostEffects();
 }
 
 void OffscreenRenderer::PreDrawScene()
@@ -345,7 +346,7 @@ void OffscreenRenderer::DrawToBackBuffer()
 
     bool needsDepthTexture = false;
     for (size_t index = 0; index < activeEffectCount; ++index) {
-        if (activeEffects[index] == PostEffectType::DepthOutline) {
+        if (postEffects_.at(static_cast<size_t>(activeEffects[index]))->RequiresDepthTexture()) {
             needsDepthTexture = true;
             break;
         }
@@ -366,82 +367,16 @@ void OffscreenRenderer::DrawToBackBuffer()
         commandList->ResourceBarrier(1, &barrier);
     };
 
-    auto SetPipelineState = [&](PostEffectType type) {
-        switch (type) {
-        case PostEffectType::Copy:
-            commandList->SetPipelineState(copyPipelineState_.Get());
-            break;
-        case PostEffectType::Grayscale:
-            commandList->SetPipelineState(grayscalePipelineState_.Get());
-            break;
-        case PostEffectType::DeathBlur:
-            commandList->SetPipelineState(deathBlurPipelineState_.Get());
-            break;
-        case PostEffectType::Sepia:
-            commandList->SetPipelineState(sepiaPipelineState_.Get());
-            break;
-        case PostEffectType::Vignette:
-            commandList->SetPipelineState(vignettePipelineState_.Get());
-            break;
-        case PostEffectType::BoxFilter:
-            commandList->SetPipelineState(boxFilterPipelineState_.Get());
-            break;
-        case PostEffectType::GaussianFilter:
-            commandList->SetPipelineState(gaussianFilterPipelineState_.Get());
-            break;
-        case PostEffectType::DepthOutline:
-            commandList->SetPipelineState(depthOutlinePipelineState_.Get());
-            break;
-        case PostEffectType::RadialBlur:
-            commandList->SetPipelineState(radialBlurPipelineState_.Get());
-            break;
-        case PostEffectType::Dissolve:
-            commandList->SetPipelineState(dissolvePipelineState_.Get());
-            break;
-        case PostEffectType::RandomNoise:
-            commandList->SetPipelineState(randomNoisePipelineState_.Get());
-            break;
-        case PostEffectType::Shockwave:
-            commandList->SetPipelineState(shockwavePipelineState_.Get());
-            break;
-        }
-    };
 
-    auto DrawPostEffectPass = [&](PostEffectType type, uint32_t inputSrvIndex, D3D12_CPU_DESCRIPTOR_HANDLE outputRTVHandle) {
-        if (type == PostEffectType::Bloom) {
-            // Bloomだけは、専用の半解像度画像を使う複数パスで描画する。
-            bloom_->Draw(inputSrvIndex, bloomEmissionTexture_->GetSRVIndex(), outputRTVHandle);
-            return;
-        }
-        commandList->OMSetRenderTargets(1, &outputRTVHandle, FALSE, nullptr);
 
-        const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-        commandList->ClearRenderTargetView(outputRTVHandle, clearColor, 0, nullptr);
-
-        commandList->RSSetViewports(1, &viewport);
-        commandList->RSSetScissorRects(1, &scissorRect);
-        commandList->SetGraphicsRootSignature(rootSignature_.Get());
-        SetPipelineState(type);
-        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        ID3D12DescriptorHeap* descriptorHeaps[] = { srvManager_->GetDescriptorHeap() };
-        commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-        srvManager_->SetGraphicsRootDescriptorTable(0, inputSrvIndex); // t0: 直前の描画結果
-        srvManager_->SetGraphicsRootDescriptorTable(1, depthSrvIndex_); // t1: 深度テクスチャ
-
-        uint32_t maskSrvIndex = dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_;
-        srvManager_->SetGraphicsRootDescriptorTable(2, maskSrvIndex); // t2: ディゾルブ用マスク
-
-        // 死亡時だけ専用のぼかし量を使い、通常のラジアルブラーと設定を分ける。
-        commandList->SetGraphicsRootConstantBufferView(3,
-            (type == PostEffectType::DeathBlur ? deathBlurResource_ : radialBlurResource_)->GetGPUVirtualAddress());
-        commandList->SetGraphicsRootConstantBufferView(4, dissolveResource_->GetGPUVirtualAddress()); // b1
-        commandList->SetGraphicsRootConstantBufferView(5, randomNoiseResource_->GetGPUVirtualAddress()); // b2
-        commandList->SetGraphicsRootConstantBufferView(6, shockwaveResource_->GetGPUVirtualAddress()); // b3
-        commandList->SetGraphicsRootConstantBufferView(7, vignetteResource_->GetGPUVirtualAddress()); // b4
-
-        commandList->DrawInstanced(3, 1, 0, 0);
+    // 実行する処理は基底型から呼び、Bloomを含めた描画方法の違いを隠す。
+    auto DrawPostEffectPass = [&](PostEffectType type, uint32_t inputSrvIndex, D3D12_CPU_DESCRIPTOR_HANDLE output) {
+        const auto& effect = postEffects_.at(static_cast<size_t>(type));
+        const PostEffectDrawContext context{commandList,srvManager_,inputSrvIndex,
+            bloomEmissionTexture_->GetSRVIndex(),depthSrvIndex_,
+            dissolveMaskType_ == 0 ? dissolveMaskSrvIndex0_ : dissolveMaskSrvIndex1_,
+            output,viewport,scissorRect};
+        effect->Draw(context);
     };
 
     if (needsDepthTexture) {
@@ -1112,4 +1047,37 @@ void OffscreenRenderer::DrawDebugGameViewImGui()
 
     ImGui::End();
 #endif
+}
+
+void OffscreenRenderer::InitializePostEffects() {
+    // 共通パスの差は設定表へ集め、シェーダーごとの空の派生クラスを増やさない。
+    struct Registration {
+        PostEffectType type;
+        ID3D12PipelineState* pipeline;
+        ID3D12Resource* blur;
+        bool requiresDepth;
+    };
+    const Registration registrations[] = {
+        {PostEffectType::Copy,copyPipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::Grayscale,grayscalePipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::Sepia,sepiaPipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::Vignette,vignettePipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::BoxFilter,boxFilterPipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::GaussianFilter,gaussianFilterPipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::RadialBlur,radialBlurPipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::Dissolve,dissolvePipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::RandomNoise,randomNoisePipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::Shockwave,shockwavePipelineState_.Get(),radialBlurResource_.Get(),false},
+        {PostEffectType::DepthOutline,depthOutlinePipelineState_.Get(),radialBlurResource_.Get(),true},
+        {PostEffectType::DeathBlur,deathBlurPipelineState_.Get(),deathBlurResource_.Get(),false},
+    };
+    for (const auto& registration : registrations) {
+        const std::array<D3D12_GPU_VIRTUAL_ADDRESS,5> constants{
+            registration.blur->GetGPUVirtualAddress(),dissolveResource_->GetGPUVirtualAddress(),
+            randomNoiseResource_->GetGPUVirtualAddress(),shockwaveResource_->GetGPUVirtualAddress(),
+            vignetteResource_->GetGPUVirtualAddress()};
+        postEffects_[static_cast<size_t>(registration.type)] = std::make_unique<SinglePassPostEffect>(
+            rootSignature_.Get(),registration.pipeline,constants,registration.requiresDepth);
+    }
+    postEffects_[static_cast<size_t>(PostEffectType::Bloom)] = std::make_unique<BloomPostEffect>(*bloom_);
 }

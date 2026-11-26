@@ -1,4 +1,5 @@
 #pragma once
+#include "IParticleMesh.h"
 #include <vector>
 #include <cstdint>
 #include <d3d12.h>
@@ -7,14 +8,14 @@
 #include "../2d/sprite/Sprite.h"           // VertexData を使う
 #include "../base/DirectX/DirectXCommon.h" // DirectXCommon を使う
 
-class Ring
+class Ring final : public IParticleMesh
 {
 public:
     // 初期化。頂点生成と頂点バッファ作成をまとめて行う
     void Initialize(DirectXCommon* dxCommon);
 
     // インスタンシング描画を行う
-    void DrawInstanced(uint32_t instanceCount);
+    void DrawInstanced(uint32_t instanceCount) override;
 
 private:
     // Ring の頂点列を CPU 側で作る

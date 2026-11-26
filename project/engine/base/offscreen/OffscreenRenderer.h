@@ -6,6 +6,7 @@
 #include <array>
 #include "ScreenShatter.h"
 #include "Bloom.h"
+#include "PostEffect.h"
 
 enum class PostEffectType {
     Copy,
@@ -170,6 +171,8 @@ private:
 
 
 private:
+    // エフェクトの生成は初期化時に行い、実行時の種類分岐を取り除く。
+    void InitializePostEffects();
     void CreateRootSignature();
     void CreateGraphicsPipelineState();
     // 通常描画の完了後に一度だけ、HUDを除いた死亡場面を保存する。
@@ -278,4 +281,6 @@ private:
 
     // 右ドラッグで視点回転を開始したかどうかを保持する
     bool isGameViewRotationStarted_ = false;
+    // 参照先のBloomや描画資源より先に破棄されるよう、最後に宣言する。
+    std::array<std::unique_ptr<IPostEffect>,static_cast<size_t>(PostEffectType::Count)> postEffects_;
 };

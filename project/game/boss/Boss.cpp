@@ -1,3 +1,5 @@
+#include <array>
+#include "../player/PlayerBullet.h"
 #include "Boss.h"
 
 #include <algorithm>
@@ -94,6 +96,121 @@ void Boss::Initialize(
     chargeWarning_->SetModel("boss/charge_warning.obj");
 }
 
+// ボスの各行動も内部クラスに閉じ、描画姿勢だけを共通処理へ返す。
+class Boss::ActionBehavior {
+public:
+    virtual ~ActionBehavior() = default;
+    virtual void Update(Boss& boss, const Vector3& targetPosition, DrawPose& pose) const = 0;
+};
+
+class Boss::ChaseBehavior final : public Boss::ActionBehavior {
+public:
+    // 行動の計算結果を姿勢へ反映し、モデルの更新は共通側で一度だけ行う。
+    void Update(Boss& boss, const Vector3& targetPosition, DrawPose& pose) const override {
+        const float dx = targetPosition.x - boss.position_.x;
+        const float dz = targetPosition.z - boss.position_.z;
+        const float distance = std::sqrt(dx * dx + dz * dz);
+        if (distance > 0.001f) {
+            // 向きを少しずつ変え、巨体の重さを表現する
+            const float yawDifference = std::remainder(
+                std::atan2(dx, dz) - boss.rotation_.y, 6.2831853f);
+            boss.rotation_.y += std::clamp(yawDifference, -0.035f, 0.035f);
+        }
+        if (distance <= boss.colliderRadius_ + 4.0f) {
+            boss.BeginAttack(targetPosition);
+        } else if (distance >= 14.0f && boss.chargeCooldown_ == 0 && boss.BeginCharge(targetPosition)) {
+            // 遠い相手には、追跡の代わりに1秒の予告付き突進を選ぶ。
+        } else {
+            boss.MoveTowards(targetPosition);
+            boss.walkPhase_ += 0.09f;
+        }
+        pose.position = boss.position_;
+        pose.rotation = boss.rotation_;
+        pose.rotation.z += std::sin(boss.walkPhase_) * 0.045f;
+        pose.position.y += std::abs(std::sin(boss.walkPhase_)) * 0.12f;
+    }
+};
+
+class Boss::ChargeBehavior final : public Boss::ActionBehavior {
+public:
+    // 行動の計算結果を姿勢へ反映し、モデルの更新は共通側で一度だけ行う。
+    void Update(Boss& boss, const Vector3&, DrawPose& pose) const override {
+        const bool windingUp = boss.charge_.IsWindingUp();
+        boss.charge_.Update();
+        boss.position_ = boss.charge_.GetPosition();
+        pose.position = boss.position_;
+        pose.rotation = boss.rotation_;
+        // 溜めでは身を引き、走り出したら前傾して勢いを見せる。
+        pose.rotation.x += windingUp ? -0.2f * boss.charge_.GetWindupProgress() : 0.3f;
+        if (windingUp) {
+            boss.object_->SetColor({ 1.0f, 0.25f, 0.15f, 1.0f });
+        } else {
+            boss.walkPhase_ += 0.55f;
+            pose.position.y += std::abs(std::sin(boss.walkPhase_)) * 0.2f;
+        }
+        if (boss.charge_.IsFinished()) {
+            boss.action_ = Action::Recovery;
+            boss.actionTimer_ = 0;
+            boss.chargeRecovery_ = true;
+            boss.chargeCooldown_ = 180;
+        }
+    }
+};
+
+class Boss::WindupBehavior final : public Boss::ActionBehavior {
+public:
+    // 行動の計算結果を姿勢へ反映し、モデルの更新は共通側で一度だけ行う。
+    void Update(Boss& boss, const Vector3&, DrawPose& pose) const override {
+        // 叩きつけは0.9秒、踏みつけは1.2秒溜めてから攻撃する。
+        const int windupFrames = boss.stompAttack_ ? 72 : 54;
+        const float progress = static_cast<float>(++boss.actionTimer_) /
+            static_cast<float>(windupFrames);
+        pose.rotation.x -= progress * (boss.stompAttack_ ? 0.12f : 0.35f);
+        pose.position.y += progress * (boss.stompAttack_ ? 0.9f : 0.3f);
+        boss.object_->SetColor({ 1.0f, 1.0f - progress * 0.7f, 1.0f - progress * 0.8f, 1.0f });
+        if (boss.actionTimer_ >= windupFrames) {
+            // 溜め終わりに一度だけ範囲攻撃を発生させる
+            boss.impactThisFrame_ = true;
+            boss.action_ = Action::Recovery;
+            boss.actionTimer_ = 0;
+            pose.position = boss.position_;
+            pose.rotation = boss.rotation_;
+            pose.rotation.x += boss.stompAttack_ ? 0.12f : 0.45f;
+            pose.scale.y *= 0.8f;
+            boss.object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+    }
+};
+
+class Boss::RecoveryBehavior final : public Boss::ActionBehavior {
+public:
+    // 行動の計算結果を姿勢へ反映し、モデルの更新は共通側で一度だけ行う。
+    void Update(Boss& boss, const Vector3&, DrawPose& pose) const override {
+        // 攻撃後の隙を短くし、叩きつけは1秒、踏みつけは1.4秒で次の行動へ戻る。
+        const int recoveryFrames = boss.chargeRecovery_ ? 90 : (boss.stompAttack_ ? 84 : 60);
+        const float recovery = 1.0f - std::clamp(
+            static_cast<float>(++boss.actionTimer_) / 24.0f, 0.0f, 1.0f);
+        pose.rotation.x += recovery * (boss.stompAttack_ ? 0.12f : 0.45f);
+        pose.scale.y *= 1.0f - recovery * 0.2f;
+        if (boss.actionTimer_ >= recoveryFrames) {
+            boss.action_ = Action::Chase;
+            boss.actionTimer_ = 0;
+            boss.chargeRecovery_ = false;
+            boss.charge_.Reset();
+        }
+    }
+};
+
+const Boss::ActionBehavior& Boss::SelectActionBehavior() const {
+    static const ChaseBehavior chase;
+    static const WindupBehavior windup;
+    static const ChargeBehavior charge;
+    static const RecoveryBehavior recovery;
+    // enumは状態の識別にだけ使い、振る舞いの実行は仮想関数に任せる。
+    const std::array<const ActionBehavior*,4> actions{&chase,&windup,&charge,&recovery};
+    return *actions.at(static_cast<size_t>(action_));
+}
+
 void Boss::Update(const Vector3& targetPosition, bool canAttack)
 {
     charge_.BeginFrame();
@@ -108,9 +225,7 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
     } else {
         if (chargeCooldown_ > 0) { --chargeCooldown_; }
         // 描画だけを揺らし、当たり判定の中心は地上の移動位置に保つ
-        Vector3 drawPosition = position_;
-        Vector3 drawRotation = rotation_;
-        Vector3 drawScale = baseScale_;
+        DrawPose pose{position_,rotation_,baseScale_};
         object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
 
         if (!canAttack) {
@@ -119,86 +234,14 @@ void Boss::Update(const Vector3& targetPosition, bool canAttack)
             actionTimer_ = 0;
             charge_.Reset();
             chargeRecovery_ = false;
-        } else if (action_ == Action::Chase) {
-            const float dx = targetPosition.x - position_.x;
-            const float dz = targetPosition.z - position_.z;
-            const float distance = std::sqrt(dx * dx + dz * dz);
-            if (distance > 0.001f) {
-                // 向きを少しずつ変え、巨体の重さを表現する
-                const float yawDifference = std::remainder(
-                    std::atan2(dx, dz) - rotation_.y, 6.2831853f);
-                rotation_.y += std::clamp(yawDifference, -0.035f, 0.035f);
-            }
-            if (distance <= colliderRadius_ + 4.0f) {
-                BeginAttack(targetPosition);
-            } else if (distance >= 14.0f && chargeCooldown_ == 0 && BeginCharge(targetPosition)) {
-                // 遠い相手には、追跡の代わりに1秒の予告付き突進を選ぶ。
-            } else {
-                MoveTowards(targetPosition);
-                walkPhase_ += 0.09f;
-            }
-            drawPosition = position_;
-            drawRotation = rotation_;
-            drawRotation.z += std::sin(walkPhase_) * 0.045f;
-            drawPosition.y += std::abs(std::sin(walkPhase_)) * 0.12f;
-        } else if (action_ == Action::Charge) {
-            const bool windingUp = charge_.IsWindingUp();
-            charge_.Update();
-            position_ = charge_.GetPosition();
-            drawPosition = position_;
-            drawRotation = rotation_;
-            // 溜めでは身を引き、走り出したら前傾して勢いを見せる。
-            drawRotation.x += windingUp ? -0.2f * charge_.GetWindupProgress() : 0.3f;
-            if (windingUp) {
-                object_->SetColor({ 1.0f, 0.25f, 0.15f, 1.0f });
-            } else {
-                walkPhase_ += 0.55f;
-                drawPosition.y += std::abs(std::sin(walkPhase_)) * 0.2f;
-            }
-            if (charge_.IsFinished()) {
-                action_ = Action::Recovery;
-                actionTimer_ = 0;
-                chargeRecovery_ = true;
-                chargeCooldown_ = 180;
-            }
-        } else if (action_ == Action::Windup) {
-            // 叩きつけは0.9秒、踏みつけは1.2秒溜めてから攻撃する。
-            const int windupFrames = stompAttack_ ? 72 : 54;
-            const float progress = static_cast<float>(++actionTimer_) /
-                static_cast<float>(windupFrames);
-            drawRotation.x -= progress * (stompAttack_ ? 0.12f : 0.35f);
-            drawPosition.y += progress * (stompAttack_ ? 0.9f : 0.3f);
-            object_->SetColor({ 1.0f, 1.0f - progress * 0.7f, 1.0f - progress * 0.8f, 1.0f });
-            if (actionTimer_ >= windupFrames) {
-                // 溜め終わりに一度だけ範囲攻撃を発生させる
-                impactThisFrame_ = true;
-                action_ = Action::Recovery;
-                actionTimer_ = 0;
-                drawPosition = position_;
-                drawRotation = rotation_;
-                drawRotation.x += stompAttack_ ? 0.12f : 0.45f;
-                drawScale.y *= 0.8f;
-                object_->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
-            }
         } else {
-            // 攻撃後の隙を短くし、叩きつけは1秒、踏みつけは1.4秒で次の行動へ戻る。
-            const int recoveryFrames = chargeRecovery_ ? 90 : (stompAttack_ ? 84 : 60);
-            const float recovery = 1.0f - std::clamp(
-                static_cast<float>(++actionTimer_) / 24.0f, 0.0f, 1.0f);
-            drawRotation.x += recovery * (stompAttack_ ? 0.12f : 0.45f);
-            drawScale.y *= 1.0f - recovery * 0.2f;
-            if (actionTimer_ >= recoveryFrames) {
-                action_ = Action::Chase;
-                actionTimer_ = 0;
-                chargeRecovery_ = false;
-                charge_.Reset();
-            }
+            SelectActionBehavior().Update(*this, targetPosition, pose);
         }
 
         // 行動と攻撃姿勢をモデルへ反映する
-        object_->SetTranslate(drawPosition);
-        object_->SetRotate(drawRotation);
-        object_->SetScale(drawScale);
+        object_->SetTranslate(pose.position);
+        object_->SetRotate(pose.rotation);
+        object_->SetScale(pose.scale);
         object_->Update();
     }
 }
@@ -550,4 +593,15 @@ void Boss::OnHit()
         // 撃破と着地が同じフレームなら、ボスの攻撃を取り消す
         impactThisFrame_ = false;
     }
+}
+
+// ボスは球の判定を使い、通常の敵の箱判定とは独立して実装する。
+bool Boss::CheckBulletHit(const PlayerBullet& bullet, float& hitTime) const {
+    return bullet.CheckHit(GetCollider(), hitTime);
+}
+
+BulletHitFeedback Boss::ApplyBulletHit(const PlayerBullet&, float) {
+    OnHit();
+    // 撃破時だけ注視位置を通知し、カメラの具体的な操作はシーンへ任せる。
+    return { IsDead() ? std::optional<Vector3>(GetCollider().center) : std::nullopt };
 }

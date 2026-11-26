@@ -1,4 +1,5 @@
 #pragma once
+#include "../collision/IBulletTarget.h"
 
 #include <memory>
 #include <vector>
@@ -13,11 +14,11 @@ class Object3dCommon;
 class ParticleSystem;
 struct LevelColliderData;
 
-class Boss
+class Boss : public IBulletTarget
 {
 public:
     // Object3dの解放をcpp側で行えるようにする
-    ~Boss();
+    ~Boss() override;
 
     // ボスを初期化して、Blenderで置いた位置と大きさを反映する
     void Initialize(
@@ -52,6 +53,10 @@ public:
     // 溜めている1秒間だけ、床へ突進経路の予告を描く。
     void DrawAttackWarning();
 
+    // 弾との判定と被弾の結果を、通常の敵と同じ入口から扱う。
+    bool CheckBulletHit(const PlayerBullet& bullet, float& hitTime) const override;
+    BulletHitFeedback ApplyBulletHit(const PlayerBullet& bullet, float hitTime) override;
+
     // ボスモデルを描画する
     void Draw();
 
@@ -68,7 +73,7 @@ public:
     int GetMaxHp() const { return maxHp_; }
 
     // 撃破済みかを返す
-    bool IsDead() const { return isDead_; }
+    bool IsDead() const override { return isDead_; }
     // 膨張しきったフレームだけ、外側の血しぶきやカメラ揺れを発生させる。
     bool IsDeathBurstFrame() const { return isDead_ && deathTimer_ == kDeathBurstFrame; }
 
@@ -76,6 +81,15 @@ public:
     bool IsReadyToRemove() const { return isReadyToRemove_; }
 
 private:
+    // 状態クラスへは計算用の姿勢だけを渡し、内部データは非公開のままにする。
+    struct DrawPose { Vector3 position; Vector3 rotation; Vector3 scale; };
+    class ActionBehavior;
+    class ChaseBehavior;
+    class ChargeBehavior;
+    class WindupBehavior;
+    class RecoveryBehavior;
+    const ActionBehavior& SelectActionBehavior() const;
+
     static constexpr int kDeathBurstFrame = 70;
     // 爆発後は通常の敵と同じく、1.2秒で縮み始めて2.2秒で破片が消える。
     static constexpr int kFragmentShrinkStartFrames = 72;

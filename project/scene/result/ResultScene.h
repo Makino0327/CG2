@@ -3,18 +3,16 @@
 #define NOMINMAX
 #endif
 #include <memory>
-#include <array>
 #include <vector>
+#include <initializer_list>
 #include <wrl.h>
 #include <d3d12.h>
 #include "../BaseScene.h"
 #include "../../engine/math/Math.h"
 
 class Sprite;
-class GameOverEffect;
-class TransitionScanEffect;
 
-// ボスを撃破した時点で確定し、クリア画面へ渡す戦績。
+// ボス撃破時点で確定し、クリア画面へ値で渡す戦績。
 struct ClearResult {
     double clearSeconds = 0.0;
     double bossSeconds = 0.0;
@@ -24,73 +22,57 @@ struct ClearResult {
     size_t shotsHit = 0;
 };
 
-// リザルト画面の操作と遷移を共通化し、ゲームオーバーには赤くうねる背景を使う。
+// 操作と遷移を共通化し、画面固有の振る舞いを派生クラスへ任せる。
 class ResultScene : public BaseScene {
 public:
-    enum class Type { Clear, GameOver };
-
-    explicit ResultScene(Type type);
-    explicit ResultScene(const ClearResult& result);
-    // 描画クラスの解放は、型の定義を読み込んだcpp側で行う
     ~ResultScene() override;
-    void Initialize() override;
-    void Update() override;
-    void Draw() override;
-    void Finalize() override;
-    // 自動プレイでは入力を受けず、表示と暗転の完了を本編へ通知する。
+    void Initialize() override final;
+    void Update() override final;
+    void Draw() override final;
+    void Finalize() override final;
+    // デモの周回通知も、表示内容によらず同じ入口で扱う。
     void SetDemoMode(bool enabled) { demoMode_ = enabled; }
     bool IsDemoRestartReady() const { return demoRestartReady_; }
 
-private:
-    // ボタンを決定したときの移動先
+protected:
     enum class Action { Title, Restart };
-
+    // 配置の違いは振る舞いではないため、設定データとして受け取る。
+    struct MenuLayout { float x; float y; float width; float height; float spacing; };
+    void ConfigureMenu(const MenuLayout& layout, std::initializer_list<Action> actions, int demoConfirmFrame);
     Sprite* CreateUiRect(const Vector2& position, const Vector2& size, const Vector4& color);
     Sprite* CreateLabel(const Vector2& textureLeftTop, const Vector2& textureSize,
         const Vector2& position, const Vector2& size, const char* texture);
-    void CreateMenu();
-    // 撃破時の戦績を、ランクと数値のパネルに並べる。
-    void CreateClearSummary();
-    void UpdateClearSummary();
-    void UpdateMenu();
-    // ゲームオーバー専用の背景・見出し・文字だけのメニューを作る。
-    void CreateGameOverMenu();
-    void UpdateGameOverVisuals();
+    Sprite* CreateBackground(const Vector4& color);
+    void UpdateSprites();
+    ID3D12Resource* GetUiLightResource() const { return directionalLightResource_.Get(); }
+    int GetFrame() const { return frame_; }
+    int GetTransitionTimer() const { return transitionTimer_; }
+    int GetSelectedButton() const { return selectedButton_; }
+    size_t GetButtonCount() const { return buttonActions_.size(); }
+    Action GetButtonAction(size_t index) const { return buttonActions_.at(index); }
+    bool IsLeaving() const { return isLeaving_; }
+    bool IsDemoMode() const { return demoMode_; }
+    // 各画面で成立する処理だけを要求し、内部データは公開しない。
+    virtual void CreateContent() = 0;
+    virtual void UpdateContent() = 0;
+    virtual bool IsMenuReady() const = 0;
+    virtual void UpdateMenuVisuals(bool menuReady, int hovered) = 0;
+    virtual void DrawBackground() = 0;
+    virtual void FinalizeContent() = 0;
 
-    Type type_;
-    ClearResult clearResult_{};
+private:
+    void UpdateMenu();
     bool initialized_ = false;
     bool demoMode_ = false;
     bool demoRestartReady_ = false;
     bool isLeaving_ = false;
-    bool usesDeathBackground_ = false;
     int frame_ = 0;
     int transitionTimer_ = 0;
     int selectedButton_ = 0;
-
-    // 枠・文字・ボタン・フェードは通常のSpriteで描く
+    int demoConfirmFrame_ = 180;
+    MenuLayout menuLayout_{};
     std::vector<std::unique_ptr<Sprite>> uiSprites_;
     std::vector<Action> buttonActions_;
-    std::vector<Sprite*> buttonLabels_;
-    Sprite* clearButtonBackground_ = nullptr;
-    Sprite* clearButtonMarker_ = nullptr;
-    // 数字とランク文字だけを順番に表示するため、戦績の行ごとにまとめる。
-    static constexpr size_t kClearStatCount = 5;
-    std::array<std::vector<Sprite*>, kClearStatCount> clearStatValues_;
-    Sprite* clearRankValue_ = nullptr;
-    // 操作説明と同じ走査線を、黒い背景と戦績カードの間に描く。
-    Sprite* clearBackground_ = nullptr;
-    std::unique_ptr<TransitionScanEffect> clearScan_;
-    Sprite* fadeSprite_ = nullptr;
-    // 黒い下地に動く帯と煙を重ね、見出しとメニュー文字は静止させる。
-    std::unique_ptr<GameOverEffect> gameOverEffect_;
-    Sprite* gameOverBackground_ = nullptr;
-    Sprite* gameOverHeadline_ = nullptr;
-    std::vector<Sprite*> gameOverUnderlines_;
-    // タイトルと同じ小さな赤い印と、滑らかな選択アニメーションを使う。
-    std::vector<Sprite*> gameOverIndicators_;
-    std::vector<float> gameOverSelection_;
-    // 決定した文字の周囲へ薄い赤を重ね、輪郭からにじむ光を作る。
-    std::vector<std::array<Sprite*, 16>> gameOverButtonGlows_;
+    Sprite* background_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource_;
 };

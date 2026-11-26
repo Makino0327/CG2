@@ -277,56 +277,28 @@ void GamePlayScene::CheckCollisions()
     for (size_t bulletIndex = 0; bulletIndex < player_->GetBulletCount(); ++bulletIndex) {
         const PlayerBullet* bullet = player_->GetBullet(bulletIndex);
         if (!bullet || bullet->IsDead()) { continue; }
-        float nearestTime = 1.0f;
-        Enemy* hitEnemy = nullptr;
-        Boss* hitBoss = nullptr;
+        // 判定の選択規則も共通化し、通常の敵とボスを同じ入口へ渡す。
+        BulletTargetQuery query(*bullet);
+        for (auto& enemy : enemies_) { query.Consider(*enemy); }
+        for (auto& boss : bosses_) { query.Consider(*boss); }
+        IBulletTarget* hitTarget = query.GetTarget();
+        float nearestTime = query.GetHitTime();
         size_t hitCrate = ammoCrates_.size();
-        // 壁までの区間で敵とボスをまとめて調べ、最も手前の対象にだけ当てる。
-        for (auto& enemy : enemies_) {
-            if (enemy->IsDead()) { continue; }
-            float hitTime = 0.0f;
-            if (bullet->CheckHit(enemy->GetBulletCollider(), enemy->GetPreviousPosition(), hitTime) &&
-                ((!hitEnemy && !hitBoss) || hitTime < nearestTime)) {
-                nearestTime = hitTime;
-                hitEnemy = enemy.get();
-            }
-        }
-        for (auto& boss : bosses_) {
-            if (boss->IsDead()) { continue; }
-            float hitTime = 0.0f;
-            if (bullet->CheckHit(boss->GetCollider(), hitTime) &&
-                ((!hitEnemy && !hitBoss) || hitTime < nearestTime)) {
-                nearestTime = hitTime;
-                hitEnemy = nullptr;
-                hitBoss = boss.get();
-            }
-        }
         // 敵やボスより手前にある木箱へ最初に当たった弾だけを消費する。
         for (size_t index = 0; index < ammoCrates_.size(); ++index) {
             if (ammoCrates_[index].hp <= 0) { continue; }
             float hitTime = 0.0f;
             if (bullet->CheckHit(wallColliders_[ammoCrates_[index].wallColliderIndex], hitTime) &&
-                ((!hitEnemy && !hitBoss && hitCrate == ammoCrates_.size()) || hitTime < nearestTime)) {
+                ((!hitTarget && hitCrate == ammoCrates_.size()) || hitTime < nearestTime)) {
                 nearestTime = hitTime;
-                hitEnemy = nullptr;
-                hitBoss = nullptr;
+                hitTarget = nullptr;
                 hitCrate = index;
             }
         }
-        if (hitEnemy) {
+        if (hitTarget) {
             player_->ResolveBulletHit(bulletIndex, nearestTime, true);
-            const Vector3 hitDirection = Normalize(bullet->GetVelocity());
-            const BoxCollider enemyCollider = hitEnemy->GetBulletCollider(nearestTime);
-            const Vector3 bulletPosition = bullet->GetCollider().center;
-            // 球の表面ではなく、実際に当たった敵の箱の表面から血しぶきを出す。
-            const Vector3 hitPosition = Collision::ClosestPointOnBox(bulletPosition, enemyCollider);
-            hitEnemy->OnHit(hitPosition, hitDirection);
-        } else if (hitBoss) {
-            // ボスへの命中位置で止めて、HPを1減らす。
-            player_->ResolveBulletHit(bulletIndex, nearestTime, true);
-            hitBoss->OnHit();
-            // ボスが複数いる場合も、最後に倒したボスを映す。
-            if (hitBoss->IsDead()) { bossDefeatFocus_ = hitBoss->GetCollider().center; }
+            const BulletHitFeedback feedback = hitTarget->ApplyBulletHit(*bullet, nearestTime);
+            if (feedback.defeatFocus) { bossDefeatFocus_ = *feedback.defeatFocus; }
         } else if (hitCrate < ammoCrates_.size()) {
             player_->ResolveBulletHit(bulletIndex, nearestTime, false);
             DamageAmmoCrate(hitCrate, 1);

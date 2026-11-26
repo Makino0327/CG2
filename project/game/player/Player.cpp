@@ -187,12 +187,12 @@ void Player::PlayMotion(Motion motion, bool restart)
 void Player::UpdateAnimation(const Vector3& movement, bool isAiming)
 {
     // 構え姿勢を使う間は、足運びに含まれる腰の回転で銃口を振らない。
-    const bool usesAimingPose = isAiming && !isReloading_;
+    const bool usesAimingPose = isAiming && !IsReloading();
     object_->SetAnimationParentCorrectionEnabled(usesAimingPose);
     const bool moving = movement.x * movement.x + movement.z * movement.z > 0.000001f;
-    if (!isAiming || isReloading_) { object_->StopAnimationOverlay(); }
+    if (!isAiming || IsReloading()) { object_->StopAnimationOverlay(); }
     if (!moving) {
-        PlayMotion(isAiming && !isReloading_ ? Motion::AimIdle : Motion::Idle);
+        PlayMotion(isAiming && !IsReloading() ? Motion::AimIdle : Motion::Idle);
         return;
     }
 
@@ -210,20 +210,7 @@ void Player::UpdateAnimation(const Vector3& movement, bool isAiming)
     PlayMotion(static_cast<Motion>(static_cast<size_t>(first) + direction));
 }
 
-int Player::GetCurrentAmmo() const
-{
-    // 現在選んでいる銃の残弾数を返す
-    if (selectedGunMode_ == AttackMode::AssaultRifle) {
-        return assaultRifleAmmo_;
-    }
-    if (selectedGunMode_ == AttackMode::Shotgun) {
-        return shotgunAmmo_;
-    }
-    if (selectedGunMode_ == AttackMode::Gun) {
-        return handgunAmmo_;
-    }
-    return 0;
-}
+int Player::GetCurrentAmmo() const { return GetSelectedGun().GetAmmo(); }
 
 int Player::GetCurrentMaxAmmo() const
 {
@@ -231,112 +218,21 @@ int Player::GetCurrentMaxAmmo() const
     return GetMaxAmmoForCurrentWeapon();
 }
 
-void Player::AddReserveAmmo(AttackMode weapon, int rounds)
-{
-    // 装備中の武器に関係なく、拾った弾に対応する予備弾を増やす。
-    if (weapon == AttackMode::Gun) {
-        handgunReserveAmmo_ += rounds;
-    } else if (weapon == AttackMode::AssaultRifle) {
-        assaultRifleReserveAmmo_ += rounds;
-    } else if (weapon == AttackMode::Shotgun) {
-        shotgunReserveAmmo_ += rounds;
-    }
+void Player::AddReserveAmmo(AttackMode weapon, int rounds) {
+    // 識別子は補給先の選択だけに使い、弾薬の変更規則は銃に任せる。
+    const size_t index = static_cast<size_t>(weapon);
+    if (index < guns_.size()) { guns_[index]->AddReserveAmmo(rounds); }
 }
 
-int Player::GetCurrentReserveAmmo() const
-{
-    if (selectedGunMode_ == AttackMode::Gun) { return handgunReserveAmmo_; }
-    if (selectedGunMode_ == AttackMode::AssaultRifle) { return assaultRifleReserveAmmo_; }
-    if (selectedGunMode_ == AttackMode::Shotgun) { return shotgunReserveAmmo_; }
-    return -1;
-}
+int Player::GetCurrentReserveAmmo() const { return GetSelectedGun().GetReserveAmmo(); }
 
-int Player::GetMaxAmmoForCurrentWeapon() const
-{
-    // 選択中の銃に応じて最大弾数を返す
-    if (selectedGunMode_ == AttackMode::AssaultRifle) {
-        return assaultRifleMaxAmmo_;
-    }
-    if (selectedGunMode_ == AttackMode::Shotgun) {
-        return shotgunMaxAmmo_;
-    }
-    if (selectedGunMode_ == AttackMode::Gun) {
-        return handgunMaxAmmo_;
-    }
-    return 0;
-}
+int Player::GetMaxAmmoForCurrentWeapon() const { return GetSelectedGun().GetMaxAmmo(); }
 
-int Player::GetReloadDurationForCurrentWeapon() const
-{
-    // 武器ごとにリロード時間を変える
-    if (selectedGunMode_ == AttackMode::AssaultRifle) {
-        return assaultRifleReloadDuration_;
-    }
-    if (selectedGunMode_ == AttackMode::Shotgun) {
-        return shotgunReloadDuration_;
-    }
-    if (selectedGunMode_ == AttackMode::Gun) {
-        return handgunReloadDuration_;
-    }
-    return 0;
-}
 
-void Player::StartReload()
-{
-    // 選択中の銃が満タンの時やリロード中は何もしない
-    if (selectedGunMode_ == AttackMode::Knife || isReloading_) {
-        return;
-    }
 
-    const int maxAmmo = GetMaxAmmoForCurrentWeapon();
-    if (maxAmmo <= 0 || GetCurrentAmmo() >= maxAmmo) {
-        return;
-    }
+void Player::StartReload() { GetSelectedGun().StartReload(); }
 
-    // 予備弾が尽きるとリロードを開始できない。予備弾が無限のハンドガンは除く。
-    const bool unlimited = unlimitedHandgunReserve_ && selectedGunMode_ == AttackMode::Gun;
-    if (!unlimited && GetCurrentReserveAmmo() == 0) {
-        return;
-    }
-
-    isReloading_ = true;
-    reloadTimer_ = GetReloadDurationForCurrentWeapon();
-}
-
-void Player::UpdateReload()
-{
-    if (!isReloading_) {
-        return;
-    }
-
-    if (reloadTimer_ > 0) {
-        reloadTimer_--;
-    }
-
-    if (reloadTimer_ > 0) {
-        return;
-    }
-
-    // リロードが完了してから選択中の銃に弾を装填する。
-    isReloading_ = false;
-    // どの銃も、弾倉の空きと予備弾の少ない方だけを装填する。
-    const int maxAmmo = GetMaxAmmoForCurrentWeapon();
-    const auto reloadMagazine = [maxAmmo](int& magazine, int& reserve) {
-        const int rounds = std::min(maxAmmo - magazine, reserve);
-        magazine += rounds;
-        reserve -= rounds;
-    };
-    if (selectedGunMode_ == AttackMode::Gun && unlimitedHandgunReserve_) {
-        // 予備弾を減らさずに満タンまで装填し、弾切れで進めなくならないようにする
-        handgunAmmo_ = maxAmmo;
-    } else if (selectedGunMode_ == AttackMode::Gun) {
-        reloadMagazine(handgunAmmo_, handgunReserveAmmo_);
-    } else if (selectedGunMode_ == AttackMode::AssaultRifle) {
-        reloadMagazine(assaultRifleAmmo_, assaultRifleReserveAmmo_);
-    } else if (selectedGunMode_ == AttackMode::Shotgun) {
-        reloadMagazine(shotgunAmmo_, shotgunReserveAmmo_);
-    }
-}
+void Player::UpdateReload() { GetSelectedGun().UpdateReload(); }
 
 void Player::Update(Camera* camera)
 {
@@ -439,10 +335,8 @@ void Player::Update(Camera* camera)
         }
 
         // 銃を切り替えたらリロードや連射状態をリセットする
-        isReloading_ = false;
-        reloadTimer_ = 0;
-        assaultFireTimer_ = 0;
-        assaultContinuousShotCount_ = 0;
+        // 切り替え時は全銃の入力継続と装填だけを解除し、弾薬は維持する。
+        for (auto& gun : guns_) { gun->CancelReload(); gun->ResetTrigger(); }
     }
 
     // 右クリック長押し中だけ選択中の銃、それ以外はナイフにする
@@ -450,8 +344,7 @@ void Player::Update(Camera* camera)
 
     if (!isAimingGun) {
         // 銃を構えていない間は連射状態だけ止め、リロードはそのまま進める
-        assaultFireTimer_ = 0;
-        assaultContinuousShotCount_ = 0;
+        GetSelectedGun().ResetTrigger();
     }
 
     // Rキーは構え中でなくても選択中の銃をリロードできる
@@ -467,41 +360,10 @@ void Player::Update(Camera* camera)
     // 常に現在の銃口を保存し、光の減衰中やデバッグ点灯中も位置を合わせる。
     muzzleLightPosition_ = GetPlayerMuzzlePosition(*object_);
 
-    // ハンドガンは左クリックした瞬間に1発撃つ
-    if (attackMode_ == AttackMode::Gun && !suppressFireUntilRelease_ && input_->TriggerMouseLeft()) {
-        FireBullet(camera);
-    }
-
-    // ショットガンは1クリックで複数の弾を扇状に撃つ
-    if (attackMode_ == AttackMode::Shotgun && !suppressFireUntilRelease_ && input_->TriggerMouseLeft()) {
-        FireShotgun(camera);
-    }
-
-    // アサルトライフルは左クリック押しっぱなしで一定間隔ごとに弾を撃つ
-    if (attackMode_ == AttackMode::AssaultRifle) {
-        if (assaultFireTimer_ > 0) {
-            assaultFireTimer_--;
-        }
-
-        if (!suppressFireUntilRelease_ && input_->PushMouseLeft() && assaultFireTimer_ <= 0) {
-            // 連射するほど少しずつ弾をばらけさせる
-            float spreadAngle = std::min(
-                assaultMaxSpreadAngle_,
-                static_cast<float>(assaultContinuousShotCount_) * assaultSpreadIncrease_);
-
-            if (FireBullet(camera, spreadAngle)) {
-                assaultContinuousShotCount_++;
-                assaultFireTimer_ = assaultFireInterval_;
-            }
-        }
-
-        if (!input_->PushMouseLeft()) {
-            // 撃つのをやめたらばらけを元に戻す
-            assaultContinuousShotCount_ = 0;
-        }
-    } else {
-        assaultFireTimer_ = 0;
-        assaultContinuousShotCount_ = 0;
+    // 同じ入口から各銃の仮想関数を呼び、単発・連射・散弾を切り替える。
+    if (isAimingGun) {
+        FireSelectedGun(camera, {!suppressFireUntilRelease_ && input_->PushMouseLeft(),
+            !suppressFireUntilRelease_ && input_->TriggerMouseLeft()});
     }
 
     // Gキーを押した瞬間にグレネードを1個投げる
@@ -509,7 +371,7 @@ void Player::Update(Camera* camera)
         ThrowGrenade(camera);
     }
 
-    if (firedThisFrame_ && isAimingGun && !isReloading_) {
+    if (firedThisFrame_ && isAimingGun && !IsReloading()) {
         // 発射後に反動を開始する。次の骨更新で再生し、このフレームの銃口と弾を一致させる。
         object_->PlayAnimationOverlay(shootingOverlay_);
     }
@@ -557,7 +419,7 @@ void Player::UpdateDemo(Camera* camera, const Vector3& movement, const Vector3* 
     UpdateAnimation({ position.x - prevPos_.x, 0.0f, position.z - prevPos_.z }, isAimingGun);
     object_->Update();
     // 本編と同じ弾・発射炎・薬莢を使い、ボスへの命中は通常の当たり判定で決める。
-    if (shoot && aimTarget && FireBullet(camera, 0.0f, aimTarget)) {
+    if (shoot && aimTarget && FireSelectedGun(camera, {true,true}, aimTarget)) {
         object_->PlayAnimationOverlay(shootingOverlay_);
     }
     UpdateBullets();
@@ -569,10 +431,8 @@ void Player::ResetDemoShooting()
 {
     // 各周回を装填済みのハンドガンと空の戦績で始める。
     selectedGunMode_ = AttackMode::Gun;
-    handgunAmmo_ = handgunMaxAmmo_;
-    unlimitedHandgunReserve_ = true;
-    isReloading_ = false;
-    reloadTimer_ = 0;
+    GetSelectedGun().RefillMagazine();
+    GetSelectedGun().SetUnlimitedReserve(true);
     bullets_.clear();
     pendingBulletShockwavePositions_.clear();
     shotHits_.clear();
@@ -676,7 +536,7 @@ void Player::Die()
     if (!object_ || isDead_) { return; }
     hp_ = 0;
     isDead_ = true;
-    isReloading_ = false;
+    GetSelectedGun().CancelReload();
     invincibleTimer_ = 0;
     muzzleLightFrames_ = 0;
     knockbackVelocity_ = {};
@@ -1044,26 +904,6 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
         return false;
     }
 
-    // リロード中は発射できない
-    if (isReloading_) {
-        return false;
-    }
-
-    int* currentAmmo = nullptr;
-    if (attackMode_ == AttackMode::Gun) {
-        currentAmmo = &handgunAmmo_;
-    } else if (attackMode_ == AttackMode::AssaultRifle) {
-        currentAmmo = &assaultRifleAmmo_;
-    } else {
-        return false;
-    }
-
-    // 弾がない時は自動でリロードを開始する
-    if (*currentAmmo <= 0) {
-        StartReload();
-        return false;
-    }
-
     // タイトルと同じ銃口の10頂点から、弾と発射炎の位置を求める。
     const Vector3 firePosition = GetPlayerMuzzlePosition(*object_);
 
@@ -1102,9 +942,6 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
 
         direction = Normalize(spreadDirection);
     }
-
-    // ここまで来たら発射できるので弾を1発減らす
-    (*currentAmmo)--;
 
     // 銃声を発生させたことをシーンへ伝える
     firedThisFrame_ = true;
@@ -1198,20 +1035,9 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
     return true;
 }
 
-bool Player::FireShotgun(Camera* camera)
+bool Player::FireShotgun(Camera* camera, const ScatterShot& pattern)
 {
     if (!object_ || !camera || !input_) {
-        return false;
-    }
-
-    // リロード中は発射できない
-    if (isReloading_) {
-        return false;
-    }
-
-    // 弾がないときは自動でリロードを開始する
-    if (shotgunAmmo_ <= 0) {
-        StartReload();
         return false;
     }
 
@@ -1228,26 +1054,25 @@ bool Player::FireShotgun(Camera* camera)
     }
 
     // 1回のショットなので、弾薬はここで1つだけ減らす
-    shotgunAmmo_--;
     firedThisFrame_ = true;
     // 散弾すべてに同じ番号を使い、発砲回数は1回だけ増やす。
     shotHits_.push_back(false);
     const size_t shotNumber = shotHits_.size();
 
-    const int pelletCount = std::max(1, shotgunPelletCount_);
+    const int pelletCount = std::max(1, pattern.pelletCount);
     const float centerIndex = static_cast<float>(pelletCount - 1) * 0.5f;
     const float angleStep = (pelletCount > 1)
-        ? shotgunSpreadAngle_ / static_cast<float>(pelletCount - 1)
+        ? pattern.spreadAngle / static_cast<float>(pelletCount - 1)
         : 0.0f;
 
     static std::random_device seedGenerator;
     static std::mt19937 randomEngine(seedGenerator());
     std::uniform_real_distribution<float> randomAngleDistribution(
-        -shotgunRandomSpreadAngle_,
-        shotgunRandomSpreadAngle_);
+        -pattern.randomSpreadAngle,
+        pattern.randomSpreadAngle);
     std::uniform_real_distribution<float> randomSpeedDistribution(
-        shotgunMinSpeedScale_,
-        shotgunMaxSpeedScale_);
+        pattern.minSpeedScale,
+        pattern.maxSpeedScale);
 
     for (int index = 0; index < pelletCount; ++index) {
         // 均等な散弾角度にランダムなブレを足して自然に散らす
@@ -2052,4 +1877,12 @@ void Player::UpdateRenderOnly()
             bullet->Update();
         }
     }
+}
+
+// 銃は描画資源を持たず、弾の生成が成功した結果だけを受け取る。
+bool Player::FireSelectedGun(Camera* camera, const GunTrigger& trigger, const Vector3* aimTarget) {
+    GunFireContext context;
+    context.emitBullet = [this,camera,aimTarget](float spread) { return FireBullet(camera,spread,aimTarget); };
+    context.emitScatter = [this,camera](const ScatterShot& pattern) { return FireShotgun(camera,pattern); };
+    return GetSelectedGun().TryFire(trigger,context);
 }
