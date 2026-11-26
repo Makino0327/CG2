@@ -13,6 +13,8 @@ class ParticleSystem;
 class PlayerBullet
 {
 public:
+    // 読み込み中に描画用リソースを準備し、再発射時には作り直さない。
+    void PrepareResources(Object3dCommon* object3dCommon);
     // 狙い位置の選択と実際の命中判定で、同じ弾の半径を使う。
     static constexpr float kColliderRadius = 0.4f;
     void Initialize(
@@ -21,7 +23,8 @@ public:
         const Vector3& velocity,
         const std::vector<LevelColliderData>* wallColliders,
         ParticleSystem* particleSystem,
-        std::optional<float> flightHeight = std::nullopt);
+        std::optional<float> flightHeight = std::nullopt,
+        size_t shotNumber = 0);
 
     // 敵の判定がある場合は、命中先が決まるまで軌跡と壁の命中演出を待つ。
     void Update(bool deferEffects = false);
@@ -86,6 +89,7 @@ private:
 
 private:
     std::unique_ptr<Object3d> object_;
+    Object3dCommon* resourceCommon_ = nullptr; // 異なる描画環境へ移る場合だけ作り直す。
     size_t shotNumber_ = 0;
 
     // 弾が通過した位置へ軌跡を生成する共有パーティクルシステム

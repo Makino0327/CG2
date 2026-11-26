@@ -450,6 +450,12 @@ void GamePlayScene::OnActivated(float transitionFrame)
 void GamePlayScene::QueueInitialLevelObjects()
 {
     ResetMapObjects();
+    // 死亡した瞬間のリソース生成を減らすため、読み込みの仕事として破片を準備する。
+    for (size_t count = 1; count <= 32; ++count) {
+        loadQueue_.Add([this, count] {
+            fragmentPool_->Prewarm(count, [this](Object3d& object) { object.Initialize(GetContext().object3dCommon); });
+        });
+    }
     loadingMinimapObjects_.clear();
     for (size_t i = 0; i < preparedLevel_.objects.size(); ++i) {
         loadQueue_.Add([this, i] { CreateMapObject(preparedLevel_.objects[i], loadingMinimapObjects_); });
@@ -487,6 +493,7 @@ void GamePlayScene::QueueInitialLevelObjects()
         loadQueue_.Add([this, i] {
             const auto& object = preparedLevel_.objects[i];
             auto boss = std::make_unique<Boss>();
+            boss->SetFragmentPool(fragmentPool_);
             boss->Initialize(GetContext().object3dCommon, GetContext().camera,
                 object.translation, object.rotation, object.scaling);
             boss->SetWallColliders(&wallColliders_);

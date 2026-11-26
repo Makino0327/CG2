@@ -11,19 +11,32 @@
 #include "../../engine/base/winapp/WinApp.h"
 #include "../../engine/particle/Particle.h"
 
+void PlayerBullet::PrepareResources(Object3dCommon* object3dCommon)
+{
+    if (object_ && resourceCommon_ == object3dCommon) { return; }
+    // プールで再利用している間は、同じGPUリソースとモデルを使い続ける。
+    object_ = std::make_unique<Object3d>();
+    object_->Initialize(object3dCommon);
+    object_->SetModel("bullet/bullet.obj");
+    resourceCommon_ = object3dCommon;
+}
+
 void PlayerBullet::Initialize(
     Object3dCommon* object3dCommon,
     const Vector3& position,
     const Vector3& velocity,
     const std::vector<LevelColliderData>* wallColliders,
     ParticleSystem* particleSystem,
-    std::optional<float> flightHeight)
+    std::optional<float> flightHeight,
+    size_t shotNumber)
 {
     // 初期位置を保存する
     position_ = previousPosition_ = movementEnd_ = position;
     wallHitTime_ = 1.0f;
     isDead_ = wallHitPending_ = effectsPending_ = false;
     lifeTime_ = 120;
+    sparkFrame_ = 0;
+    shotNumber_ = shotNumber; // 前の発砲の番号や命中集計を引き継がない。
 
     // 初速度を保存する
     velocity_ = velocity;
@@ -35,14 +48,8 @@ void PlayerBullet::Initialize(
     // 全プレイヤー弾で共有する軌跡用パーティクルを保存する
     particleSystem_ = particleSystem;
 
-    // 弾オブジェクトを作る
-    object_ = std::make_unique<Object3d>();
-
-    // 3D オブジェクトを初期化する
-    object_->Initialize(object3dCommon);
-
-    // 弾モデルを設定する
-    object_->SetModel("bullet/bullet.obj");
+    // 移動や判定のデータだけを戻し、準備済みの描画リソースは再利用する。
+    PrepareResources(object3dCommon);
 
     // 弾本体は小さく細長い形にし、発射炎より目立たないようにする。
     object_->SetScale({ 0.045f, 0.045f, 0.12f });

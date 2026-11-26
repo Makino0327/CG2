@@ -12,6 +12,7 @@
 #include "../../engine/math/Math.h"
 #include "../LevelLoader.h"
 #include "../TransitionScanEffect.h"
+#include "../../engine/utils/ObjectPool.h"
 
 class Object3d;
 class Sprite;
@@ -109,7 +110,10 @@ private:
     std::vector<std::unique_ptr<Object3d>> scenery_;
     // 本編と同じ敵・弾クラスを使い、撃破演出や血しぶきも共通にする
     std::vector<std::unique_ptr<Enemy>> enemies_;
-    std::vector<std::unique_ptr<PlayerBullet>> bullets_;
+    // タイトルの自動射撃でも、本編と同じ弾を破棄せず再利用する。
+    ObjectPool<PlayerBullet> bulletPool_;
+    std::vector<ObjectPool<PlayerBullet>::Handle> bullets_;
+    std::shared_ptr<ObjectPool<Object3d>> fragmentPool_; // 敵同士で破片の描画枠を共有する。
     // 破片が床で跳ねて止まるよう、タイトル床の当たり判定を用意する
     std::vector<LevelColliderData> floorColliders_;
     // 本編と同じ構成のパーティクル(弾の軌跡・発射炎 / 血しぶき)

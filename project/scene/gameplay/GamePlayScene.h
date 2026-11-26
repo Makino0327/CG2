@@ -358,6 +358,8 @@ private:
     /// 敵
     // 現在出現している敵
     std::vector<std::unique_ptr<Enemy>> enemies_;
+    // レベルの再読み込みや増援をまたいで、敵とボスの破片を共有・再利用する。
+    std::shared_ptr<ObjectPool<Object3d>> fragmentPool_;
 
     // モデル、回収先、光の色を弾種ごとにまとめる。順番はラベル画像と揃える。
     struct AmmoDropStyle {

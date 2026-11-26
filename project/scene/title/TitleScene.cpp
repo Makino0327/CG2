@@ -149,7 +149,8 @@ template<class T>
 const TitleScene::State& TitleScene::GetState() { static const T state; return state; }
 void TitleScene::ChangeState(const State& state) { state_ = &state; }
 bool TitleScene::IsStarting() const { return state_->IsStarting(); }
-TitleScene::TitleScene() : state_(&GetState<AppearingState>()) {}
+TitleScene::TitleScene() : state_(&GetState<AppearingState>()), bulletPool_(128),
+    fragmentPool_(std::make_shared<ObjectPool<Object3d>>(256)) {}
 TitleScene::~TitleScene() = default;
 
 std::unique_ptr<Object3d> TitleScene::CreateObject(const char* model, const Vector3& position,
@@ -305,6 +306,11 @@ void TitleScene::InitializeTitle() {
     bloodParticleSystem_->SetBlendMode(ParticleBlendMode::Alpha);
     enemies_.clear();
     bullets_.clear();
+    bulletPool_.Reset();
+    bullets_.reserve(bulletPool_.GetCapacity());
+    // 表示前に弾を準備し、背景の連射で生成と解放を繰り返さないようにする。
+    bulletPool_.Prewarm(32, [this](PlayerBullet& bullet) { bullet.PrepareResources(GetContext().object3dCommon); });
+    fragmentPool_->Prewarm(28, [this](Object3d& object) { object.Initialize(GetContext().object3dCommon); });
     for (int i = 0; i < kInitialEnemies; ++i) { SpawnEnemy(kEnemySpawnRadiusMin + static_cast<float>(i) * 2.0f); }
     spawnTimer_ = kSpawnInterval;
     CreateMenu();
@@ -451,6 +457,7 @@ void TitleScene::SpawnEnemy(float radius) {
     enemy->Initialize(GetContext().object3dCommon, GetContext().camera, position);
     enemy->SetFloorColliders(&floorColliders_);
     enemy->SetBloodParticleSystem(bloodParticleSystem_.get());
+    enemy->SetFragmentPool(fragmentPool_);
     enemy->SetTargetPosition(kPlayerPosition);
     enemy->SetWaypoints({ Vector3{ 0.0f,kEnemyHeight,0.0f } });
     enemies_.push_back(std::move(enemy));
@@ -488,7 +495,8 @@ void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
     // 散らばりは方向だけに付け、発射位置を銃口からずらさない。
     const Vector3 firePosition = GetMuzzlePosition();
 
-    auto bullet = std::make_unique<PlayerBullet>();
+    auto bullet = bulletPool_.Acquire();
+    if (!bullet) { return; } // 使用中の弾を上書きせず、空きが戻るまで発射を待つ。
     bullet->Initialize(GetContext().object3dCommon, firePosition,
         { direction.x*kBulletSpeed,direction.y*kBulletSpeed,direction.z*kBulletSpeed },
         nullptr, particleSystem_.get(), kEnemyHeight);
@@ -499,6 +507,8 @@ void TitleScene::FireBullet(const Vector3& baseDirection, float spreadAngle) {
 }
 
 void TitleScene::FireShotgun(const Vector3& baseDirection) {
+    // 散弾は必要な枠がすべて空いている場合だけ、まとめて生成する。
+    if (bulletPool_.GetAvailableCount() < static_cast<size_t>(kShotgunPelletCount)) { return; }
     // Player::FireShotgunと同じ5発の扇状散弾
     // 散弾も発射炎も、同じ銃口の位置を使う。
     const Vector3 firePosition = GetMuzzlePosition();
@@ -517,7 +527,8 @@ void TitleScene::FireShotgun(const Vector3& baseDirection) {
         const Vector3 pelletPosition = firePosition;
         const float speed = kBulletSpeed*randomSpeed(randomEngine_);
 
-        auto bullet = std::make_unique<PlayerBullet>();
+        auto bullet = bulletPool_.Acquire();
+        assert(bullet);
         bullet->Initialize(GetContext().object3dCommon, pelletPosition,
             { dir.x*speed,dir.y*speed,dir.z*speed }, nullptr, particleSystem_.get(), kEnemyHeight);
         bullets_.push_back(std::move(bullet));
@@ -598,7 +609,7 @@ void TitleScene::CheckBulletHits() {
     enemies_.erase(std::remove_if(enemies_.begin(), enemies_.end(),
         [](const std::unique_ptr<Enemy>& enemy) { return enemy->IsReadyToRemove(); }), enemies_.end());
     bullets_.erase(std::remove_if(bullets_.begin(), bullets_.end(),
-        [](const std::unique_ptr<PlayerBullet>& bullet) { return bullet->IsDead(); }), bullets_.end());
+        [](const auto& bullet) { return bullet->IsDead(); }), bullets_.end());
 }
 
 void TitleScene::ResolveEnemyOverlap() {
@@ -848,7 +859,9 @@ void TitleScene::Finalize() {
     titleLogo_ = nullptr;
     titleShade_ = nullptr;
     bullets_.clear();
+    bulletPool_.Reset(); // 終了時は、返却済みの描画リソースもまとめて解放する。
     enemies_.clear();
+    fragmentPool_->Reset();
     floorColliders_.clear();
     playerObject_.reset();
     muzzleMarker_.reset();

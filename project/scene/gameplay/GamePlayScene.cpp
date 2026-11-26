@@ -219,7 +219,8 @@ const GamePlayScene::FlowState& GamePlayScene::GetFlowState(Flow flow) {
     return *states.at(static_cast<size_t>(flow));
 }
 
-GamePlayScene::GamePlayScene() : flowState_(&GetFlowState(Flow::Playing)) {}
+GamePlayScene::GamePlayScene() : flowState_(&GetFlowState(Flow::Playing)),
+    fragmentPool_(std::make_shared<ObjectPool<Object3d>>(512)) {}
 void GamePlayScene::ChangeFlow(Flow flow) { flowState_ = &GetFlowState(flow); }
 void GamePlayScene::BeginMissionFlow() { flowState_->OnActivated(*this); }
 void GamePlayScene::BeginDemoResultFlow() { flowState_->OnDemoResult(*this); }

@@ -36,6 +36,13 @@ void Player::BeginInitialize(
     particleSystem_ = particleSystem;
     // 3D描画の共通設定を保存する
     object3dCommon_ = object3dCommon;
+    // 描画環境を作り直す初期化では、古いハンドルを返してからプールも空にする。
+    bullets_.clear();
+    bulletPool_.Reset();
+    casings_.clear();
+    casingPool_.Reset();
+    bullets_.reserve(kBulletCapacity);
+    casings_.reserve(kCasingCapacity);
 
     // 円柱と底の縁を持つ薬莢モデルを読み込み、古い演出をリセットする。
     ModelManager::GetInstance()->LoadModel("casing/casing.obj");
@@ -152,6 +159,16 @@ bool Player::ContinueInitialize()
         assert(found != loadingAnimationNames_.end());
         animations_[static_cast<size_t>(Motion::Death)] = LoadAnimationFile(directory, "Swat.gltf",
             static_cast<uint32_t>(found-loadingAnimationNames_.begin()));
+    } else if (bulletPool_.GetCreatedCount() < 32) {
+        // 分割読み込み中に1発ずつ準備し、通常の連射では生成済みの弾を使う。
+        bulletPool_.Prewarm(bulletPool_.GetCreatedCount() + 1,
+            [this](PlayerBullet& bullet) { bullet.PrepareResources(object3dCommon_); });
+        return false;
+    } else if (casingPool_.GetCreatedCount() < 16) {
+        // 薬莢も1回の呼び出しで1個だけ準備し、読み込みを1フレームへ集中させない。
+        casingPool_.Prewarm(casingPool_.GetCreatedCount() + 1,
+            [this](Casing& casing) { PrepareCasing(casing); });
+        return false;
     } else {
         PlayMotion(Motion::Idle, true);
         loadingAnimationNames_.clear();
@@ -507,8 +524,8 @@ void Player::Draw()
     }
 
     // 排出した薬莢を通常の3Dモデルとして描画する。
-    for (const Casing& casing : casings_) {
-        casing.object->Draw();
+    for (const auto& casing : casings_) {
+        casing->object->Draw();
     }
 }
 
@@ -978,6 +995,10 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
         direction = Normalize(spreadDirection);
     }
 
+    // 空き枠がない場合は発射を成立させず、弾薬・発砲回数・演出を増やさない。
+    auto bullet = bulletPool_.Acquire();
+    if (!bullet) { return false; }
+
     // 銃声を発生させたことをシーンへ伝える
     firedThisFrame_ = true;
 
@@ -988,10 +1009,8 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
         direction.z * bulletSpeed_
     };
 
-    // 弾を作る
-    auto bullet = std::make_unique<PlayerBullet>();
+    // 再利用する弾へ、この発砲の番号と初期値を設定する。
     shotHits_.push_back(false);
-    bullet->SetShotNumber(shotHits_.size());
 
     // 弾を初期化する
     bullet->Initialize(
@@ -1000,7 +1019,8 @@ bool Player::FireBullet(Camera* camera, float spreadAngle, const Vector3* aimTar
         velocity,
         wallColliders_,
         particleSystem_,
-        flightHeight);
+        flightHeight,
+        shotHits_.size());
 
     // 弾の発射位置をScene側へ渡して画面歪みの中心に使う
     pendingBulletShockwavePositions_.push_back(firePosition);
@@ -1088,13 +1108,16 @@ bool Player::FireShotgun(Camera* camera, const ScatterShot& pattern)
         return false;
     }
 
+    // 散弾の途中で空き枠が尽きないよう、全弾を収容できる場合だけ発射する。
+    const int pelletCount = std::max(1, pattern.pelletCount);
+    if (bulletPool_.GetAvailableCount() < static_cast<size_t>(pelletCount)) { return false; }
+
     // 1回のショットなので、弾薬はここで1つだけ減らす
     firedThisFrame_ = true;
     // 散弾すべてに同じ番号を使い、発砲回数は1回だけ増やす。
     shotHits_.push_back(false);
     const size_t shotNumber = shotHits_.size();
 
-    const int pelletCount = std::max(1, pattern.pelletCount);
     const float centerIndex = static_cast<float>(pelletCount - 1) * 0.5f;
     const float angleStep = (pelletCount > 1)
         ? pattern.spreadAngle / static_cast<float>(pelletCount - 1)
@@ -1133,15 +1156,16 @@ bool Player::FireShotgun(Camera* camera, const ScatterShot& pattern)
             pelletDirection.z * bulletSpeed_ * speedScale
         };
 
-        auto bullet = std::make_unique<PlayerBullet>();
-        bullet->SetShotNumber(shotNumber);
+        auto bullet = bulletPool_.Acquire();
+        assert(bullet); // 同じスレッドで事前に全弾分の空きを確認している。
         bullet->Initialize(
             object3dCommon_,
             pelletPosition,
             velocity,
             wallColliders_,
             particleSystem_,
-            flightHeight);
+            flightHeight,
+            shotNumber);
 
         bullets_.push_back(std::move(bullet));
     }
@@ -1206,11 +1230,17 @@ void Player::EjectCasing(const Vector3& muzzlePosition, const Vector3& direction
     std::uniform_real_distribution<float> spin(-0.20f, 0.20f);
 
     // 最大80個に制限し、連射中も描画用リソースが増え続けないようにする。
-    if (casings_.size() >= 80) {
+    if (casings_.size() >= kCasingCapacity) {
         casings_.erase(casings_.begin());
     }
 
-    Casing casing{};
+    auto handle = casingPool_.Acquire([this](Casing& casing) { PrepareCasing(casing); });
+    if (!handle) { return; }
+    Casing& casing = *handle;
+    // 位置・速度・寿命・床への静止状態を戻し、描画リソースだけを引き継ぐ。
+    auto object = std::move(casing.object);
+    casing = Casing{};
+    casing.object = std::move(object);
     casing.position = {
         muzzlePosition.x - forward.x * 0.35f + right.x * 0.12f,
         muzzlePosition.y - 0.05f,
@@ -1228,17 +1258,22 @@ void Player::EjectCasing(const Vector3& muzzlePosition, const Vector3& direction
     casing.angularVelocity = { spin(randomEngine), spin(randomEngine), spin(randomEngine) };
     casing.floorY = object_->GetTranslate().y - colliderRadius_;
 
-    // 金色の薬莢を、光の影響を受ける通常の3Dモデルとして作る。
-    casing.object = std::make_unique<Object3d>();
-    casing.object->Initialize(object3dCommon_);
-    casing.object->SetModel("casing/casing.obj");
+    // 再利用する薬莢の色と姿勢を戻し、前の寿命末期の透明度を残さない。
     casing.object->SetScale({ 0.065f, 0.18f, 0.065f });
     casing.object->SetColor({ 0.90f, 0.65f, 0.23f, 1.0f });
     casing.object->SetLightingType(LightingType::HalfLambert);
     casing.object->SetTranslate(casing.position);
     casing.object->SetRotate(casing.rotation);
     casing.object->Update();
-    casings_.push_back(std::move(casing));
+    casings_.push_back(std::move(handle));
+}
+
+void Player::PrepareCasing(Casing& casing)
+{
+    // 新しい枠を追加するときだけ、GPUリソースとモデルを用意する。
+    casing.object = std::make_unique<Object3d>();
+    casing.object->Initialize(object3dCommon_);
+    casing.object->SetModel("casing/casing.obj");
 }
 
 bool Player::GetJointWorldPosition(const std::string& name, Vector3& position) const
@@ -1393,7 +1428,8 @@ void Player::UpdateCasings()
     constexpr float kRadius = 0.0715f;
     constexpr float kHalfLength = 0.18f;
 
-    for (Casing& casing : casings_) {
+    for (auto& handle : casings_) {
+        Casing& casing = *handle;
         if (!casing.resting) {
             const float previousY = casing.position.y;
 
@@ -1462,10 +1498,10 @@ void Player::UpdateCasings()
         casing.object->Update();
     }
 
-    // 寿命切れの薬莢を削除し、描画用のリソースも解放する。
+    // 寿命切れの薬莢をプールへ返し、描画リソースを次の排出へ回す。
     casings_.erase(
         std::remove_if(casings_.begin(), casings_.end(),
-            [](const Casing& casing) { return casing.lifeFrames <= 0; }),
+            [](const auto& casing) { return casing->lifeFrames <= 0; }),
         casings_.end());
 }
 
@@ -1672,12 +1708,12 @@ void Player::UpdateBullets()
         bullet->Update(true);
     }
 
-    // 消えたプレイヤー弾を取り除く
+    // 消えたプレイヤー弾のハンドルを外し、描画リソースごとプールへ返す。
     bullets_.erase(
         std::remove_if(
             bullets_.begin(),
             bullets_.end(),
-            [](const std::unique_ptr<PlayerBullet>& bullet) {
+            [](const auto& bullet) {
                 return bullet->IsDead();
             }),
         bullets_.end());

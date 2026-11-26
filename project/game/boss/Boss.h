@@ -1,4 +1,5 @@
 #pragma once
+#include "../../engine/utils/ObjectPool.h"
 #include "../collision/IBulletTarget.h"
 
 #include <memory>
@@ -17,6 +18,8 @@ struct LevelColliderData;
 class Boss : public IBulletTarget
 {
 public:
+    // 通常の敵と同じ保管領域へ、演出を終えた破片の描画オブジェクトを返す。
+    void SetFragmentPool(std::shared_ptr<ObjectPool<Object3d>> pool) { fragmentPool_ = std::move(pool); }
     // Object3dの解放をcpp側で行えるようにする
     ~Boss() override;
 
@@ -163,7 +166,7 @@ private:
 
     // 通常の敵と同じく、ボスのOBJを小さくした破片を飛ばし、跳ねてから縮めて消す。
     struct DeathFragment {
-        std::unique_ptr<Object3d> object;
+        ObjectPool<Object3d>::Handle object;
         Vector3 position{};
         Vector3 velocity{};
         Vector3 rotation{};
@@ -176,4 +179,5 @@ private:
     };
     ParticleSystem* bloodParticleSystem_ = nullptr;
     std::vector<DeathFragment> deathFragments_;
+    std::shared_ptr<ObjectPool<Object3d>> fragmentPool_;
 };

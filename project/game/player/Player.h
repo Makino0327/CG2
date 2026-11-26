@@ -13,6 +13,7 @@
 #include "PlayerBullet.h"
 #include "PlayerGrenade.h"
 #include "Gun.h"
+#include "../../engine/utils/ObjectPool.h"
 
 #include "../../scene/LevelLoader.h"
 
@@ -261,11 +262,14 @@ private:
     // 発射成功時に銃の右側へ薬莢を1個排出する。
     void EjectCasing(const Vector3& muzzlePosition, const Vector3& direction);
 
-    // 薬莢を落下させ、床で跳ねさせてから寿命切れで削除する。
+    // 薬莢を落下させ、床で跳ねさせてから寿命切れでプールへ返す。
     void UpdateCasings();
+    void PrepareCasing(Casing& casing); // 薬莢の描画リソースはプールへの新規登録時だけ作る。
 
     // 弾の当たり判定とは分けて、演出用の薬莢を保持する。
-    std::vector<Casing> casings_;
+    static constexpr size_t kCasingCapacity = 80;
+    ObjectPool<Casing> casingPool_{kCasingCapacity};
+    std::vector<ObjectPool<Casing>::Handle> casings_;
 
     // 死亡時に体の下から広がる血だまり。形の違う板をずらして重ね、輪郭を崩す。
     struct BloodPoolLayer {
@@ -430,7 +434,10 @@ private:
     const State* state_ = nullptr;
 
     // プレイヤーが撃った弾
-    std::vector<std::unique_ptr<PlayerBullet>> bullets_;
+    // 有効な弾だけを配列へ入れ、取り除いたハンドルは自動でプールへ返る。
+    static constexpr size_t kBulletCapacity = 128;
+    ObjectPool<PlayerBullet> bulletPool_{kBulletCapacity};
+    std::vector<ObjectPool<PlayerBullet>::Handle> bullets_;
     // 狙い位置の選択だけに使う、シーンから受け取った敵の判定。
     std::vector<BoxCollider> bulletAimBoxes_;
     std::vector<SphereCollider> bulletAimSpheres_;

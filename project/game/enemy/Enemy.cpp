@@ -195,6 +195,8 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     hp_ = maxHp_;
     isDead_ = false;
     deathDropConsumed_ = false;
+    // 同じ敵を再初期化する場合も、前回の破片を共有プールへ返す。
+    for (auto& fragment : deathFragments_) { fragment = DeathFragment{}; }
 
     // 再生成時はプレイヤー発見状態も解除する
     isTargetInSight_ = false;
@@ -805,6 +807,8 @@ void Enemy::StartDeathEffect()
 
     // 敵の中心から通常より大きな血しぶきを出す
     EmitDeathBurst();
+    // 単体で使う敵にも対応し、シーンから渡された共有プールを優先する。
+    if (!fragmentPool_) { fragmentPool_ = std::make_shared<ObjectPool<Object3d>>(deathFragments_.size()); }
 
     // 毎回同じ飛び方にならないよう乱数を用意する
     static std::mt19937 randomEngine(std::random_device{}());
@@ -816,11 +820,14 @@ void Enemy::StartDeathEffect()
     std::uniform_real_distribution<float> scaleDistribution(0.18f, 0.32f);
 
     for (DeathFragment& fragment : deathFragments_) {
-        // enemy.objを小さく表示するObject3dを作る
-        fragment.object = std::make_unique<Object3d>();
-        fragment.object->Initialize(object3dCommon_);
+        // 使用を終えた他の敵の破片を借り、初期化済みのGPUリソースを再利用する。
+        fragment = DeathFragment{};
+        fragment.object = fragmentPool_->Acquire([this](Object3d& object) { object.Initialize(object3dCommon_); });
+        if (!fragment.object) { continue; } // 満杯でも死亡処理は進め、追加の破片だけを省く。
         fragment.object->SetCamera(camera_);
         fragment.object->SetModel("enemy/enemy.obj");
+        fragment.object->SetColor({ 1, 1, 1, 1 }); // ボスの破片に付いていた赤みを残さない。
+        fragment.object->SetLightingType(LightingType::HalfLambert);
 
         // 敵の中心付近から破片を発生させる
         fragment.position = {
@@ -927,6 +934,7 @@ void Enemy::EmitDeathBurst()
 
 void Enemy::UpdateDeathFragments()
 {
+    if (isReadyToRemove_) { return; }
     // 現在のEnemy::Updateがフレーム単位なので60FPS相当で計算する
     constexpr float kDeltaTime = 1.0f / 60.0f;
 
@@ -1017,6 +1025,8 @@ void Enemy::UpdateDeathFragments()
     // 破片が完全に小さくなってから削除可能にする
     if (deathEffectTimer_ >= kDeathEffectDuration) {
         isReadyToRemove_ = true;
+        // 見えなくなった描画枠を返し、同じフレーム以降の死亡演出に再利用させる。
+        for (auto& fragment : deathFragments_) { fragment.object.reset(); }
     }
 }
 

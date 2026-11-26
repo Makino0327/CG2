@@ -345,6 +345,7 @@ void GamePlayScene::ConfigureEnemyForLevel(Enemy& enemy)
 {
     // 初期配置と増援で、敵の当たり判定と経路探索に同じデータを渡す。
     enemy.SetBloodParticleSystem(bloodParticleSystem_.get());
+    enemy.SetFragmentPool(fragmentPool_);
     enemy.SetMap(&mapField_, tileSize_);
     enemy.SetFloorColliders(&floorColliders_);
     enemy.SetWallColliders(&wallColliders_);
@@ -439,6 +440,7 @@ void GamePlayScene::SpawnBosses(const std::vector<LevelObjectData>& allObjects)
         }
 
         auto boss = std::make_unique<Boss>();
+        boss->SetFragmentPool(fragmentPool_);
         boss->Initialize(
             GetContext().object3dCommon,
             GetContext().camera,

@@ -333,10 +333,13 @@ void Boss::UpdateDeathEffect()
         fragment.object->Update();
     }
     isReadyToRemove_ = deathTimer_ >= kDeathDuration;
+    if (isReadyToRemove_) { deathFragments_.clear(); } // 消えた破片は共有プールへ返す。
 }
 
 void Boss::SpawnDeathFragments()
 {
+    deathFragments_.clear();
+    if (!fragmentPool_) { fragmentPool_ = std::make_shared<ObjectPool<Object3d>>(128); }
     // 通常の敵と同じく、本体のOBJを小さくした破片を中心付近からランダムに飛ばす。
     // ボスは体が大きいので、出現範囲・飛ぶ速さ・破片の大きさを体格に合わせて広げる。
     const Vector3 center = object_->GetTranslate();
@@ -355,7 +358,11 @@ void Boss::SpawnDeathFragments()
     for (const FragmentTier& tier : kFragmentTiers) {
         std::uniform_real_distribution<float> scaleDistribution(tier.minScale, tier.maxScale);
         for (int index = 0; index < tier.count; ++index) {
+            // 通常敵の死亡演出が返した描画枠も、ボス用に設定し直して利用する。
+            auto object = fragmentPool_->Acquire([this](Object3d& value) { value.Initialize(object3dCommon_); });
+            if (!object) { continue; }
             auto& fragment = deathFragments_.emplace_back();
+            fragment.object = std::move(object);
             fragment.position = {
                 center.x + offsetDistribution(randomEngine) * bodyScale.x,
                 center.y + offsetDistribution(randomEngine) * bodyScale.y,
@@ -387,10 +394,9 @@ void Boss::SpawnDeathFragments()
             };
             fragment.bloodSize = tier.bloodSize * bodySize * 0.35f;
             fragment.trailTimer = static_cast<int>(unit(randomEngine) * 3.0f);
-            fragment.object = std::make_unique<Object3d>();
-            fragment.object->Initialize(object3dCommon_);
             fragment.object->SetCamera(camera_);
             fragment.object->SetModel("boss/boss.obj");
+            fragment.object->SetLightingType(LightingType::HalfLambert);
             // 血に濡れた肉片を混ぜ、暗い赤みの差で破片の見分けをつける。
             const float wet = unit(randomEngine);
             fragment.object->SetColor({ 1.0f - 0.25f * wet, 1.0f - 0.65f * wet, 1.0f - 0.68f * wet, 1.0f });

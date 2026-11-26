@@ -471,6 +471,7 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <ClInclude Include="engine\base\imgui\ImGuiManager.h" />
     <ClInclude Include="engine\input\Input.h" />
     <ClInclude Include="engine\utils\Logger.h" />
+    <ClInclude Include="engine\utils\ObjectPool.h" />
     <ClInclude Include="game\map\MapChipField.h" />
     <ClInclude Include="game\generator\GeneratorActivation.h" />
     <ClInclude Include="game\generator\GeneratorDoorLink.h" />

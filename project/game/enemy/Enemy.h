@@ -12,6 +12,7 @@
 #include "../common/WaypointMover.h"
 #include "../map/MapChipField.h"
 #include "../../scene/LevelLoader.h"
+#include "../../engine/utils/ObjectPool.h"
 
 class Object3dCommon;
 class ParticleSystem;
@@ -19,6 +20,8 @@ class ParticleSystem;
 class Enemy : public IBulletTarget
 {
 public:
+    // 同じシーンの敵やボスで、死亡演出の描画リソースを使い回す。
+    void SetFragmentPool(std::shared_ptr<ObjectPool<Object3d>> pool) { fragmentPool_ = std::move(pool); }
     // 描画の初期化前から巡回状態を持たせ、音の通知も受け取れるようにする。
     Enemy();
 
@@ -326,7 +329,7 @@ private:
     // 敵OBJを再利用した破片1個分の情報
     struct DeathFragment {
         // 破片として描画する3Dオブジェクト
-        std::unique_ptr<Object3d> object;
+        ObjectPool<Object3d>::Handle object;
 
         // 現在位置
         Vector3 position = { 0.0f, 0.0f, 0.0f };
@@ -349,6 +352,7 @@ private:
 
     // 死亡時に飛ばす破片
     std::array<DeathFragment, 7> deathFragments_;
+    std::shared_ptr<ObjectPool<Object3d>> fragmentPool_;
 
     // 破片生成に使用する描画共通情報
     Object3dCommon* object3dCommon_ = nullptr;
