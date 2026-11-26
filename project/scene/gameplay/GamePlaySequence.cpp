@@ -1,4 +1,4 @@
-﻿#include "GamePlayScene.h"
+#include "GamePlayScene.h"
 
 #include <algorithm>
 #include <chrono>
@@ -178,6 +178,7 @@ void GamePlayScene::ShowDemoResult(std::unique_ptr<ResultScene> result)
     result->SetDemoMode(true);
     result->Initialize();
     demoResult_ = std::move(result);
+    BeginDemoResultFlow();
 }
 
 // 結果画面を閉じ、ステージとカメラを初期状態に戻してデモを再開する。
@@ -248,10 +249,7 @@ void GamePlayScene::UpdateBossDefeatSequence()
     }
     UpdateWorldRenderOnly();
 
-    // 通常の敵と同じく破片が縮んで消えてから、リザルト用の扉を閉じる。
-    if (std::all_of(bosses_.begin(), bosses_.end(), [](const auto& boss) { return boss->IsReadyToRemove(); })) {
-        UpdateClearTransition();
-    }
+    // クリア演出へ進むかどうかは、ボス撃破の状態クラスが判断する。
 }
 
 // ボスの撃破位置にパーティクルを出し、カメラを揺らす。

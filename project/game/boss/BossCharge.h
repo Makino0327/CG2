@@ -53,7 +53,7 @@ public:
         const float travel = (std::max)(0.0f, length * nearest - (nearest < 1.0f ? 0.05f : 0.0f));
         end_ = { start.x + direction_.x * travel, start.y, start.z + direction_.z * travel };
         if (travel < 0.1f) { return false; }
-        phase_ = Phase::Windup;
+        state_->OnBegin(*this);
         return true;
     }
 
@@ -61,17 +61,8 @@ public:
     {
         moved_ = false;
         previous_ = position_;
-        if (phase_ == Phase::Windup) {
-            // 最後の予告フレームでは移動せず、次のフレームから走り出す。
-            if (++windupAge_ >= kWindupFrames) { phase_ = Phase::Running; }
-        } else if (phase_ == Phase::Running) {
-            const float remaining = std::hypot(end_.x - position_.x, end_.z - position_.z);
-            const float step = (std::min)(kSpeed, remaining);
-            position_.x += direction_.x * step;
-            position_.z += direction_.z * step;
-            moved_ = step > 0.0f;
-            if (remaining <= kSpeed) { position_ = end_; phase_ = Phase::Finished; }
-        }
+        // 予告・走行・完了の振る舞いは、保持している状態へ任せる。
+        state_->Update(*this);
     }
 
     bool TryHit(const SphereCollider& target)
@@ -88,9 +79,9 @@ public:
         return true;
     }
 
-    bool IsWindingUp() const { return phase_ == Phase::Windup; }
-    bool IsRunning() const { return phase_ == Phase::Running; }
-    bool IsFinished() const { return phase_ == Phase::Finished; }
+    bool IsWindingUp() const { return state_->GetPhase() == Phase::Windup; }
+    bool IsRunning() const { return state_->GetPhase() == Phase::Running; }
+    bool IsFinished() const { return state_->GetPhase() == Phase::Finished; }
     float GetWindupProgress() const { return static_cast<float>(windupAge_) / kWindupFrames; }
     const Vector3& GetStart() const { return start_; }
     const Vector3& GetEnd() const { return end_; }
@@ -99,7 +90,48 @@ public:
 
 private:
     enum class Phase { Inactive, Windup, Running, Finished };
-    Phase phase_ = Phase::Inactive;
+    class ChargeState {
+    public:
+        virtual ~ChargeState() = default;
+        virtual Phase GetPhase() const = 0;
+        virtual void Update(BossCharge&) const {}
+        virtual void OnBegin(BossCharge&) const {}
+    };
+    class InactiveState final : public ChargeState {
+    public:
+        Phase GetPhase() const override { return Phase::Inactive; }
+        void OnBegin(BossCharge& owner) const override { owner.ChangeState<WindupState>(); }
+    };
+    class WindupState final : public ChargeState {
+    public:
+        Phase GetPhase() const override { return Phase::Windup; }
+        void Update(BossCharge& owner) const override {
+            // 最後の予告フレームは動かず、次のフレームから走る。
+            if (++owner.windupAge_ >= kWindupFrames) { owner.ChangeState<RunningState>(); }
+        }
+    };
+    class RunningState final : public ChargeState {
+    public:
+        Phase GetPhase() const override { return Phase::Running; }
+        void Update(BossCharge& owner) const override {
+            const float remaining = std::hypot(owner.end_.x - owner.position_.x, owner.end_.z - owner.position_.z);
+            const float step = (std::min)(kSpeed, remaining);
+            owner.position_.x += owner.direction_.x * step;
+            owner.position_.z += owner.direction_.z * step;
+            owner.moved_ = step > 0.0f;
+            if (remaining <= kSpeed) {
+                owner.position_ = owner.end_;
+                owner.ChangeState<FinishedState>();
+            }
+        }
+    };
+    class FinishedState final : public ChargeState {
+    public:
+        Phase GetPhase() const override { return Phase::Finished; }
+    };
+    template<class T> static const ChargeState& GetState() { static const T state; return state; }
+    template<class T> void ChangeState() { state_ = &GetState<T>(); }
+    const ChargeState* state_ = &GetState<InactiveState>();
     int windupAge_ = 0;
     float radius_ = 0.0f;
     Vector3 start_{}, end_{}, direction_{}, position_{}, previous_{};

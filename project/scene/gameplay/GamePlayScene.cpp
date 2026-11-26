@@ -1,4 +1,4 @@
-﻿#include "GamePlayScene.h"
+#include "GamePlayScene.h"
 
 #include <algorithm>
 #include <cassert>
@@ -70,58 +70,169 @@ bool GamePlayScene::TryConvertWorldToScreenUV(
     return outUV.x >= 0.0f && outUV.x <= 1.0f && outUV.y >= 0.0f && outUV.y <= 1.0f;
 }
 
-void GamePlayScene::Update()
-{
-    const float dt = 1.0f / 60.0f;
-    if (demoResult_) {
-        // 黒くなった画面を1フレーム描いてから、同じ本編を初期状態へ戻す。
-        if (demoResult_->IsDemoRestartReady()) { RestartDemoRound(); }
-        else { demoResult_->Update(); }
-        return;
+// 各進行状態が次の場面を決め、シーン本体は現在の状態へ更新を委譲する。
+class GamePlayScene::FlowState {
+public:
+    virtual ~FlowState() = default;
+    virtual void Update(GamePlayScene& owner) const = 0;
+    virtual void OnActivated(GamePlayScene& owner) const {
+        owner.ChangeFlow(owner.briefingBeforeMission_ ? Flow::Briefing : Flow::Intro);
     }
-    if (player_ && player_->IsDead()) {
-        // チュートリアルではゲームオーバーにせず、課題の入口からやり直す。
-        if (tutorialMode_) { UpdateTutorialDeath(); }
-        else { UpdateDeathSequence(); }
-        return;
+    virtual void OnDemoResult(GamePlayScene& owner) const { owner.ChangeFlow(Flow::DemoResult); }
+    virtual void OnPlayerDied(GamePlayScene& owner, bool updateImmediately) const {
+        owner.ChangeFlow(owner.tutorialMode_ ? Flow::TutorialDeath : Flow::Death);
+        if (updateImmediately) { owner.flowState_->Update(owner); }
     }
-    if (clearShutterFrame_ > 0) {
-        // シャッターが閉まる間は、戦闘画面をその場で止める。
-        UpdateClearTransition();
-        return;
+    // 外部のダメージ通知でも、次のフレームの最初に死亡状態へ移す。
+    bool UpdateDeathIfNeeded(GamePlayScene& owner) const {
+        if (!owner.player_ || !owner.player_->IsDead()) { return false; }
+        OnPlayerDied(owner, true);
+        return true;
     }
-    if (completedRun_) {
-        UpdateBossDefeatSequence();
-        return;
+    static void FreezeGeneratorClock(GamePlayScene& owner) {
+        owner.generatorPreviousUpdate_ = std::chrono::steady_clock::now();
     }
-    playerDeadFrames_ = 0;
-    if (briefingBeforeMission_) {
-        // 作戦の開始を待つ間も、背景の走査線は動かし続ける。
-        introScanFrameOffset_ += 1.0f;
-        introScan_.Update(introScanFrameOffset_, 1.0f);
-        if (UpdateControlsBriefing(true)) {
-            briefingBeforeMission_ = false;
-            player_->SuppressFireUntilRelease();
+};
+
+class GamePlayScene::InteractiveFlow : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        if (UpdateDeathIfNeeded(owner)) { return; }
+        owner.playerDeadFrames_ = 0;
+        if (!owner.IsDemo() && owner.UpdatePauseMenu(1.0f / 60.0f)) {
+            owner.resumeFlow_ = this;
+            owner.ChangeFlow(Flow::Paused);
+            FreezeGeneratorClock(owner);
+            return;
         }
-        // 説明を読んでいる時間は、シャッターやMISSION STARTの演出に含めない。
-        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
-        return;
+        Continue(owner);
     }
-    if (!IsDemo() && UpdatePauseMenu(dt)) {
-        // ポーズした実時間を発電機の進捗へ加えず、敵・弾・死亡演出も更新しない。
-        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
-        return;
-    }
+    // ポーズ再開のフレームでは入力を二重処理せず、元の状態の続きを進める。
+    virtual void Continue(GamePlayScene& owner) const = 0;
+};
 
-    if (missionStartActive_) {
-        // カメラ演出中は入力・敵AI・ダメージ判定を進めず、見た目だけを更新する。
-        UpdateIntroTransition();
-        UpdateMissionStart();
-        generatorPreviousUpdate_ = std::chrono::steady_clock::now();
-        // 引き終わったフレームは通常更新へ進み、HUDも整えてから操作を始める。
-        if (missionStartActive_) { return; }
+class GamePlayScene::BriefingFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        if (UpdateDeathIfNeeded(owner)) { return; }
+        owner.playerDeadFrames_ = 0;
+        owner.introScanFrameOffset_ += 1.0f;
+        owner.introScan_.Update(owner.introScanFrameOffset_, 1.0f);
+        if (owner.UpdateControlsBriefing(true)) {
+            owner.briefingBeforeMission_ = false;
+            owner.player_->SuppressFireUntilRelease();
+            owner.ChangeFlow(Flow::Intro);
+        }
+        FreezeGeneratorClock(owner);
     }
+};
 
+class GamePlayScene::IntroFlow final : public GamePlayScene::InteractiveFlow {
+public:
+    void Continue(GamePlayScene& owner) const override {
+        owner.UpdateIntroTransition();
+        owner.UpdateMissionStart();
+        FreezeGeneratorClock(owner);
+        if (!owner.missionStartActive_) {
+            owner.ChangeFlow(Flow::Playing);
+            // 開始演出が終わったフレームから通常更新へ進む。
+            owner.UpdatePlaying();
+            if (owner.flowState_ != &GetFlowState(Flow::Playing)) { return; }
+            if (owner.player_ && owner.player_->IsDead()) { OnPlayerDied(owner, false); }
+            else if (owner.completedRun_) { owner.ChangeFlow(Flow::BossDefeat); }
+        }
+    }
+};
+
+class GamePlayScene::PlayingFlow final : public GamePlayScene::InteractiveFlow {
+public:
+    void Continue(GamePlayScene& owner) const override {
+        owner.UpdatePlaying();
+        // 更新中に別の状態へ移った場合は、その遷移を上書きしない。
+        if (owner.flowState_ != this) { return; }
+        if (owner.player_ && owner.player_->IsDead()) { OnPlayerDied(owner, false); }
+        else if (owner.completedRun_) { owner.ChangeFlow(Flow::BossDefeat); }
+    }
+};
+
+class GamePlayScene::PausedFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        if (owner.UpdatePauseMenu(1.0f / 60.0f)) { FreezeGeneratorClock(owner); return; }
+        owner.flowState_ = owner.resumeFlow_;
+        owner.resumeFlow_->Continue(owner);
+    }
+};
+
+class GamePlayScene::DeathFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override { owner.UpdateDeathSequence(); }
+};
+
+class GamePlayScene::TutorialDeathFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        owner.UpdateTutorialDeath();
+        if (!owner.player_->IsDead()) { owner.ChangeFlow(Flow::Playing); }
+    }
+};
+
+class GamePlayScene::BossDefeatFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        owner.UpdateBossDefeatSequence();
+        if (std::all_of(owner.bosses_.begin(), owner.bosses_.end(),
+            [](const auto& boss) { return boss->IsReadyToRemove(); })) {
+            // ボスの破片が消えたら、この状態がクリア演出へ進める。
+            owner.ChangeFlow(Flow::Clear);
+            owner.flowState_->Update(owner);
+        }
+    }
+};
+
+class GamePlayScene::ClearFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override { owner.UpdateClearTransition(); }
+};
+
+class GamePlayScene::DemoResultFlow final : public GamePlayScene::FlowState {
+public:
+    void Update(GamePlayScene& owner) const override {
+        if (owner.demoResult_->IsDemoRestartReady()) { owner.RestartDemoRound(); }
+        else { owner.demoResult_->Update(); }
+    }
+};
+
+const GamePlayScene::FlowState& GamePlayScene::GetFlowState(Flow flow) {
+    // 状態の対応表は遷移時にだけ使い、毎フレームの選択分岐には使わない。
+    static const BriefingFlow briefing;
+    static const IntroFlow intro;
+    static const PlayingFlow playing;
+    static const PausedFlow paused;
+    static const DeathFlow death;
+    static const TutorialDeathFlow tutorialDeath;
+    static const BossDefeatFlow bossDefeat;
+    static const ClearFlow clear;
+    static const DemoResultFlow demoResult;
+    const std::array<const FlowState*, 9> states{
+        &briefing, &intro, &playing, &paused, &death, &tutorialDeath, &bossDefeat, &clear, &demoResult };
+    return *states.at(static_cast<size_t>(flow));
+}
+
+GamePlayScene::GamePlayScene() : flowState_(&GetFlowState(Flow::Playing)) {}
+void GamePlayScene::ChangeFlow(Flow flow) { flowState_ = &GetFlowState(flow); }
+void GamePlayScene::BeginMissionFlow() { flowState_->OnActivated(*this); }
+void GamePlayScene::BeginDemoResultFlow() { flowState_->OnDemoResult(*this); }
+void GamePlayScene::BeginPlayerDeath(bool updateImmediately) { flowState_->OnPlayerDied(*this, updateImmediately); }
+
+void GamePlayScene::Update() {
+    // 複数のフラグから場面を選び直さず、保持している状態を仮想関数で更新する。
+    flowState_->Update(*this);
+}
+
+void GamePlayScene::UpdatePlaying()
+{
+    const float dt = 1.0f / 60.0f; // 通常プレイ中の更新間隔。
 #ifdef USE_IMGUI
     // F7で通常の被弾を確認できる。無敵時間中はダメージも演出も再発生しない。
     if (!IsDemo() && GetContext().input && GetContext().input->TriggerKey(DIK_F7) && player_) {
@@ -137,7 +248,7 @@ void GamePlayScene::Update()
 #endif
     if (previewDeath && player_) {
         player_->Die();
-        UpdateDeathSequence();
+        BeginPlayerDeath(true);
         return;
     }
 

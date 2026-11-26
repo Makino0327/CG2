@@ -88,7 +88,68 @@ namespace {
     }
 }
 
-TitleScene::TitleScene() = default;
+// タイトル自身を状態の持ち主とし、画面の進行は現在の状態へ委譲する。
+class TitleScene::State {
+public:
+    virtual ~State() = default;
+    virtual void Update(TitleScene& owner) const = 0;
+    virtual bool CanSelect() const { return false; }
+    virtual bool IsStarting() const { return false; }
+    virtual bool CanLeave(const TitleScene&) const { return true; }
+    virtual void OnStart(TitleScene&, bool) const {}
+};
+
+class TitleScene::AppearingState final : public TitleScene::State {
+public:
+    void Update(TitleScene& owner) const override {
+        ++owner.frame_;
+        owner.UpdateDemo();
+        if (owner.frame_ > kTitleFadeFrames + 1) { owner.ChangeState(GetState<MenuState>()); }
+        owner.UpdateMenu();
+    }
+};
+
+class TitleScene::MenuState final : public TitleScene::State {
+public:
+    bool CanSelect() const override { return true; }
+    void Update(TitleScene& owner) const override {
+        ++owner.frame_;
+        owner.UpdateDemo();
+        owner.UpdateMenu();
+    }
+    void OnStart(TitleScene& owner, bool tutorial) const override {
+        owner.ChangeState(GetState<StartingState>());
+        owner.transitionFrame_ = 0;
+        assert(owner.preparedGamePlay_);
+        if (tutorial) { owner.preparedGamePlay_->EnableTutorial(); }
+        // 準備済みの本編へ遷移を要求し、画面破壊の完了まではこの状態で待つ。
+        owner.GetSceneManager()->SetNextInitializedScene(std::move(owner.preparedGamePlay_));
+        if (owner.GetContext().offscreenRenderer) {
+            owner.GetContext().offscreenRenderer->StopShockwave();
+            owner.GetContext().offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
+        }
+    }
+};
+
+class TitleScene::StartingState final : public TitleScene::State {
+public:
+    bool IsStarting() const override { return true; }
+    bool CanLeave(const TitleScene& owner) const override {
+        return !owner.GetContext().offscreenRenderer || !owner.GetContext().offscreenRenderer->IsScreenShatterPlaying();
+    }
+    void Update(TitleScene& owner) const override {
+        ++owner.transitionFrame_;
+        const int breakFrame = static_cast<int>(std::ceil((ScreenShatter::kBulletFlightTime + ScreenShatter::kBreakDelay) * 60.0f));
+        const float scanFrame = static_cast<float>(std::max(0, owner.transitionFrame_ - breakFrame));
+        owner.transitionScan_.Update(scanFrame, static_cast<float>(owner.transitionFrame_ >= breakFrame));
+    }
+};
+
+template<class T>
+const TitleScene::State& TitleScene::GetState() { static const T state; return state; }
+void TitleScene::ChangeState(const State& state) { state_ = &state; }
+bool TitleScene::IsStarting() const { return state_->IsStarting(); }
+TitleScene::TitleScene() : state_(&GetState<AppearingState>()) {}
 TitleScene::~TitleScene() = default;
 
 std::unique_ptr<Object3d> TitleScene::CreateObject(const char* model, const Vector3& position,
@@ -172,7 +233,7 @@ void TitleScene::InitializeTitle() {
     muzzleLightFrames_ = 0; // タイトルへ戻った時に前の発射光を残さない。
     selectedButton_ = 0;
     buttonSelection_.fill(0.0f);
-    isStarting_ = false;
+    ChangeState(GetState<AppearingState>());
     weapon_ = DemoWeapon::AssaultRifle;
     playerYaw_ = 0.0f;
     assaultContinuousShotCount_ = 0;
@@ -305,7 +366,7 @@ void TitleScene::UpdateMenu() {
             mouse.y >= position.y && mouse.y <= position.y+kButtonHeight) { hovered = i; }
     }
     // 黒画面の下で開始されないよう、タイトルが完全に見えてから入力を受け付ける。
-    if (!isStarting_ && frame_ > kTitleFadeFrames + 1) {
+    if (state_->CanSelect()) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         // 上下キーとW/Sで3項目を順に選ぶ。端まで来たら反対側へ回る。
         if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
@@ -317,18 +378,8 @@ void TitleScene::UpdateMenu() {
         if (clicked) { selectedButton_ = hovered; }
         if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
             if (selectedButton_ == kMenuStart || selectedButton_ == kMenuTutorial) {
-                isStarting_ = true;
-                transitionFrame_ = 0;
-                assert(preparedGamePlay_);
-                // チュートリアルは準備済みの本編を使い、ステージと案内だけを切り替える。
-                if (selectedButton_ == kMenuTutorial) { preparedGamePlay_->EnableTutorial(); }
-                // Space入力後は読み込まず、タイトル表示前に準備した本編を渡す。
-                GetSceneManager()->SetNextInitializedScene(std::move(preparedGamePlay_));
-                // 背景の銃の歪みを止め、画面中央への一発でタイトルを割る。
-                if (GetContext().offscreenRenderer) {
-                    GetContext().offscreenRenderer->StopShockwave();
-                    GetContext().offscreenRenderer->StartScreenShatter({ 0.5f, 0.5f });
-                }
+                // 選択を通知し、遷移先と演出開始はメニュー状態が決める。
+                state_->OnStart(*this, selectedButton_ == kMenuTutorial);
             } else {
                 // 強制終了せず、通常の終了メッセージで後片付けを行う
                 PostQuitMessage(0);
@@ -509,7 +560,7 @@ void TitleScene::EmitMuzzleFlash(const Vector3& firePosition, const Vector3& dir
 void TitleScene::StartShockwave(const Vector3& firePosition) {
     // 本編と同じく、発射位置を画面UVへ変換して画面歪みを出す
     // 暗転中は衝撃波を出さない(フェードの上に白い波が残るため)
-    if (!GetContext().offscreenRenderer || !GetContext().camera || isStarting_) { return; }
+    if (!GetContext().offscreenRenderer || !GetContext().camera || IsStarting()) { return; }
     Vector2 uv{};
     if (!TryConvertWorldToScreenUV(firePosition, GetContext().camera->GetViewProjectionMatrix(), uv)) { return; }
     GetContext().offscreenRenderer->SetShockwaveDuration(0.16f);
@@ -667,9 +718,7 @@ void TitleScene::UpdateDemo() {
 }
 
 bool TitleScene::CanLeaveScene() const {
-    // 準備完了と破壊演出の完了の両方がそろってから本編へ渡す。
-    return !isStarting_ || !GetContext().offscreenRenderer ||
-        !GetContext().offscreenRenderer->IsScreenShatterPlaying();
+    return state_->CanLeave(*this);
 }
 
 float TitleScene::GetTransitionFrame() const {
@@ -679,19 +728,8 @@ float TitleScene::GetTransitionFrame() const {
 }
 
 void TitleScene::Update() {
-    // 本編の準備中も、破片と緑の演出の時計を進める。
-    if (isStarting_) {
-        ++transitionFrame_;
-        const int breakFrame = static_cast<int>(std::ceil((ScreenShatter::kBulletFlightTime+ScreenShatter::kBreakDelay)*60.0f));
-        const float scanFrame = static_cast<float>(std::max(0, transitionFrame_-breakFrame));
-        // 開放時と同じ緑の演出を、割れた後から黒いフェード中まで描き続ける。
-        transitionScan_.Update(scanFrame, static_cast<float>(transitionFrame_ >= breakFrame));
-        return;
-    }
-
-    ++frame_;
-    UpdateDemo();
-    UpdateMenu();
+    // 現在の状態を基底型の仮想関数を通して更新する。
+    state_->Update(*this);
 }
 
 void TitleScene::DrawShadow() {
@@ -703,7 +741,7 @@ void TitleScene::DrawShadow() {
 
 void TitleScene::Draw() {
     // 演出終了後に黒画面を一度描き、読み込み中も最後の破片が残らないようにする。
-    if (isStarting_ && GetContext().offscreenRenderer && !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
+    if (IsStarting() && GetContext().offscreenRenderer && !GetContext().offscreenRenderer->IsScreenShatterPlaying()) {
         // 描画先の内部構造を参照せず、専用の操作から画面を消す。
         GetContext().offscreenRenderer->ClearScene({ 0.0f, 0.0f, 0.0f, 1.0f });
         return;
@@ -711,7 +749,7 @@ void TitleScene::Draw() {
 
     // 背景を描く前に、現在の銃口から本編と同じ暖色の光を当てる。
     // 開始演出中は点灯せず、保存した画面へ発射光が残らないようにする。
-    if (!isStarting_ && playerObject_ && muzzleLightFrames_ > 0) {
+    if (!IsStarting() && playerObject_ && muzzleLightFrames_ > 0) {
         const float fadeFrames = static_cast<float>(ShootingBloom::muzzleLightDurationFrames - 2);
         const float fade = std::clamp(static_cast<float>(muzzleLightFrames_) / fadeFrames, 0.0f, 1.0f);
         GetContext().object3dCommon->SetMuzzleLight(
@@ -726,7 +764,7 @@ void TitleScene::Draw() {
     for (auto& enemy : enemies_) { enemy->Draw(); }
     playerObject_->Draw();
     // 開始演出用の画像に、銃口の印や止まったエフェクトを写さない。
-    if (!isStarting_) {
+    if (!IsStarting()) {
         if (showMuzzleMarker_) {
             muzzleMarker_->Draw();
         }
@@ -738,14 +776,14 @@ void TitleScene::Draw() {
 
     // 開始時は波動を停止済みなので、文字も一緒に保存して画面を割る
     // オフスクリーン描画を使わない場合も、ここでUIを表示する
-    if (isStarting_ || !GetContext().offscreenRenderer) {
+    if (IsStarting() || !GetContext().offscreenRenderer) {
         DrawTitleUi();
     }
 }
 
 void TitleScene::DrawBloom() {
     // 開始演出中と終了後の黒画面には、背景のエフェクトの光を重ねない。
-    if (isStarting_) {
+    if (IsStarting()) {
         return;
     }
 
@@ -767,7 +805,7 @@ void TitleScene::DrawOverlay() {
     const auto dsv = GetContext().dxCommon->GetDSVHandle();
     commandList->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
     commandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
-    if (isStarting_) {
+    if (IsStarting()) {
         // 保存したタイトルの文字は描き直さず、緑の演出だけを最後に重ねる。
         GetContext().spriteCommon->CommonDrawSetting();
         transitionScan_.Draw();

@@ -1,4 +1,4 @@
-﻿#include "WaypointMover.h"
+#include "WaypointMover.h"
 
 #include <cassert>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include "../../engine/3d/obj3d/Object3dCommon.h"
 #include "../camera/Camera.h"
 
-// Return a - b.
+// 2つの位置の差を求める。
 static Vector3 SubtractVector3(const Vector3& a, const Vector3& b) {
     return {
         a.x - b.x,
@@ -18,12 +18,12 @@ static Vector3 SubtractVector3(const Vector3& a, const Vector3& b) {
     };
 }
 
-// Return vector length.
+// ベクトルの長さを求める。
 static float Length(const Vector3& v) {
     return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
-// Keep the angle inside -PI to PI.
+// 角度をマイナスπからπの範囲に収める。
 static float NormalizeAngle(float angle) {
     const float kPi = 3.1415926535f;
     const float kTwoPi = kPi * 2.0f;
@@ -36,6 +36,161 @@ static float NormalizeAngle(float angle) {
     }
 
     return angle;
+}
+
+// 巡回の各状態が自身の更新と遷移を担当し、共通側では現在の状態を呼ぶ。
+class WaypointMover::State {
+public:
+    virtual ~State() = default;
+    virtual void Update(WaypointMover& owner) const = 0;
+};
+
+class WaypointMover::MoveState final : public WaypointMover::State {
+public:
+    // 現在の状態に必要な処理だけを実行し、完了時に次の状態へ移る。
+    void Update(WaypointMover& owner) const override {
+        if (owner.waypoints_.empty()) {
+            return;
+        }
+
+        Vector3 currentPosition = owner.object3d_->GetTranslate();
+        const Vector3& targetPosition = owner.waypoints_[owner.currentWaypointIndex_];
+
+        // 目的地までの差分と距離を求める。
+        Vector3 diff = SubtractVector3(targetPosition, currentPosition);
+        float distance = Length(diff);
+
+        // 巡回地点へ到着したら、その位置で停止して待機状態へ移る。
+        if (distance <= owner.reachDistance_) {
+            owner.object3d_->SetTranslate(targetPosition);
+            owner.currentWaitFrame_ = 0;
+            owner.ChangeState(GetState<WaitState>());
+            return;
+        }
+
+        // 目的地へ向かって移動する。
+        Vector3 direction = Normalize(diff);
+        currentPosition.x += direction.x * owner.moveSpeed_;
+        currentPosition.y += direction.y * owner.moveSpeed_;
+        currentPosition.z += direction.z * owner.moveSpeed_;
+        owner.object3d_->SetTranslate(currentPosition);
+
+        // 水平方向の回転を移動方向へ合わせる。
+        Vector3 rotate = owner.object3d_->GetRotate();
+        rotate.y = std::atan2(direction.x, direction.z);
+        owner.object3d_->SetRotate(rotate);
+    }
+};
+
+class WaypointMover::WaitState final : public WaypointMover::State {
+public:
+    // 現在の状態に必要な処理だけを実行し、完了時に次の状態へ移る。
+    void Update(WaypointMover& owner) const override {
+        if (!owner.object3d_ || owner.waypoints_.empty()) {
+            return;
+        }
+
+        ++owner.currentWaitFrame_;
+
+        // 約2秒の待機時間が終わるまで停止する。
+        if (owner.currentWaitFrame_ < owner.waitFrameCount_) {
+            return;
+        }
+
+        owner.currentWaitFrame_ = 0;
+
+        // ウェイポイントが1つだけの敵は、少し待ってから周りを見渡す
+        if (owner.waypoints_.size() <= 1) {
+            owner.lookAroundStartYaw_ = owner.object3d_->GetRotate().y;
+
+            const float kPi = 3.1415926535f;
+            const float randomRate = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            owner.lookAroundTargetYaw_ = NormalizeAngle(-kPi + randomRate * (kPi * 2.0f));
+
+            owner.currentLookAroundFrame_ = 0;
+            owner.ChangeState(GetState<LookAroundState>());
+            return;
+        }
+
+        // 巡回地点が複数なら、その場で次の地点の方向へ向く。
+        const uint32_t nextWaypointIndex = owner.GetNextWaypointIndex();
+        const Vector3 currentPosition = owner.object3d_->GetTranslate();
+        owner.turnStartYaw_ = owner.object3d_->GetRotate().y;
+        owner.turnTargetYaw_ = owner.CalculateTargetYaw(currentPosition, owner.waypoints_[nextWaypointIndex]);
+        owner.currentTurnFrame_ = 0;
+        owner.currentWaypointIndex_ = nextWaypointIndex;
+        owner.ChangeState(GetState<TurnState>());
+    }
+};
+
+class WaypointMover::TurnState final : public WaypointMover::State {
+public:
+    // 現在の状態に必要な処理だけを実行し、完了時に次の状態へ移る。
+    void Update(WaypointMover& owner) const override {
+        if (!owner.object3d_) {
+            return;
+        }
+
+        Vector3 rotate = owner.object3d_->GetRotate();
+        ++owner.currentTurnFrame_;
+
+        // 最短の回転方向へ補間し、滑らかに向きを変える。
+        float t = static_cast<float>(owner.currentTurnFrame_) / static_cast<float>(owner.turnFrameCount_);
+        if (t > 1.0f) {
+            t = 1.0f;
+        }
+
+        const float deltaYaw = NormalizeAngle(owner.turnTargetYaw_ - owner.turnStartYaw_);
+        rotate.y = NormalizeAngle(owner.turnStartYaw_ + deltaYaw * t);
+        owner.object3d_->SetRotate(rotate);
+
+        if (owner.currentTurnFrame_ >= owner.turnFrameCount_) {
+            owner.currentTurnFrame_ = 0;
+            owner.ChangeState(GetState<MoveState>());
+        }
+    }
+};
+
+class WaypointMover::LookAroundState final : public WaypointMover::State {
+public:
+    // 現在の状態に必要な処理だけを実行し、完了時に次の状態へ移る。
+    void Update(WaypointMover& owner) const override {
+        if (!owner.object3d_) {
+            return;
+        }
+
+        Vector3 rotate = owner.object3d_->GetRotate();
+        ++owner.currentLookAroundFrame_;
+
+        // 無作為に選んだ見回し方向へ滑らかに回転する。
+        float t = static_cast<float>(owner.currentLookAroundFrame_) / static_cast<float>(owner.lookAroundFrameCount_);
+        if (t > 1.0f) {
+            t = 1.0f;
+        }
+
+        const float deltaYaw = NormalizeAngle(owner.lookAroundTargetYaw_ - owner.lookAroundStartYaw_);
+        rotate.y = NormalizeAngle(owner.lookAroundStartYaw_ + deltaYaw * t);
+        owner.object3d_->SetRotate(rotate);
+
+        if (owner.currentLookAroundFrame_ >= owner.lookAroundFrameCount_) {
+            owner.currentLookAroundFrame_ = 0;
+            owner.ChangeState(GetState<WaitState>());
+        }
+    }
+};
+
+template<class T>
+const WaypointMover::State& WaypointMover::GetState() {
+    // 状態オブジェクトは共有し、経過時間や巡回地点は各個体に保存する。
+    static const T state;
+    return state;
+}
+
+WaypointMover::WaypointMover() : state_(&GetState<MoveState>()) {}
+
+void WaypointMover::ChangeState(const State& nextState) {
+    // 状態の選択を毎フレームやり直さず、遷移要求が来たときだけ切り替える。
+    state_ = &nextState;
 }
 
 void WaypointMover::Initialize(Object3dCommon* object3dCommon, Camera* camera) {
@@ -70,7 +225,7 @@ void WaypointMover::SetScale(const Vector3& scale) {
 void WaypointMover::SetWaypoints(const std::vector<Vector3>& waypoints) {
     waypoints_ = waypoints;
     currentWaypointIndex_ = 0;
-    patrolState_ = PatrolState::Move;
+    ChangeState(GetState<MoveState>());
     currentWaitFrame_ = 0;
     currentTurnFrame_ = 0;
     currentLookAroundFrame_ = 0;
@@ -106,13 +261,13 @@ void WaypointMover::SetLoop(bool isLoop) {
 }
 
 void WaypointMover::ResumePatrol() {
-    // Resume movement from the current position after chase ends.
-    patrolState_ = PatrolState::Move;
+    // 追跡終了後は現在位置から移動状態を再開する。
+    ChangeState(GetState<MoveState>());
     currentWaitFrame_ = 0;
     currentTurnFrame_ = 0;
     currentLookAroundFrame_ = 0;
 
-    // A single waypoint enemy should always head back to its guard point.
+    // 巡回地点が1つの敵は、その警備地点へ戻す。
     if (waypoints_.size() <= 1) {
         currentWaypointIndex_ = 0;
     }
@@ -137,21 +292,8 @@ void WaypointMover::Update() {
     }
 
     if (HasWaypoints()) {
-        // Change behavior depending on the current patrol state.
-        switch (patrolState_) {
-        case PatrolState::Move:
-            MoveToCurrentWaypoint();
-            break;
-        case PatrolState::Wait:
-            UpdateWaitState();
-            break;
-        case PatrolState::Turn:
-            UpdateTurnState();
-            break;
-        case PatrolState::LookAround:
-            UpdateLookAroundState();
-            break;
-        }
+        // 基底型の仮想関数を通して、現在の巡回状態を更新する。
+        state_->Update(*this);
     }
 
     object3d_->Update();
@@ -163,124 +305,6 @@ void WaypointMover::Draw() {
     }
 
     object3d_->Draw();
-}
-
-void WaypointMover::MoveToCurrentWaypoint() {
-    if (waypoints_.empty()) {
-        return;
-    }
-
-    Vector3 currentPosition = object3d_->GetTranslate();
-    const Vector3& targetPosition = waypoints_[currentWaypointIndex_];
-
-    // Compute offset and target distance.
-    Vector3 diff = SubtractVector3(targetPosition, currentPosition);
-    float distance = Length(diff);
-
-    // When we reach the waypoint, stop there and switch state.
-    if (distance <= reachDistance_) {
-        object3d_->SetTranslate(targetPosition);
-        currentWaitFrame_ = 0;
-        patrolState_ = PatrolState::Wait;
-        return;
-    }
-
-    // Move toward the target.
-    Vector3 direction = Normalize(diff);
-    currentPosition.x += direction.x * moveSpeed_;
-    currentPosition.y += direction.y * moveSpeed_;
-    currentPosition.z += direction.z * moveSpeed_;
-    object3d_->SetTranslate(currentPosition);
-
-    // Turn toward the move direction on Y axis.
-    Vector3 rotate = object3d_->GetRotate();
-    rotate.y = std::atan2(direction.x, direction.z);
-    object3d_->SetRotate(rotate);
-}
-
-void WaypointMover::UpdateWaitState() {
-    if (!object3d_ || waypoints_.empty()) {
-        return;
-    }
-
-    ++currentWaitFrame_;
-
-    // Stay stopped for roughly two seconds.
-    if (currentWaitFrame_ < waitFrameCount_) {
-        return;
-    }
-
-    currentWaitFrame_ = 0;
-
-    // ウェイポイントが1つだけの敵は、少し待ってから周りを見渡す
-    if (waypoints_.size() <= 1) {
-        lookAroundStartYaw_ = object3d_->GetRotate().y;
-
-        const float kPi = 3.1415926535f;
-        const float randomRate = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-        lookAroundTargetYaw_ = NormalizeAngle(-kPi + randomRate * (kPi * 2.0f));
-
-        currentLookAroundFrame_ = 0;
-        patrolState_ = PatrolState::LookAround;
-        return;
-    }
-
-    // With multiple waypoints, turn in place toward the next point.
-    const uint32_t nextWaypointIndex = GetNextWaypointIndex();
-    const Vector3 currentPosition = object3d_->GetTranslate();
-    turnStartYaw_ = object3d_->GetRotate().y;
-    turnTargetYaw_ = CalculateTargetYaw(currentPosition, waypoints_[nextWaypointIndex]);
-    currentTurnFrame_ = 0;
-    currentWaypointIndex_ = nextWaypointIndex;
-    patrolState_ = PatrolState::Turn;
-}
-
-void WaypointMover::UpdateTurnState() {
-    if (!object3d_) {
-        return;
-    }
-
-    Vector3 rotate = object3d_->GetRotate();
-    ++currentTurnFrame_;
-
-    // Interpolate along the shortest yaw path for a quick turn-around.
-    float t = static_cast<float>(currentTurnFrame_) / static_cast<float>(turnFrameCount_);
-    if (t > 1.0f) {
-        t = 1.0f;
-    }
-
-    const float deltaYaw = NormalizeAngle(turnTargetYaw_ - turnStartYaw_);
-    rotate.y = NormalizeAngle(turnStartYaw_ + deltaYaw * t);
-    object3d_->SetRotate(rotate);
-
-    if (currentTurnFrame_ >= turnFrameCount_) {
-        currentTurnFrame_ = 0;
-        patrolState_ = PatrolState::Move;
-    }
-}
-
-void WaypointMover::UpdateLookAroundState() {
-    if (!object3d_) {
-        return;
-    }
-
-    Vector3 rotate = object3d_->GetRotate();
-    ++currentLookAroundFrame_;
-
-    // Turn smoothly toward a random watch direction.
-    float t = static_cast<float>(currentLookAroundFrame_) / static_cast<float>(lookAroundFrameCount_);
-    if (t > 1.0f) {
-        t = 1.0f;
-    }
-
-    const float deltaYaw = NormalizeAngle(lookAroundTargetYaw_ - lookAroundStartYaw_);
-    rotate.y = NormalizeAngle(lookAroundStartYaw_ + deltaYaw * t);
-    object3d_->SetRotate(rotate);
-
-    if (currentLookAroundFrame_ >= lookAroundFrameCount_) {
-        currentLookAroundFrame_ = 0;
-        patrolState_ = PatrolState::Wait;
-    }
 }
 
 uint32_t WaypointMover::GetNextWaypointIndex() const {
@@ -302,7 +326,7 @@ uint32_t WaypointMover::GetNextWaypointIndex() const {
 float WaypointMover::CalculateTargetYaw(const Vector3& from, const Vector3& to) const {
     const Vector3 direction = SubtractVector3(to, from);
 
-    // If the target is effectively the same point, keep the current yaw.
+    // 目的地がほぼ同じ位置なら、現在の向きを維持する。
     if (Length(direction) <= 0.0001f) {
         return object3d_ ? object3d_->GetRotate().y : 0.0f;
     }

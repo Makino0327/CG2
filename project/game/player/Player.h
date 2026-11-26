@@ -21,6 +21,8 @@ class ParticleSystem;
 class Player
 {
 public:
+    // 生成時は通常状態から始め、操作と死亡の振る舞いを状態へ委譲する。
+    Player();
     // プレイヤーが使う攻撃方法
     enum class AttackMode {
         Gun,
@@ -116,7 +118,7 @@ public:
     int GetMaxHp() const { return maxHp_; }
 
     // プレイヤーが消えたかを返す
-    bool IsDead() const { return isDead_; }
+    bool IsDead() const;
 
     // その場で倒れる動作を開始し、最後の姿勢を保持する。
     void Die();
@@ -416,7 +418,16 @@ private:
     int blinkInterval_ = 5;
 
     // 消えたかどうか
-    bool isDead_ = false;
+    // 装備の種類やアニメーション素材とは分けて、プレイヤーの行動状態を保持する。
+    class State;
+    class AliveState;
+    class NormalState;
+    class AimingState;
+    class DeadState;
+    template<class T> static const State& GetState();
+    void ChangeState(const State& state);
+    void UpdateLiving(Camera* camera, bool isAimingGun);
+    const State* state_ = nullptr;
 
     // プレイヤーが撃った弾
     std::vector<std::unique_ptr<PlayerBullet>> bullets_;

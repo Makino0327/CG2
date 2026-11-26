@@ -41,6 +41,15 @@ public:
     void Finalize() override;
 
 private:
+    // 登場・メニュー操作・本編への遷移を、それぞれの状態が担当する。
+    class State;
+    class AppearingState;
+    class MenuState;
+    class StartingState;
+    template<class T> static const State& GetState();
+    void ChangeState(const State& state);
+    bool IsStarting() const;
+    const State* state_ = nullptr;
     // 初期化済みの本編を、ゲーム開始が選ばれるまで保持する。
     std::unique_ptr<GamePlayScene> preparedGamePlay_;
     void InitializeTitle();
@@ -76,7 +85,6 @@ private:
     void ResolveEnemyOverlap();
 
     bool initialized_ = false;
-    bool isStarting_ = false;
     // 開放時と同じ緑の演出を、割れた瞬間から暗転中まで出し続ける。
     TransitionScanEffect transitionScan_;
     int transitionFrame_ = 0;

@@ -25,6 +25,8 @@ struct ClearResult {
 // 操作と遷移を共通化し、画面固有の振る舞いを派生クラスへ任せる。
 class ResultScene : public BaseScene {
 public:
+    // 画面固有の演出が終わるまでは、表示待ちの状態から始める。
+    ResultScene();
     ~ResultScene() override;
     void Initialize() override final;
     void Update() override final;
@@ -50,7 +52,7 @@ protected:
     int GetSelectedButton() const { return selectedButton_; }
     size_t GetButtonCount() const { return buttonActions_.size(); }
     Action GetButtonAction(size_t index) const { return buttonActions_.at(index); }
-    bool IsLeaving() const { return isLeaving_; }
+    bool IsLeaving() const;
     bool IsDemoMode() const { return demoMode_; }
     // 各画面で成立する処理だけを要求し、内部データは公開しない。
     virtual void CreateContent() = 0;
@@ -61,11 +63,18 @@ protected:
     virtual void FinalizeContent() = 0;
 
 private:
+    class State;
+    class PresentingState;
+    class MenuState;
+    class LeavingState;
+    class FinishedState;
+    template<class T> static const State& GetState();
+    void ChangeState(const State& state);
+    const State* state_ = nullptr;
     void UpdateMenu();
     bool initialized_ = false;
     bool demoMode_ = false;
     bool demoRestartReady_ = false;
-    bool isLeaving_ = false;
     int frame_ = 0;
     int transitionTimer_ = 0;
     int selectedButton_ = 0;

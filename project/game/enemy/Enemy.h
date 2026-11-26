@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "../collision/IBulletTarget.h"
 
 #include <array>
@@ -19,6 +19,9 @@ class ParticleSystem;
 class Enemy : public IBulletTarget
 {
 public:
+    // 描画の初期化前から巡回状態を持たせ、音の通知も受け取れるようにする。
+    Enemy();
+
     // 弾との判定と被弾処理を、共通の対象インターフェースから実行する。
     bool CheckBulletHit(const PlayerBullet& bullet, float& hitTime) const override;
     BulletHitFeedback ApplyBulletHit(const PlayerBullet& bullet, float hitTime) override;
@@ -84,11 +87,7 @@ public:
         const std::vector<Vector3>& reservedPositions);
 
     // 他の敵と停止地点を共有しないため、現在の目的地を返す
-    bool GetGeneratorDestination(Vector3& destination) const {
-        if (isDead_ || !isInvestigatingGenerator_) { return false; }
-        destination = generatorApproachPosition_;
-        return true;
-    }
+    bool GetGeneratorDestination(Vector3& destination) const;
 
     // 追跡対象の位置を設定する
     void SetTargetPosition(const Vector3& targetPosition);
@@ -124,15 +123,25 @@ public:
     // デバッグカメラ用に描画だけ更新する
     void UpdateRenderOnly();
 private:
-    // 派生する行動クラスも非公開とし、状態へのアクセスをEnemy内部へ限定する。
-    class Behavior;
-    class ChaseBehavior;
-    class GeneratorBehavior;
-    class LookAroundBehavior;
-    class HearTurnBehavior;
-    class InvestigateBehavior;
-    class PatrolBehavior;
-    const Behavior& SelectBehavior() const;
+    // 状態クラスを非公開にし、遷移の判断と処理をEnemyの内部へ閉じ込める。
+    class State;
+    class ChaseState;
+    class GeneratorState;
+    class LookAroundState;
+    class HearTurnState;
+    class InvestigateState;
+    class ReturnToPatrolState;
+    class PatrolState;
+
+    // 状態は共有し、敵ごとのタイマーや目的地はEnemy側に保持する。
+    template<class T> static const State& GetState();
+    template<class T> bool IsInState() const;
+    void ChangeState(const State& nextState);
+    void ResetNavigation();
+    // 到達できる発電機の停止地点を探す。遷移するかどうかは状態側が決める。
+    bool TryFindGeneratorDestination(const Vector3& center, const Vector3& size,
+        const std::vector<Vector3>& reservedPositions);
+    const State* state_ = nullptr; // 現在の状態の仮想関数を通して行動する。
 
     // 左方向のマップ衝突を解決する
     void ResolveLeftCollisionWithMap(Vector3& pos);
@@ -266,15 +275,11 @@ private:
     float sightVerticalHalfAngleRad_ = 0.785398163f;
     float sightHeight_ = 1.0f;
 
-    // プレイヤー、または最後に見た位置へ向かっているか
-    bool isChasing_ = false;
+    // 視認の結果は状態とは分けて保存し、発見・見失いの通知に使う。
     bool isTargetInSight_ = false;
 
     // 視認できたフレームだけ更新する、最後に見たプレイヤーの位置
     Vector3 lastSeenPosition_ = { 0.0f, 0.0f, 0.0f };
-
-    // 追跡終了後にNavMeshで巡回地点へ戻っているか
-    bool isReturningToPatrol_ = false;
 
     // 見失ってから、最後に見た位置へ向かっている経過フレーム
     int lostSightSearchTimer_ = 0;
@@ -303,8 +308,6 @@ private:
     // 音の方向へ振り向くときの旋回速度(ラジアン/フレーム)
     float hearingTurnSpeed_ = 0.12f;
 
-    // 振り向いた後、音のした位置まで移動して調べているか
-    bool isInvestigatingSound_ = false;
     // 音のした位置へ向かっている経過フレーム
     int soundSearchTimer_ = 0;
     // 振り向いてから歩き出すまでのフレーム
@@ -315,7 +318,6 @@ private:
     float soundReachDistance_ = 1.2f;
 
     // 発電機の周囲へ移動し、到着後はその場で停止する
-    bool isInvestigatingGenerator_ = false;
     bool hasReachedGenerator_ = false;
     Vector3 generatorSoundPosition_{};
     Vector3 generatorApproachPosition_{};

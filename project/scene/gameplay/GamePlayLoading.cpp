@@ -437,6 +437,8 @@ void GamePlayScene::OnActivated(float transitionFrame)
     // チュートリアルは操作を1つずつ教えるので、最初の操作説明は出さない。
     briefingBeforeMission_ = !IsDemo() && deathPreviewFrames_ < 0 && !tutorialMode_;
     if (briefingBeforeMission_) { BeginControlsBriefing(); }
+    // 準備が完了した通知から、作戦説明または開始演出の状態へ入る。
+    BeginMissionFlow();
     if (GetContext().offscreenRenderer) {
         GetContext().offscreenRenderer->SetPostEffectType(PostEffectType::Copy);
         GetContext().offscreenRenderer->SetPostEffectEnabled(PostEffectType::Bloom, true);

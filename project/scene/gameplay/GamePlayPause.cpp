@@ -196,50 +196,100 @@ void GamePlayScene::UpdatePauseVisuals()
 void GamePlayScene::BeginControlsBriefing()
 {
     // 作戦前とポーズのどちらから開いても、細い横線から始める。
-    briefingTransition_ = BriefingTransition::Opening;
+    ChangeBriefingState(BriefingTransition::Opening);
     briefingTransitionFrame_ = 0;
     briefingInputReady_ = false;
 }
 
-bool GamePlayScene::UpdateControlsBriefing(bool beforeMission)
-{
-    // 消灯が終わるまでは、作戦開始やポーズメニューへの復帰を待つ。
-    if (briefingTransition_ == BriefingTransition::Closing) {
-        return ++briefingTransitionFrame_ >= kBriefingCloseFrames;
+// ガイドの更新は現在の状態へ委譲し、表示用には識別子だけを返す。
+class GamePlayScene::BriefingState {
+public:
+    virtual ~BriefingState() = default;
+    virtual BriefingTransition GetTransition() const = 0;
+    virtual void Enter(GamePlayScene&) const {}
+    virtual bool Update(GamePlayScene& owner, bool beforeMission) const = 0;
+};
+
+class GamePlayScene::BriefingOpeningState final : public GamePlayScene::BriefingState {
+public:
+    BriefingTransition GetTransition() const override { return BriefingTransition::Opening; }
+    void Enter(GamePlayScene& owner) const override { owner.briefingTransitionFrame_ = 0; }
+    bool Update(GamePlayScene& owner, bool beforeMission) const override {
+        if (++owner.briefingTransitionFrame_ >= kBriefingOpenFrames) {
+            owner.ChangeBriefingState(BriefingTransition::Open);
+            return owner.briefingState_->Update(owner, beforeMission);
+        }
+        // 登場中にも前の画面の決定ボタンが離されたかだけを記録する。
+        owner.UpdateBriefingConfirm(beforeMission);
+        return false;
     }
-    if (briefingTransition_ == BriefingTransition::Opening && ++briefingTransitionFrame_ >= kBriefingOpenFrames) {
-        briefingTransition_ = BriefingTransition::Open;
+};
+
+class GamePlayScene::BriefingOpenState final : public GamePlayScene::BriefingState {
+public:
+    BriefingTransition GetTransition() const override { return BriefingTransition::Open; }
+    bool Update(GamePlayScene& owner, bool beforeMission) const override {
+        if (owner.UpdateBriefingConfirm(beforeMission)) { owner.ChangeBriefingState(BriefingTransition::Closing); }
+        return false;
     }
+};
+
+class GamePlayScene::BriefingClosingState final : public GamePlayScene::BriefingState {
+public:
+    BriefingTransition GetTransition() const override { return BriefingTransition::Closing; }
+    void Enter(GamePlayScene& owner) const override { owner.briefingTransitionFrame_ = 0; }
+    bool Update(GamePlayScene& owner, bool) const override {
+        return ++owner.briefingTransitionFrame_ >= kBriefingCloseFrames;
+    }
+};
+
+const GamePlayScene::BriefingState& GamePlayScene::GetBriefingState(BriefingTransition transition) {
+    static const BriefingOpeningState opening;
+    static const BriefingOpenState open;
+    static const BriefingClosingState closing;
+    const std::array<const BriefingState*, 3> states{ &opening, &open, &closing };
+    return *states.at(static_cast<size_t>(transition));
+}
+
+void GamePlayScene::ChangeBriefingState(BriefingTransition transition) {
+    briefingState_ = &GetBriefingState(transition);
+    briefingState_->Enter(*this);
+}
+
+GamePlayScene::BriefingTransition GamePlayScene::GetBriefingTransition() const {
+    return briefingState_->GetTransition();
+}
+
+bool GamePlayScene::UpdateControlsBriefing(bool beforeMission) {
+    return briefingState_->Update(*this, beforeMission);
+}
+
+bool GamePlayScene::UpdateBriefingConfirm(bool beforeMission) {
     Input* input = GetContext().input;
     if (!input) { return false; }
     if (!briefingInputReady_) {
-        // タイトルやポーズで押したボタンが離れてから、ガイドの決定を受け付ける。
+        // 開く操作が離れるまで、同じ入力をガイドの決定に使わない。
         briefingInputReady_ = !input->PushKey(DIK_RETURN) && !input->PushKey(DIK_SPACE) && !input->PushMouseLeft();
         return false;
     }
-    if (briefingTransition_ != BriefingTransition::Open) { return false; }
+    if (GetBriefingTransition() != BriefingTransition::Open) { return false; }
     const bool clicked = input->TriggerMouseLeft() && ContainsPoint(*briefingButton_, input->GetMousePosition());
-    if (clicked || input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) ||
-        (!beforeMission && (input->TriggerKey(DIK_ESCAPE) || input->TriggerKey(DIK_TAB)))) {
-        briefingTransition_ = BriefingTransition::Closing;
-        briefingTransitionFrame_ = 0;
-    }
-    return false;
+    return clicked || input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) ||
+        (!beforeMission && (input->TriggerKey(DIK_ESCAPE) || input->TriggerKey(DIK_TAB)));
 }
-
 void GamePlayScene::DrawControlsBriefing(bool beforeMission)
 {
     float cardAmount = 1.0f;
     float lineWidth = 0.0f;
     float lineAlpha = 0.0f;
     const float frame = static_cast<float>(briefingTransitionFrame_);
-    if (briefingTransition_ == BriefingTransition::Opening) {
+    if (GetBriefingTransition() == BriefingTransition::Opening) {
         // 点灯時は横線を伸ばし、そこから上下へカードを広げる。
         cardAmount = EasePause(std::clamp((frame - kBriefingLineFrames) /
             (kBriefingOpenFrames - kBriefingLineFrames), 0.0f, 1.0f));
         lineWidth = EasePause(std::min(1.0f, frame / kBriefingLineFrames));
         lineAlpha = (1.0f - cardAmount) * 0.95f;
-    } else if (briefingTransition_ == BriefingTransition::Closing) {
+    } else if (GetBriefingTransition() == BriefingTransition::Closing) {
         // 消灯時はカードを中央にたたみ、最後に横線を縮めて消す。
         constexpr int kCollapseFrames = kBriefingCloseFrames - kBriefingLineFrames;
         cardAmount = 1.0f - EasePause(std::min(1.0f, frame / kCollapseFrames));
@@ -262,7 +312,7 @@ void GamePlayScene::DrawControlsBriefing(bool beforeMission)
         briefingLine_->Update();
         briefingLine_->Draw();
     }
-    if (briefingTransition_ != BriefingTransition::Open) { return; }
+    if (GetBriefingTransition() != BriefingTransition::Open) { return; }
     // 上段は作戦開始、下段はポーズに戻るボタンを収録している。
     briefingButton_->SetTextureLeftTop({ 0.0f, beforeMission ? 0.0f : kBriefingButtonTextureSize.y });
     Input* input = GetContext().input;

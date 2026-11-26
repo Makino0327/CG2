@@ -1,4 +1,4 @@
-﻿#include "../player/PlayerBullet.h"
+#include "../player/PlayerBullet.h"
 #include "Enemy.h"
 #include <algorithm>
 #include <cfloat>
@@ -197,22 +197,19 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     deathDropConsumed_ = false;
 
     // 再生成時はプレイヤー発見状態も解除する
-    isChasing_ = false;
     isTargetInSight_ = false;
     lastSeenPosition_ = position;
-    isReturningToPatrol_ = false;
     lostSightSearchTimer_ = 0;
     lostSightLookTimer_ = 0;
     lostSightLookStartYaw_ = 0.0f;
     hearingTimer_ = 0;
-    isInvestigatingSound_ = false;
     soundSearchTimer_ = 0;
-    isInvestigatingGenerator_ = false;
     hasReachedGenerator_ = false;
     generatorApproachRetryTimer_ = 0;
     navMeshPath_.clear();
     navMeshPathRefreshTimer_ = 0;
     navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+    ChangeState(GetState<PatrolState>());
 
     // 死亡演出の状態も初期化する
     deathEffectTimer_ = 0.0f;
@@ -234,19 +231,54 @@ void Enemy::Initialize(Object3dCommon* object3dCommon, Camera* camera, const Vec
     waypointMover_.Update();
 }
 
-// 各行動はEnemyの内部クラスとし、外部へ状態の書き換え権限を公開しない。
-class Enemy::Behavior {
+// 共通の通知と更新を仮想関数にし、現在の状態自身が遷移先を決める。
+class Enemy::State {
 public:
-    virtual ~Behavior() = default;
+    virtual ~State() = default;
+    // 状態へ入る際に必要なタイマーや経路だけを初期化する。
+    virtual void Enter(Enemy&) const {}
     virtual void Update(Enemy& enemy, Vector3& nextPosition) const = 0;
+    virtual void OnTargetSeen(Enemy& enemy, bool wasInSight) const;
+    virtual void OnTargetLost(Enemy&) const {}
+    virtual void OnHearSound(Enemy& enemy, const Vector3& soundPosition) const;
+    virtual void OnHearGenerator(Enemy& enemy, const Vector3& center, const Vector3& size,
+        const std::vector<Vector3>& reservedPositions) const;
+    // 巡回・見回し・巡回地点への復帰中は、発電機の音を調べられる。
+    virtual bool CanInvestigateGenerator() const { return true; }
 };
 
-class Enemy::ChaseBehavior final : public Enemy::Behavior {
+class Enemy::ChaseState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    // 他の行動を中断して追跡を始め、古い目的地への経路を捨てる。
+    void Enter(Enemy& enemy) const override {
+        enemy.hasReachedGenerator_ = false;
+        enemy.lostSightSearchTimer_ = 0;
+        enemy.ResetNavigation();
+    }
+    // 見えている間だけ対象の位置を記憶し、再発見時には経路を作り直す。
+    void OnTargetSeen(Enemy& enemy, bool wasInSight) const override {
+        if (!wasInSight) { enemy.ResetNavigation(); }
+        enemy.lastSeenPosition_ = enemy.targetPosition_;
+        enemy.lostSightSearchTimer_ = 0;
+    }
+    void OnTargetLost(Enemy& enemy) const override { enemy.ResetNavigation(); }
+    // 追跡中は銃声や発電機の音より、記憶したプレイヤーの位置を優先する。
+    void OnHearSound(Enemy&, const Vector3&) const override {}
+    bool CanInvestigateGenerator() const override { return false; }
+
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
-        // 追跡中と記憶した場所への移動中は、音への警戒を打ち切る
-        enemy.hearingTimer_ = 0;
+        if (!enemy.isTargetInSight_) {
+            ++enemy.lostSightSearchTimer_;
+            const float distanceSq = GetDistanceSqXZ(enemy.position_, enemy.lastSeenPosition_);
+            if (distanceSq <= enemy.lastSeenReachDistance_ * enemy.lastSeenReachDistance_ ||
+                enemy.lostSightSearchTimer_ >= enemy.lostSightSearchMaxFrames_) {
+                // 記憶した場所への到着か時間切れを、この状態自身が判断する。
+                enemy.ChangeState(GetState<LookAroundState>());
+                // 従来どおり、到着したフレームから見回しを進める。
+                enemy.state_->Update(enemy, nextPosition);
+                return;
+            }
+        }
 
         // 見えていれば最新位置、見失っていれば最後に見た位置へ壁を回り込んで進む
         Vector3 direction = enemy.CalculateNavMeshChaseDirection(enemy.lastSeenPosition_);
@@ -265,9 +297,15 @@ public:
     }
 };
 
-class Enemy::GeneratorBehavior final : public Enemy::Behavior {
+class Enemy::GeneratorState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    // 同じ発電機の通知では入り直さず、決定した停止地点を維持する。
+    void Enter(Enemy& enemy) const override {
+        enemy.hasReachedGenerator_ = false;
+        enemy.ResetNavigation();
+    }
+    bool CanInvestigateGenerator() const override { return false; }
+    // 外周へ移動し、到着後は発電機を向いて待機する。
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
         // 発電機の中心へは入らず、外周の到着地点で停止する
         const float distance = std::sqrt(GetDistanceSqXZ(enemy.position_, enemy.generatorApproachPosition_));
@@ -301,9 +339,15 @@ public:
     }
 };
 
-class Enemy::LookAroundBehavior final : public Enemy::Behavior {
+class Enemy::LookAroundState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    // 捜索を始めた瞬間の向きと、見回す残り時間を保存する。
+    void Enter(Enemy& enemy) const override {
+        enemy.lostSightSearchTimer_ = 0;
+        enemy.lostSightLookTimer_ = enemy.lostSightLookDuration_;
+        enemy.lostSightLookStartYaw_ = enemy.rotation_.y;
+        enemy.ResetNavigation();
+    }
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
         // 記憶した場所へ到着したら、その場に止まって左右を見渡す
         enemy.lostSightLookTimer_--;
@@ -316,17 +360,19 @@ public:
         if (enemy.lostSightLookTimer_ == 0) {
             // 見回しが終わったら巡回ルートへ戻る
             enemy.waypointMover_.ResumePatrol();
-            enemy.isReturningToPatrol_ = true;
-            enemy.navMeshPath_.clear();
-            enemy.navMeshPathRefreshTimer_ = 0;
-            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+            enemy.ChangeState(GetState<ReturnToPatrolState>());
         }
     }
 };
 
-class Enemy::HearTurnBehavior final : public Enemy::Behavior {
+class Enemy::HearTurnState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    // 新しい銃声を聞くたびに、振り向く時間を最初から取り直す。
+    void Enter(Enemy& enemy) const override {
+        enemy.hearingTimer_ = enemy.hearingTurnFrames_;
+        enemy.hasReachedGenerator_ = false;
+    }
+    bool CanInvestigateGenerator() const override { return false; }
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
         // 音を聞いたときは移動を止めて、音のした方向へその場で振り向く
         enemy.hearingTimer_--;
@@ -356,18 +402,23 @@ public:
 
         // 振り向き終わったら、音のした位置まで調べに行く
         if (enemy.hearingTimer_ == 0) {
-            enemy.isInvestigatingSound_ = true;
-            enemy.soundSearchTimer_ = 0;
-            enemy.navMeshPath_.clear();
-            enemy.navMeshPathRefreshTimer_ = 0;
-            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+            enemy.ChangeState(GetState<InvestigateState>());
         }
     }
 };
 
-class Enemy::InvestigateBehavior final : public Enemy::Behavior {
+class Enemy::InvestigateState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    void Enter(Enemy& enemy) const override {
+        enemy.soundSearchTimer_ = 0;
+        enemy.ResetNavigation();
+    }
+    // 調査中の銃声は目的地だけを更新し、振り向き状態へは戻らない。
+    void OnHearSound(Enemy& enemy, const Vector3& soundPosition) const override {
+        enemy.heardSoundPosition_ = soundPosition;
+        enemy.soundSearchTimer_ = 0;
+    }
+    bool CanInvestigateGenerator() const override { return false; }
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
         // 銃声のした位置へ壁を回り込みながら近づく
         enemy.soundSearchTimer_++;
@@ -375,13 +426,7 @@ public:
 
         if (distance <= enemy.soundReachDistance_ || enemy.soundSearchTimer_ >= enemy.soundSearchMaxFrames_) {
             // 到着したら(または到達できなければ)、その場で左右を見渡してから巡回へ戻る
-            enemy.isInvestigatingSound_ = false;
-            enemy.soundSearchTimer_ = 0;
-            enemy.lostSightLookTimer_ = enemy.lostSightLookDuration_;
-            enemy.lostSightLookStartYaw_ = enemy.rotation_.y;
-            enemy.navMeshPath_.clear();
-            enemy.navMeshPathRefreshTimer_ = 0;
-            enemy.navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+            enemy.ChangeState(GetState<LookAroundState>());
         } else {
             const Vector3 direction = enemy.CalculateNavMeshChaseDirection(enemy.heardSoundPosition_);
             const float step = (std::min)(distance, enemy.moveSpeed_);
@@ -394,11 +439,12 @@ public:
     }
 };
 
-class Enemy::PatrolBehavior final : public Enemy::Behavior {
+class Enemy::ReturnToPatrolState final : public Enemy::State {
 public:
-    // 行動中の移動と遷移要求だけを担当し、共通の床・壁処理は呼び出し側へ戻す。
+    // 見回し終了地点から巡回地点へ戻るため、経路を作り直す。
+    void Enter(Enemy& enemy) const override { enemy.ResetNavigation(); }
     void Update(Enemy& enemy, Vector3& nextPosition) const override {
-        if (enemy.isReturningToPatrol_ && enemy.waypointMover_.HasWaypoints()) {
+        if (enemy.waypointMover_.HasWaypoints()) {
             // 追跡終了後の戻りだけはNavMeshで移動して、壁へ直線で突っ込まないようにする
             const Vector3 patrolTarget = enemy.waypointMover_.GetCurrentWaypointPosition();
             Vector3 toPatrolTarget = {
@@ -413,9 +459,9 @@ public:
 
             if (patrolDistanceSq <= reachDistance * reachDistance) {
                 // ほぼ戻れたら現在位置のまま通常巡回へ戻す
-                enemy.isReturningToPatrol_ = false;
                 enemy.waypointMover_.SetPosition(nextPosition);
                 enemy.waypointMover_.SetRotation(enemy.rotation_);
+                enemy.ChangeState(GetState<PatrolState>());
             } else {
                 Vector3 direction = enemy.CalculateNavMeshChaseDirection(patrolTarget);
                 if (direction.x != 0.0f || direction.z != 0.0f) {
@@ -428,30 +474,68 @@ public:
                 }
             }
         } else {
-            // 追跡していないときは巡回を更新する
-            enemy.waypointMover_.Update();
-
-            // 巡回更新後の位置と回転を反映する
-            nextPosition = enemy.waypointMover_.GetPosition();
-            enemy.rotation_ = enemy.waypointMover_.GetRotation();
+            // 巡回地点がない敵は、その場の通常巡回へ戻す。
+            enemy.ChangeState(GetState<PatrolState>());
+            enemy.state_->Update(enemy, nextPosition);
         }
     }
 };
 
-const Enemy::Behavior& Enemy::SelectBehavior() const {
-    // 既存の優先順位を一か所に固定し、行動本体は基底型から呼び出す。
-    static const ChaseBehavior chase;
-    static const GeneratorBehavior generator;
-    static const LookAroundBehavior look;
-    static const HearTurnBehavior hear;
-    static const InvestigateBehavior investigate;
-    static const PatrolBehavior patrol;
-    if (isChasing_) { return chase; }
-    if (isInvestigatingGenerator_) { return generator; }
-    if (lostSightLookTimer_ > 0) { return look; }
-    if (hearingTimer_ > 0) { return hear; }
-    if (isInvestigatingSound_) { return investigate; }
-    return patrol;
+class Enemy::PatrolState final : public Enemy::State {
+public:
+    // 通常の巡回を進め、計算した位置と向きを共通の衝突処理へ渡す。
+    void Update(Enemy& enemy, Vector3& nextPosition) const override {
+        enemy.waypointMover_.Update();
+        nextPosition = enemy.waypointMover_.GetPosition();
+        enemy.rotation_ = enemy.waypointMover_.GetRotation();
+    }
+};
+
+template<class T>
+const Enemy::State& Enemy::GetState() {
+    // 状態そのものは不変なので全敵で共有し、遷移のたびに確保しない。
+    static const T state;
+    return state;
+}
+
+template<class T>
+bool Enemy::IsInState() const {
+    return state_ == &GetState<T>();
+}
+
+Enemy::Enemy() : state_(&GetState<PatrolState>()) {}
+
+void Enemy::ChangeState(const State& nextState) {
+    // 共有状態は破棄せず、参照先を替えて開始処理を一度実行する。
+    state_ = &nextState;
+    state_->Enter(*this);
+}
+
+void Enemy::ResetNavigation() {
+    // 目的地が切り替わった際に、古い経路や補間方向を引き継がない。
+    navMeshPath_.clear();
+    navMeshPathRefreshTimer_ = 0;
+    navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
+}
+
+void Enemy::State::OnTargetSeen(Enemy& enemy, bool wasInSight) const {
+    // どの行動中でも、プレイヤーを見つけたら追跡を最優先する。
+    enemy.ChangeState(GetState<ChaseState>());
+    enemy.state_->OnTargetSeen(enemy, wasInSight);
+}
+
+void Enemy::State::OnHearSound(Enemy& enemy, const Vector3& soundPosition) const {
+    // 巡回・見回し・発電機の調査を中断し、まず銃声の方向へ振り向く。
+    enemy.heardSoundPosition_ = soundPosition;
+    enemy.ChangeState(GetState<HearTurnState>());
+}
+
+void Enemy::State::OnHearGenerator(Enemy& enemy, const Vector3& center, const Vector3& size,
+    const std::vector<Vector3>& reservedPositions) const {
+    // 状態の優先順位と目的地の確保が両方成立した場合だけ、発電機へ向かう。
+    if (CanInvestigateGenerator() && enemy.TryFindGeneratorDestination(center, size, reservedPositions)) {
+        enemy.ChangeState(GetState<GeneratorState>());
+    }
 }
 
 void Enemy::Update()
@@ -487,50 +571,14 @@ void Enemy::Update()
     isTargetInSight_ = CheckTargetInSight();
 
     if (isTargetInSight_) {
-        // 音を調べている途中でもプレイヤーを見つけたら追跡を優先する
-        isInvestigatingGenerator_ = false;
-        hasReachedGenerator_ = false;
-        // 発見・再発見時は、捜索や巡回へ戻るための経路を破棄する
-        if (!isChasing_ || !wasTargetInSight) {
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        }
-
-        // 見えている間だけ記憶を更新し、どの状態からでも追跡へ戻る
-        lastSeenPosition_ = targetPosition_;
-        isChasing_ = true;
-        isReturningToPatrol_ = false;
-        lostSightSearchTimer_ = 0;
-        lostSightLookTimer_ = 0;
-        hearingTimer_ = 0;
-        isInvestigatingSound_ = false;
-    } else if (isChasing_) {
-        // 見失ったら現在位置は追わず、記憶した位置への経路を作り直す
-        if (wasTargetInSight) {
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        }
-        lostSightSearchTimer_++;
-
-        // 記憶した場所へ到着したら捜索する。到達できない場合も時間で切り替える
-        const float distanceSq = GetDistanceSqXZ(position_, lastSeenPosition_);
-        if (distanceSq <= lastSeenReachDistance_ * lastSeenReachDistance_ ||
-            lostSightSearchTimer_ >= lostSightSearchMaxFrames_) {
-            isChasing_ = false;
-            lostSightSearchTimer_ = 0;
-            lostSightLookTimer_ = lostSightLookDuration_;
-            lostSightLookStartYaw_ = rotation_.y;
-            hearingTimer_ = 0;
-            navMeshPath_.clear();
-            navMeshPathRefreshTimer_ = 0;
-            navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        }
+        // 視認の結果だけを通知し、追跡へ移る判断は状態クラスへ任せる。
+        state_->OnTargetSeen(*this, wasTargetInSight);
+    } else if (wasTargetInSight) {
+        state_->OnTargetLost(*this);
     }
 
-    // 現在の行動を仮想関数で更新し、その後に共通の衝突補正を行う。
-    SelectBehavior().Update(*this, nextPosition);
+    // 現在の状態を保持したまま仮想関数で更新し、床と壁の補正は共通で行う。
+    state_->Update(*this, nextPosition);
 
     // 床コライダーで高さを補正する
     ResolveGroundHeight(nextPosition);
@@ -595,35 +643,31 @@ void Enemy::OnHearSound(const Vector3& soundPosition)
         return;
     }
 
-    // 追跡中はすでにプレイヤーを狙っているので音には反応しない
-    if (isChasing_) {
-        return;
-    }
-
-    // 音の位置を記録する。調べに向かっている途中なら、目的地だけ新しい銃声の位置へ更新する
-    heardSoundPosition_ = soundPosition;
-    if (isInvestigatingSound_) {
-        soundSearchTimer_ = 0;
-    } else {
-        // まずその場で音の方向へ振り向き、その後に音の位置まで移動する
-        hearingTimer_ = hearingTurnFrames_;
-    }
-    // 見回し中や巡回へ戻る途中でも、新しい銃声を優先する
-    lostSightLookTimer_ = 0;
-    isReturningToPatrol_ = false;
-    // 銃声を優先し、調べ終わった後に発電機の音を再評価する
-    isInvestigatingGenerator_ = false;
-    hasReachedGenerator_ = false;
+    // 通知だけを渡し、無視・振り向き・目的地の更新は現在の状態が選ぶ。
+    state_->OnHearSound(*this, soundPosition);
 }
 
 void Enemy::OnHearGenerator(const Vector3& center, const Vector3& size,
     const std::vector<Vector3>& reservedPositions)
 {
-    // 視認・追跡・銃声への警戒を優先し、同じ音で到着状態を上書きしない
-    if (isDead_ || isPassive_ || isChasing_ || isTargetInSight_ || hearingTimer_ > 0 || isInvestigatingSound_ ||
-        isInvestigatingGenerator_ || generatorApproachRetryTimer_ > 0) {
+    // 死亡・練習中・視認中・再検索待ちの通知は受け付けない。
+    if (isDead_ || isPassive_ || isTargetInSight_ || generatorApproachRetryTimer_ > 0) {
         return;
     }
+    // 行動の優先順位と発電機への遷移は、現在の状態側で判断する。
+    state_->OnHearGenerator(*this, center, size, reservedPositions);
+}
+
+bool Enemy::GetGeneratorDestination(Vector3& destination) const {
+    // 行動フラグを重複して持たず、現在の状態から予約中の停止地点を判断する。
+    if (isDead_ || !IsInState<GeneratorState>()) { return false; }
+    destination = generatorApproachPosition_;
+    return true;
+}
+
+bool Enemy::TryFindGeneratorDestination(const Vector3& center, const Vector3& size,
+    const std::vector<Vector3>& reservedPositions)
+{
 
     // 敵の半径に1.25の余白を足した地点を、現在位置から近い順に調べる
     auto candidates = GetGeneratorApproachPoints(center, size, colliderRadius_ + 1.25f, position_.y);
@@ -660,17 +704,11 @@ void Enemy::OnHearGenerator(const Vector3& center, const Vector3& size,
 
         generatorSoundPosition_ = center;
         generatorApproachPosition_ = candidate;
-        isInvestigatingGenerator_ = true;
-        hasReachedGenerator_ = false;
-        lostSightLookTimer_ = 0;
-        isReturningToPatrol_ = false;
-        navMeshPath_.clear();
-        navMeshPathRefreshTimer_ = 0;
-        navMeshSmoothedDirection_ = { 0.0f, 0.0f, 0.0f };
-        return;
+        return true;
     }
     // ドアが開くなど周辺状況が変わる可能性があるため、後で再検索する
     generatorApproachRetryTimer_ = 60;
+    return false;
 }
 
 SphereCollider Enemy::GetCollider() const
@@ -1616,7 +1654,7 @@ void Enemy::AppendVisionDebugLines(DebugLine3D& debugLine) const
     };
 
     // 追跡中だけ緑、それ以外は黄色にする
-    Vector4 edgeColor = isChasing_
+    Vector4 edgeColor = IsInState<ChaseState>()
         ? Vector4{ 0.1f, 0.8f, 0.1f, 1.0f }
         : Vector4{ 0.9f, 0.5f, 0.1f, 1.0f };
 

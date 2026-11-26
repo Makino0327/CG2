@@ -20,6 +20,86 @@ namespace {
     constexpr int kFadeDuration = 30;
 }
 
+// クリアとゲームオーバーの表示内容に関係なく、同じ進行状態を利用する。
+class ResultScene::State {
+public:
+    virtual ~State() = default;
+    virtual void Update(ResultScene& owner) const = 0;
+    virtual bool CanSelect() const { return false; }
+    virtual bool IsLeaving() const { return false; }
+    virtual void OnReady(ResultScene&) const {}
+    virtual void OnConfirm(ResultScene&) const {}
+    bool UpdateAutoConfirm(ResultScene& owner) const {
+        if (!owner.demoMode_ || owner.frame_ < owner.demoConfirmFrame_) { return false; }
+        owner.selectedButton_ = 0;
+        owner.transitionTimer_ = 0;
+        owner.ChangeState(GetState<LeavingState>());
+        // 自動決定は通常の入力処理より前なので、このフレームから暗転を進める。
+        owner.state_->Update(owner);
+        return true;
+    }
+};
+
+class ResultScene::PresentingState final : public ResultScene::State {
+public:
+    void OnReady(ResultScene& owner) const override {
+        if (owner.IsMenuReady()) { owner.ChangeState(GetState<MenuState>()); }
+    }
+    void Update(ResultScene& owner) const override {
+        if (UpdateAutoConfirm(owner)) { return; }
+        owner.UpdateContent();
+        OnReady(owner);
+        owner.UpdateMenu();
+    }
+};
+
+class ResultScene::MenuState final : public ResultScene::State {
+public:
+    bool CanSelect() const override { return true; }
+    void OnConfirm(ResultScene& owner) const override {
+        owner.transitionTimer_ = 0;
+        owner.ChangeState(GetState<LeavingState>());
+    }
+    void Update(ResultScene& owner) const override {
+        if (UpdateAutoConfirm(owner)) { return; }
+        owner.UpdateContent();
+        owner.UpdateMenu();
+    }
+};
+
+class ResultScene::LeavingState final : public ResultScene::State {
+public:
+    bool IsLeaving() const override { return true; }
+    void Update(ResultScene& owner) const override {
+        owner.UpdateContent();
+        ++owner.transitionTimer_;
+        owner.UpdateMenu();
+        if (owner.transitionTimer_ != kFadeDuration) { return; }
+        // 遷移要求は暗転が終わった状態自身が一度だけ出す。
+        if (owner.demoMode_) { owner.demoRestartReady_ = true; }
+        else if (owner.buttonActions_[owner.selectedButton_] == Action::Restart) {
+            owner.GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
+        } else { owner.GetSceneManager()->SetNextScene(std::make_unique<TitleScene>()); }
+        owner.ChangeState(GetState<FinishedState>());
+    }
+};
+
+class ResultScene::FinishedState final : public ResultScene::State {
+public:
+    bool IsLeaving() const override { return true; }
+    void Update(ResultScene& owner) const override {
+        // 次シーンの読み込み待ちでは背景を保ち、遷移を再要求しない。
+        owner.UpdateContent();
+        ++owner.transitionTimer_;
+        owner.UpdateMenu();
+    }
+};
+
+template<class T>
+const ResultScene::State& ResultScene::GetState() { static const T state; return state; }
+ResultScene::ResultScene() : state_(&GetState<PresentingState>()) {}
+void ResultScene::ChangeState(const State& state) { state_ = &state; }
+bool ResultScene::IsLeaving() const { return state_->IsLeaving(); }
 ResultScene::~ResultScene() = default;
 
 void ResultScene::ConfigureMenu(const MenuLayout& layout, std::initializer_list<Action> actions, int demoConfirmFrame) {
@@ -73,7 +153,7 @@ void ResultScene::Initialize() {
     initialized_ = true;
     assert(GetContext().input && GetContext().dxCommon);
     frame_ = transitionTimer_ = selectedButton_ = 0;
-    isLeaving_ = false;
+    ChangeState(GetState<PresentingState>());
     demoRestartReady_ = false; // 周回前の再開通知を持ち越さない。
 
     if (GetContext().isDebugMode) { *GetContext().isDebugMode = false; }
@@ -96,6 +176,7 @@ void ResultScene::Initialize() {
 
     CreateContent();
     UpdateContent();
+    state_->OnReady(*this);
     UpdateMenu();
 }
 
@@ -113,7 +194,7 @@ void ResultScene::UpdateMenu() {
     }
     // クリアはランク発表、ゲームオーバーはメニューの表示完了を待つ。
     const bool menuReady = IsMenuReady();
-    if (!demoMode_ && !isLeaving_ && menuReady) {
+    if (!demoMode_ && state_->CanSelect() && menuReady) {
         if (hovered >= 0 && (delta.x != 0.0f || delta.y != 0.0f)) { selectedButton_ = hovered; }
         if (GetContext().input->TriggerKey(DIK_UP) || GetContext().input->TriggerKey(DIK_W)) {
             selectedButton_ = (selectedButton_ + buttonCount - 1) % buttonCount;
@@ -124,8 +205,7 @@ void ResultScene::UpdateMenu() {
         const bool clicked = hovered >= 0 && GetContext().input->TriggerMouseLeft();
         if (clicked) { selectedButton_ = hovered; }
         if (clicked || GetContext().input->TriggerKey(DIK_RETURN) || GetContext().input->TriggerKey(DIK_SPACE)) {
-            isLeaving_ = true;
-            transitionTimer_ = 0;
+            state_->OnConfirm(*this);
         }
     }
 
@@ -135,28 +215,7 @@ void ResultScene::UpdateMenu() {
 
 void ResultScene::Update() {
     ++frame_;
-    // デモでは決定を自動で行い、暗転が終わってから次の周回に戻す。
-    if (demoMode_ && !isLeaving_ && frame_ >= demoConfirmFrame_) {
-        selectedButton_ = 0;
-        isLeaving_ = true;
-        transitionTimer_ = 0;
-    }
-    // フェードやメニューの操作中も、背景の筋と煙を別々に動かし続ける。
-    UpdateContent();
-    if (isLeaving_) { ++transitionTimer_; }
-    UpdateMenu();
-    // 暗転が完了した瞬間に一度だけ予約し、読み込み中のシーンを作り直さない
-    if (isLeaving_ && transitionTimer_ == kFadeDuration) {
-        if (demoMode_) {
-            demoRestartReady_ = true;
-            return;
-        }
-        if (buttonActions_[selectedButton_] == Action::Restart) {
-            GetSceneManager()->SetNextScene(std::make_unique<GamePlayScene>());
-        } else {
-            GetSceneManager()->SetNextScene(std::make_unique<TitleScene>());
-        }
-    }
+    state_->Update(*this);
 }
 
 void ResultScene::Draw() {

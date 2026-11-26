@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #define NOMINMAX
 #include <vector>
 #include <string>
@@ -50,6 +50,8 @@ class SkyboxCommon;
 class GamePlayScene : public BaseScene
 {
 public:
+    // 本編の進行状態を保持し、準備完了後に最初の状態へ切り替える。
+    GamePlayScene();
     void Initialize() override;
     void BeginInitialize() override;
     bool ContinueInitialize() override;
@@ -79,6 +81,28 @@ public:
     void DrawImGui() override;
 
 private:
+    // 場面の進行を表す識別子。実行は対応する状態クラスの仮想関数へ渡す。
+    enum class Flow { Briefing, Intro, Playing, Paused, Death, TutorialDeath, BossDefeat, Clear, DemoResult };
+    class FlowState;
+    class InteractiveFlow;
+    class BriefingFlow;
+    class IntroFlow;
+    class PlayingFlow;
+    class PausedFlow;
+    class DeathFlow;
+    class TutorialDeathFlow;
+    class BossDefeatFlow;
+    class ClearFlow;
+    class DemoResultFlow;
+    static const FlowState& GetFlowState(Flow flow);
+    void ChangeFlow(Flow flow);
+    void BeginMissionFlow();
+    void BeginDemoResultFlow();
+    void BeginPlayerDeath(bool updateImmediately);
+    void UpdatePlaying();
+    const FlowState* flowState_ = nullptr;
+    const InteractiveFlow* resumeFlow_ = nullptr; // ポーズ前の進行状態へ戻すために保持する。
+
     // 読み込み中のデータと仕事は本編自身が所有し、完成まで表示しない。
     struct PreparedLevel {
         LevelData level;
@@ -112,7 +136,16 @@ private:
     std::array<std::unique_ptr<Sprite>, 3> pauseRows_;
     std::array<std::unique_ptr<Sprite>, 3> pauseMarkers_;
     enum class BriefingTransition { Opening, Open, Closing };
-    BriefingTransition briefingTransition_ = BriefingTransition::Opening;
+    // 操作ガイドも、開く・入力待ち・閉じる状態へ分ける。
+    class BriefingState;
+    class BriefingOpeningState;
+    class BriefingOpenState;
+    class BriefingClosingState;
+    static const BriefingState& GetBriefingState(BriefingTransition transition);
+    void ChangeBriefingState(BriefingTransition transition);
+    BriefingTransition GetBriefingTransition() const;
+    bool UpdateBriefingConfirm(bool beforeMission);
+    const BriefingState* briefingState_ = &GetBriefingState(BriefingTransition::Opening);
     int briefingTransitionFrame_ = 0;
     bool briefingBeforeMission_ = false;
     bool briefingInputReady_ = false; // ガイドを開いた入力を、次の画面の決定に使わない。
@@ -241,6 +274,15 @@ private:
         int target = 0; // 目標の数。0なら数を出さない
         bool done = false;
     };
+    // 課題ごとの判定・操作の記録・目印の表示を、現在の課題状態へ委譲する。
+    class TutorialStepState;
+    class WalkTutorialStep;
+    template<int Step> class DefeatTutorialStep;
+    class AmmoTutorialStep;
+    class GeneratorTutorialStep;
+    class PortalTutorialStep;
+    static const TutorialStepState& GetTutorialStepState(int step);
+    const TutorialStepState* tutorialStepState_ = &GetTutorialStepState(1);
     int GetTutorialChecks(std::array<TutorialCheck, 2>& checks) const;
     void InitializeTutorialUi();
     void DrawTutorialUi();

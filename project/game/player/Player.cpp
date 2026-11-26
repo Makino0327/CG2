@@ -234,6 +234,59 @@ void Player::StartReload() { GetSelectedGun().StartReload(); }
 
 void Player::UpdateReload() { GetSelectedGun().UpdateReload(); }
 
+// 移動と射撃の共通処理を保ち、入力に応じた状態の切り替えは各状態へ任せる。
+class Player::State {
+public:
+    virtual ~State() = default;
+    virtual void Update(Player& owner, Camera* camera) const = 0;
+    virtual bool IsDead() const { return false; }
+    virtual bool IsAiming() const { return false; }
+    virtual void OnAim(Player&, bool) const {}
+    virtual void OnDeath(Player& owner) const { owner.ChangeState(GetState<DeadState>()); }
+    virtual void OnRespawn(Player& owner) const { owner.ChangeState(GetState<NormalState>()); }
+};
+
+class Player::AliveState : public Player::State {
+public:
+    void Update(Player& owner, Camera* camera) const override {
+        OnAim(owner, owner.input_->PushMouseRight());
+        owner.UpdateLiving(camera, owner.state_->IsAiming());
+    }
+};
+
+class Player::NormalState final : public Player::AliveState {
+public:
+    void OnAim(Player& owner, bool aiming) const override {
+        if (aiming) { owner.ChangeState(GetState<AimingState>()); }
+    }
+};
+
+class Player::AimingState final : public Player::AliveState {
+public:
+    bool IsAiming() const override { return true; }
+    void OnAim(Player& owner, bool aiming) const override {
+        if (!aiming) { owner.ChangeState(GetState<NormalState>()); }
+    }
+};
+
+class Player::DeadState final : public Player::State {
+public:
+    bool IsDead() const override { return true; }
+    void Update(Player& owner, Camera*) const override {
+        // 死亡後も倒れる動作と、既に生成した弾や演出だけを進める。
+        owner.object_->Update();
+        owner.UpdateBullets();
+        owner.UpdateGrenades();
+        owner.UpdateCasings();
+        owner.UpdateBloodPool();
+    }
+};
+
+template<class T>
+const Player::State& Player::GetState() { static const T state; return state; }
+Player::Player() : state_(&GetState<NormalState>()) {}
+void Player::ChangeState(const State& state) { state_ = &state; }
+bool Player::IsDead() const { return state_->IsDead(); }
 void Player::Update(Camera* camera)
 {
     if (!object_ || !input_) {
@@ -250,17 +303,12 @@ void Player::Update(Camera* camera)
         --muzzleLightFrames_;
     }
 
-    // 死亡後も倒れる動作を進め、姿を消さずにその場へ残す。
-    if (isDead_) {
-        object_->Update();
-        UpdateBullets();
-        UpdateGrenades();
-        UpdateCasings();
-        UpdateBloodPool();
-        return;
-    }
+    // 現在の状態の仮想関数で、通常操作または死亡後の更新を実行する。
+    state_->Update(*this, camera);
+}
 
-
+void Player::UpdateLiving(Camera* camera, bool isAimingGun)
+{
     // 被弾後は壁と床を確認して吹き飛ばし、勢いを徐々に弱める。
     const float knockbackSpeedSq = knockbackVelocity_.x * knockbackVelocity_.x +
         knockbackVelocity_.z * knockbackVelocity_.z;
@@ -272,7 +320,6 @@ void Player::Update(Camera* camera)
         knockbackVelocity_ = {};
     }
 
-    const bool isAimingGun = input_->PushMouseRight();
     const float currentMoveSpeed = isAimingGun ? aimingMoveSpeed_ : moveSpeed_; // 構え中はゆっくり歩く
 
     Vector3 pos = object_->GetTranslate();
@@ -298,18 +345,6 @@ void Player::Update(Camera* camera)
     if (input_->PushKey(DIK_S)) {
         pos.z -= currentMoveSpeed;
     }
-
-    //// 左方向の壁判定を行う
-    //ResolveLeftCollisionWithMap(pos);
-
-    //// 右方向の壁判定を行う
-    //ResolveRightCollisionWithMap(pos);
-
-    //// 前方向の壁判定を行う
-    //ResolveTopCollisionWithMap(pos);
-
-    //// 後方向の壁判定を行う
-    //ResolveBottomCollisionWithMap(pos);
 
     // Blender JSON の床コライダーを使って地面の高さを合わせる
     ResolveGroundHeight(pos);
@@ -394,7 +429,7 @@ void Player::Update(Camera* camera)
 void Player::UpdateDemo(Camera* camera, const Vector3& movement, const Vector3* aimTarget, bool shoot)
 {
     if (!object_) { return; }
-    if (isDead_) { Update(camera); return; }
+    if (IsDead()) { Update(camera); return; }
     firedThisFrame_ = false;
     if (muzzleLightFrames_ > 0) { --muzzleLightFrames_; }
     prevPos_ = GetWorldPosition();
@@ -447,7 +482,7 @@ void Player::Draw()
     }
 
     // 無敵中は赤く点滅させる
-    if (!isDead_ && invincibleTimer_ > 0) {
+    if (!IsDead() && invincibleTimer_ > 0) {
         // 一定フレームごとに表示色を切り替える
         if ((invincibleTimer_ / blinkInterval_) % 2 == 0) {
             object_->SetColor({ 1.0f, 0.2f, 0.2f, 1.0f });
@@ -497,7 +532,7 @@ void Player::MoveWithCollision(const Vector3& movement)
 bool Player::OnHit(const Vector3& attackerPosition)
 {
     // 無敵中の接触では、ダメージと被弾演出を繰り返さない。
-    if (!object_ || isDead_ || invincibleTimer_ > 0) { return false; }
+    if (!object_ || IsDead() || invincibleTimer_ > 0) { return false; }
 
     const Vector3 position = GetWorldPosition();
     Vector3 direction{ position.x - attackerPosition.x, 0.0f, position.z - attackerPosition.z };
@@ -533,9 +568,9 @@ bool Player::OnHit(const Vector3& attackerPosition)
 
 void Player::Die()
 {
-    if (!object_ || isDead_) { return; }
+    if (!object_ || IsDead()) { return; }
     hp_ = 0;
-    isDead_ = true;
+    state_->OnDeath(*this);
     GetSelectedGun().CancelReload();
     invincibleTimer_ = 0;
     muzzleLightFrames_ = 0;
@@ -1144,7 +1179,7 @@ bool Player::FireShotgun(Camera* camera, const ScatterShot& pattern)
 
 float Player::GetMuzzleLightIntensity() const
 {
-    if (isDead_) {
+    if (IsDead()) {
         return 0.0f;
     }
     // 点灯プレビューでは寿命を無視し、銃口から光が当たる位置を確認する。
@@ -1720,7 +1755,7 @@ void Player::Respawn()
     hp_ = maxHp_;
 
     // 死亡状態を解除する
-    isDead_ = false;
+    state_->OnRespawn(*this);
 
     // 被弾状態を解除する
     isHit_ = false;

@@ -116,6 +116,7 @@ void GamePlayScene::ConfigureTutorialEnemy(Enemy& enemy, const std::string& name
 void GamePlayScene::ResetTutorial(const std::vector<LevelObjectData>& allObjects)
 {
     tutorial_.Reset();
+    tutorialStepState_ = &GetTutorialStepState(1);
     tutorialFiredWeapons_ = 0;
     tutorialDeathFrames_ = 0;
     tutorialLeaving_ = false;
@@ -186,48 +187,128 @@ int GamePlayScene::CountTutorialEnemies(int step, bool aliveOnly) const
         }));
 }
 
-int GamePlayScene::GetTutorialChecks(std::array<TutorialCheck, 2>& checks) const
-{
-    const int step = tutorial_.GetStep();
-    // 倒した数 = 最初の数 - 生きている数
-    auto defeated = [this](int enemyStep, int label) {
-        const int total = CountTutorialEnemies(enemyStep, false);
-        const int value = total - CountTutorialEnemies(enemyStep, true);
-        return TutorialCheck{ label, value, total, total > 0 && value >= total };
-    };
+// 課題の切り替えは現在の課題状態が判断し、達成表示の時間はTutorialFlowへ任せる。
+class GamePlayScene::TutorialStepState {
+public:
+    explicit TutorialStepState(int step) : step_(step) {}
+    virtual ~TutorialStepState() = default;
+    virtual int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const = 0;
+    virtual void RecordActions(GamePlayScene&) const {}
+    virtual void EmitMarkers(GamePlayScene&) const {}
+    virtual void Update(GamePlayScene& owner) const {
+        if (owner.tutorial_.GetStep() != step_) {
+            // クリア表示が終わった通知を受け、次の課題の状態へ一度だけ切り替える。
+            owner.tutorialStepState_ = &GetTutorialStepState(owner.tutorial_.GetStep());
+            owner.tutorialStepState_->Update(owner);
+            return;
+        }
+        RecordActions(owner);
+        if (owner.tutorial_.IsAcceptingProgress() && step_ < TutorialFlow::kStepCount) {
+            std::array<TutorialCheck, 2> checks{};
+            const int count = GetChecks(owner, checks);
+            if (std::all_of(checks.begin(), checks.begin() + count,
+                [](const TutorialCheck& check) { return check.done; })) { owner.tutorial_.CompleteStep(); }
+        }
+        EmitMarkers(owner);
+    }
+private:
+    int step_; // 課題の識別にだけ使い、判定内容は派生クラスが担当する。
+};
 
-    switch (step) {
-    case 1: {
-        const Vector3 position = player_->GetWorldPosition();
-        const float dx = position.x - tutorialGoal_.x;
-        const float dz = position.z - tutorialGoal_.z;
+class GamePlayScene::WalkTutorialStep final : public GamePlayScene::TutorialStepState {
+public:
+    WalkTutorialStep() : TutorialStepState(1) {}
+    int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const override {
+        const Vector3 position = owner.player_->GetWorldPosition();
+        const float dx = position.x - owner.tutorialGoal_.x;
+        const float dz = position.z - owner.tutorialGoal_.z;
         checks[0] = { kCheckWalk, 0, 0, dx * dx + dz * dz <= kGoalRadius * kGoalRadius };
         return 1;
     }
-    case 2: checks[0] = defeated(2, kCheckDefeat); return 1;
-    case 3: {
-        const size_t remaining = static_cast<size_t>(std::count_if(ammoDrops_.begin(), ammoDrops_.end(),
+    void EmitMarkers(GamePlayScene& owner) const override {
+        if (!owner.tutorial_.IsStepCleared(1)) {
+            owner.EmitTutorialMarker(owner.tutorialGoal_, 1.4f, { 0.3f, 1.0f, 0.45f, 0.85f });
+        }
+    }
+};
+
+// 敵を倒す課題は同じ判定を共有し、対象となる課題番号だけを型で指定する。
+template<int Step>
+class GamePlayScene::DefeatTutorialStep final : public GamePlayScene::TutorialStepState {
+public:
+    DefeatTutorialStep() : TutorialStepState(Step) {}
+    int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const override {
+        const int total = owner.CountTutorialEnemies(Step, false);
+        const int value = total - owner.CountTutorialEnemies(Step, true);
+        checks[0] = { kCheckDefeat, value, total, total > 0 && value >= total };
+        return 1;
+    }
+};
+
+class GamePlayScene::AmmoTutorialStep final : public GamePlayScene::TutorialStepState {
+public:
+    AmmoTutorialStep() : TutorialStepState(3) {}
+    int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const override {
+        const size_t remaining = static_cast<size_t>(std::count_if(owner.ammoDrops_.begin(), owner.ammoDrops_.end(),
             [](const AmmoDrop& drop) { return drop.tutorial; }));
-        const int picked = static_cast<int>(tutorialAmmoTotal_ - std::min(remaining, tutorialAmmoTotal_));
-        const int total = static_cast<int>(tutorialAmmoTotal_);
+        const int picked = static_cast<int>(owner.tutorialAmmoTotal_ - std::min(remaining, owner.tutorialAmmoTotal_));
+        const int total = static_cast<int>(owner.tutorialAmmoTotal_);
         checks[0] = { kCheckPickup, picked, total, picked >= total };
-        const int guns = std::popcount(tutorialFiredWeapons_);
+        const int guns = std::popcount(owner.tutorialFiredWeapons_);
         checks[1] = { kCheckGuns, guns, 3, guns >= 3 };
         return 2;
     }
-    case 4: checks[0] = defeated(4, kCheckDefeat); return 1;
-    case 5: checks[0] = defeated(5, kCheckDefeat); return 1;
-    case 6: {
-        const bool active = std::any_of(generators_.begin(), generators_.end(), [](const GeneratorData& generator) {
+    void RecordActions(GamePlayScene& owner) const override {
+        if (!owner.player_->HasFiredThisFrame()) { return; }
+        // 銃の種類は状態ではなく識別データなので、対応するビットだけを記録する。
+        constexpr std::array<uint32_t, 4> weaponBits{ 1u, 2u, 4u, 0u };
+        owner.tutorialFiredWeapons_ |= weaponBits.at(static_cast<size_t>(owner.player_->GetAttackMode()));
+    }
+};
+
+class GamePlayScene::GeneratorTutorialStep final : public GamePlayScene::TutorialStepState {
+public:
+    GeneratorTutorialStep() : TutorialStepState(6) {}
+    int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const override {
+        const bool active = std::any_of(owner.generators_.begin(), owner.generators_.end(), [](const GeneratorData& generator) {
             return generator.activation.GetState() == GeneratorActivation::State::Active;
         });
         checks[0] = { kCheckGenerator, 0, 0, active };
         return 1;
     }
-    default:
-        checks[0] = { kCheckPortal, 0, 0, tutorial_.IsFinished() };
+    void EmitMarkers(GamePlayScene& owner) const override {
+        for (const auto& generator : owner.generators_) {
+            if (generator.activation.GetState() != GeneratorActivation::State::Idle) { continue; }
+            Vector3 center = generator.collider.center;
+            center.y -= generator.collider.size.y * 0.5f;
+            owner.EmitTutorialMarker(center, 2.8f, { 0.3f, 1.0f, 0.45f, 0.8f });
+        }
+    }
+};
+
+class GamePlayScene::PortalTutorialStep final : public GamePlayScene::TutorialStepState {
+public:
+    PortalTutorialStep() : TutorialStepState(7) {}
+    int GetChecks(const GamePlayScene& owner, std::array<TutorialCheck, 2>& checks) const override {
+        checks[0] = { kCheckPortal, 0, 0, owner.tutorial_.IsFinished() };
         return 1;
     }
+};
+
+const GamePlayScene::TutorialStepState& GamePlayScene::GetTutorialStepState(int step) {
+    static const WalkTutorialStep walk;
+    static const DefeatTutorialStep<2> knife;
+    static const AmmoTutorialStep ammo;
+    static const DefeatTutorialStep<4> shooting;
+    static const DefeatTutorialStep<5> grenade;
+    static const GeneratorTutorialStep generator;
+    static const PortalTutorialStep portal;
+    const std::array<const TutorialStepState*, 7> states{ &walk, &knife, &ammo, &shooting, &grenade, &generator, &portal };
+    return *states.at(static_cast<size_t>(std::clamp(step, 1, TutorialFlow::kStepCount) - 1));
+}
+
+int GamePlayScene::GetTutorialChecks(std::array<TutorialCheck, 2>& checks) const {
+    return tutorialStepState_->GetChecks(*this, checks);
 }
 
 void GamePlayScene::UpdateTutorial()
@@ -242,37 +323,8 @@ void GamePlayScene::UpdateTutorial()
         return;
     }
 
-    const int step = tutorial_.GetStep();
-    // 弾薬の課題では、撃った銃の種類を覚えておく
-    if (step == 3 && player_->HasFiredThisFrame()) {
-        switch (player_->GetAttackMode()) {
-        case Player::AttackMode::Gun: tutorialFiredWeapons_ |= 1u; break;
-        case Player::AttackMode::AssaultRifle: tutorialFiredWeapons_ |= 2u; break;
-        case Player::AttackMode::Shotgun: tutorialFiredWeapons_ |= 4u; break;
-        default: break;
-        }
-    }
-
-    if (tutorial_.IsAcceptingProgress() && step < TutorialFlow::kStepCount) {
-        std::array<TutorialCheck, 2> checks{};
-        const int count = GetTutorialChecks(checks);
-        const bool allDone = std::all_of(checks.begin(), checks.begin() + count,
-            [](const TutorialCheck& check) { return check.done; });
-        if (allDone) { tutorial_.CompleteStep(); }
-    }
-
-    // 向かう場所を光で示す。最初の課題は到着地点、発電機の課題は起動前の発電機
-    if (step == 1 && !tutorial_.IsStepCleared(1)) {
-        EmitTutorialMarker(tutorialGoal_, 1.4f, { 0.3f, 1.0f, 0.45f, 0.85f });
-    }
-    if (step == 6) {
-        for (const auto& generator : generators_) {
-            if (generator.activation.GetState() != GeneratorActivation::State::Idle) { continue; }
-            Vector3 center = generator.collider.center;
-            center.y -= generator.collider.size.y * 0.5f;
-            EmitTutorialMarker(center, 2.8f, { 0.3f, 1.0f, 0.45f, 0.8f });
-        }
-    }
+    // 現在の課題状態が、達成判定と次の課題への遷移を担当する。
+    tutorialStepState_->Update(*this);
 }
 
 void GamePlayScene::UpdateTutorialDeath()
